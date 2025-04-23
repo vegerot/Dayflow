@@ -8,10 +8,15 @@
 import SwiftUI
 
 struct ContentView: View {
+    // The single source of truth for timeline data and state
+    @StateObject private var viewModel = TimelineViewModel(subjects: PreviewData.subjects)
+
     var body: some View {
-        DraggableTimelineView()   // ← swap in the timeline
+        // Replace the old NavigationSplitView with the new TimelineContainerView
+        TimelineContainerView(viewModel: viewModel)
     }
 }
+
 #Preview {
     ContentView()
 }
