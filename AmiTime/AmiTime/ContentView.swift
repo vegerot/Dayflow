@@ -141,7 +141,7 @@ struct SyncableScroll<Content: View>: NSViewRepresentable {
                 let clip    = scroll.contentView.bounds.size
 
                 var newX = dragAnchor.x - delta.x
-                var newY = dragAnchor.y - delta.y   
+                var newY = dragAnchor.y - delta.y
 
                 // clamp inside content
                 newX = max(0, min(newX, doc.width  - clip.width))
@@ -211,7 +211,7 @@ struct ContentView: View {
                         .frame(height: headerH)
                 }
                 .disabled(true)   // follower only
-            }
+            }.background(Color.white) 
             Divider()
             
             // ── Sidebar + canvas ────────────────────────────────────────────
