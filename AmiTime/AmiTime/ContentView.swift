@@ -5,50 +5,58 @@
 import SwiftUI
 import AppKit
 
-// MARK: – Demo data -------------------------------------------------------------
+// MARK: – Data -----------------------------------------------------------------
 
 struct Subject: Identifiable {
     let id = UUID()
     var title: String
-    var rows: Int
+    var subs: [String]             // sub-subjects
     var isExpanded: Bool = true
+    var rows: Int { subs.count }   // drives canvas height
 }
 
 let demo: [Subject] = [
-    .init(title: "Computer Science", rows: 1),
-    .init(title: "Geography",        rows: 1),
-    .init(title: "Mathematics",      rows: 4),
-    .init(title: "Biology",          rows: 2),
-    .init(title: "Computer Science", rows: 3),
-    .init(title: "Geography",        rows: 1),
-    .init(title: "Mathematics",      rows: 4),
-    .init(title: "Biology",          rows: 2),
+    .init(title: "Computer Science",
+          subs: ["Research & Brainstorming", "First Draft", "Presentation Creation"]),
+    .init(title: "Geography",   subs: ["Maps"]),
+    .init(title: "Mathematics", subs: ["Algebra", "Calc HW", "Video", "Review"]),
+    .init(title: "Biology",     subs: ["Lab prep", "Reading"]),
 ]
 
-// MARK: – Constants -------------------------------------------------------------
+// MARK: – Helpers --------------------------------------------------------------
+
+extension Color {
+    init(hex: UInt, alpha: Double = 1) {
+        self.init(.sRGB,
+                  red:   Double((hex >> 16) & 0xFF) / 255,
+                  green: Double((hex >>  8) & 0xFF) / 255,
+                  blue:  Double( hex        & 0xFF) / 255,
+                  opacity: alpha)
+    }
+}
 
 private let sidebarW:  CGFloat = 240
 private let headerH:   CGFloat = 36
 private let rowH:      CGFloat = 40
-private let pxPerMin:  CGFloat = 10            // 1 min = 10 px
-private let startMin            = 16 * 60      // start at 16:00
-private let endMin              = 24 * 60      // midnight
-private let scrollerH = NSScroller.scrollerWidth(for: .regular,
-                                                 scrollerStyle: .legacy) // ≈15 px
+private let pxPerMin:  CGFloat = 10
+private let startMin            = 16 * 60
+private let endMin              = 24 * 60
+private let scrollerH           = NSScroller.scrollerWidth(for: .regular,
+                                                           scrollerStyle: .legacy)
 
 private func timeString(_ total: Int) -> String {
     let h = total / 60, m = total % 60
     return String(format: "%d:%02d", h == 24 ? 0 : h, m)
 }
 
-// MARK: – Scroll link model -----------------------------------------------------
+// MARK: – Scroll-sync model ----------------------------------------------------
 
 final class ScrollSync: ObservableObject {
     @Published var x: CGFloat = .zero
     @Published var y: CGFloat = .zero
 }
 
-// MARK: – NSScrollView wrapper --------------------------------------------------
+// MARK: – NSScrollView wrapper (unchanged) -------------------------------------
 
 struct SyncableScroll<Content: View>: NSViewRepresentable {
     enum Axis { case x, y, both }
@@ -75,7 +83,6 @@ struct SyncableScroll<Content: View>: NSViewRepresentable {
         scroll.scrollerStyle         = .overlay
         scroll.autohidesScrollers    = true
 
-        // host SwiftUI
         let host = context.coordinator.host
         scroll.documentView = host
         host.translatesAutoresizingMaskIntoConstraints = false
@@ -84,14 +91,12 @@ struct SyncableScroll<Content: View>: NSViewRepresentable {
         host.widthAnchor  .constraint(greaterThanOrEqualTo: scroll.contentView.widthAnchor).isActive = true
         host.heightAnchor .constraint(greaterThanOrEqualTo: scroll.contentView.heightAnchor).isActive = true
 
-        // always-visible horizontal bar for master
         if role == .master && (axis == .x || axis == .both) {
             scroll.hasHorizontalScroller = true
             scroll.autohidesScrollers    = false
             scroll.scrollerStyle         = .legacy
         }
 
-        // observe bounds
         scroll.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(
             context.coordinator,
@@ -99,13 +104,12 @@ struct SyncableScroll<Content: View>: NSViewRepresentable {
             name: NSView.boundsDidChangeNotification,
             object: scroll.contentView)
 
-        // click-and-drag support (but ignore scrollbar knob)
         if role == .master {
             let pan = NSPanGestureRecognizer(
                 target: context.coordinator,
                 action: #selector(Coord.handlePan(_:)))
             pan.buttonMask = 0x1
-            scroll.contentView.addGestureRecognizer(pan)     //  ← changed line
+            scroll.contentView.addGestureRecognizer(pan)
         }
         return scroll
     }
@@ -134,7 +138,7 @@ struct SyncableScroll<Content: View>: NSViewRepresentable {
         @objc func handlePan(_ g: NSPanGestureRecognizer) {
             guard role == .master, let clip = g.view as? NSClipView else { return }
             switch g.state {
-            case .began:   dragAnchor = clip.bounds.origin
+            case .began: dragAnchor = clip.bounds.origin
             case .changed:
                 let delta = g.translation(in: clip)
                 let doc   = clip.documentView?.frame.size ?? .zero
@@ -176,25 +180,34 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // header
+
+            // header (draws its own bottom hair-line)
             HStack(spacing: 0) {
                 Text("SUBJECTS")
                     .padding(.leading, 12)
                     .font(.caption.weight(.semibold))
                     .frame(width: sidebarW, height: headerH, alignment: .leading)
                     .overlay(alignment: .trailing) { Divider() }
+
                 SyncableScroll(.x, role: .follower, sync: link) {
                     TimeTicks().frame(height: headerH)
                 }.disabled(true)
-            }.background(Color.white)
-            Divider()
+            }
+            .background(Color.white)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.25))
+                    .frame(height: 1)
+            }
+
             // sidebar + canvas
             HStack(spacing: 0) {
                 SyncableScroll(.y, role: .follower, sync: link) {
                     Sidebar(subjects: $subjects)
                         .frame(width: sidebarW, alignment: .leading)
                 }
-                .overlay(alignment: .trailing) { Divider() }   // ← vertical divider
+                .overlay(alignment: .trailing) { Divider() }
+
                 SyncableScroll(.both, role: .master, sync: link) {
                     Canvas(subjects: subjects)
                 }
@@ -204,19 +217,17 @@ struct ContentView: View {
     }
 }
 
-// MARK: – Timeline scale (labels + ticks) --------------------------------------
+// MARK: – Time-ticks ------------------------------------------------------------
 
 struct TimeTicks: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
-            // labels
             HStack(spacing: 0) {
                 ForEach(Array(stride(from: startMin, through: endMin, by: 30)), id: \.self) { m in
                     Text(timeString(m))
                         .frame(width: 30 * pxPerMin, alignment: .leading)
                 }
             }
-            // tick marks
             Path { p in
                 for m in stride(from: startMin, through: endMin, by: 10) {
                     let x = CGFloat(m - startMin) * pxPerMin
@@ -234,30 +245,53 @@ struct TimeTicks: View {
 
 struct Sidebar: View {
     @Binding var subjects: [Subject]
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(subjects.indices, id: \.self) { i in
                 let s = subjects[i]
-                HStack(spacing: 4) {
-                    Image(systemName: s.isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                    Text(s.title)
-                        .font(.system(size: 14, weight: .semibold))
+
+                // container for one subject ---------------------------------
+                VStack(alignment: .leading, spacing: 0) {
+
+                    // parent row
+                    HStack(spacing: 4) {
+                        Image(systemName: s.isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(s.title)
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                    .frame(height: rowH)
+                    .padding(.horizontal, 12)
+                    .contentShape(Rectangle())
+                    .onTapGesture { subjects[i].isExpanded.toggle() }
+
+                    // child rows (no internal dividers)
+                    if s.isExpanded {
+                        // show every real sub-subject
+                                                ForEach(Array(s.subs.enumerated()), id: \.offset) { (j, name) in
+                                                    Text("    \(name)")
+                                                        .foregroundColor(.secondary)
+                                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                                        .padding(.horizontal, 16)
+                                                        .frame(height: rowH)
+                                                }
+                    }
                 }
-                .frame(height: rowH)
-                .padding(.horizontal, 12)
-                .contentShape(Rectangle())
-                .onTapGesture { subjects[i].isExpanded.toggle() }
-                Color.clear
-                    .frame(height: CGFloat(s.isExpanded ? s.rows : 0) * rowH)
-                Divider()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // single bottom divider that matches canvas
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.25))
+                        .frame(height: 1)
+                }
             }
-            Color.clear.frame(height: scrollerH)
+            Color.clear.frame(height: scrollerH)      // footer pad
         }
     }
 }
 
-// MARK: – Canvas & cards --------------------------------------------------------
+// MARK: – Canvas & cards (unchanged) -------------------------------------------
 
 struct Canvas: View {
     let subjects: [Subject]
@@ -265,7 +299,11 @@ struct Canvas: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(subjects) { s in
                 SubjectLane(subj: s)
-                Divider()
+                    .overlay(alignment: .bottom) {
+                                            Rectangle()
+                                                .fill(Color.secondary.opacity(0.25))
+                                                .frame(height: 1)
+                                        }
             }
         }
         .background(Color.white)
@@ -275,15 +313,20 @@ struct Canvas: View {
 struct TimelineCard: View {
     let idx: Int
     @State private var hover = false
+
     var body: some View {
-        // DEMO geometry – replace with real data later
-        let start = startMin + 20 + idx * 20          // minutes since midnight
+        let start = startMin + 20 + idx * 20
         let end   = start + 15 + idx * 10
-        let w     = CGFloat(end - start) * pxPerMin   // pxPerMin keeps alignment
+        let w     = CGFloat(end - start) * pxPerMin
         let x     = CGFloat(start - startMin) * pxPerMin
 
-        RoundedRectangle(cornerRadius: 4)
-            .fill(Color.accentColor.opacity(0.35 + Double(idx) * 0.1))
+        RoundedRectangle(cornerRadius: 8)
+            .fill(Color.white)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color(hex: 0xD9D9D9), lineWidth: 2)
+            )
+            .shadow(radius: 1, y: 1)
             .frame(width: w, height: rowH - 8)
             .offset(x: x, y: CGFloat(idx) * rowH + 4)
             .overlay(
@@ -302,16 +345,16 @@ struct TimelineCard: View {
 struct SubjectLane: View {
     let subj: Subject
     var body: some View {
-        let rows = subj.isExpanded ? subj.rows : 0
+        let rows = subj.isExpanded ? subj.rows : 1
         ZStack(alignment: .topLeading) {
-            Color.clear.frame(height: rowH)          // title spacer
+            Color.clear.frame(height: rowH)
             ForEach(0..<rows, id: \.self) { idx in
                 TimelineCard(idx: idx)
             }
         }
         .frame(
             width: CGFloat(endMin - startMin) * pxPerMin,
-            height: CGFloat(rows + 1) * rowH,
+            height: subj.isExpanded ? CGFloat(rows + 1) * rowH : rowH,
             alignment: .topLeading)
         .contentShape(Rectangle())
     }
