@@ -34,6 +34,14 @@ let demo: [Subject] = [
     .init(title: "Biology",
           subs: ["Lab prep",
                  "Reading"]),
+    .init(title: "Mathematics",
+          subs: ["Algebra",
+                 "Calc HW",
+                 "Video",
+                 "Review"]),
+    .init(title: "Biology",
+          subs: ["Lab prep",
+                 "Reading"]),
 ]
 
 // MARK: – Zoom model -----------------------------------------------------------
@@ -291,36 +299,41 @@ struct TimeScale: View {
         ZStack(alignment: .topLeading) {
             // ── base hour ticks ───────────────────────────────
             HStack(spacing: 0) {
-                ForEach(Array(stride(from: startMin,
-                                     through: endMin,
-                                     by: 60)), id: \.self) { t in
-                    Text(timeString(t))
-                        .font(.caption2)
-                        .frame(width: 60 * pxPerMin, alignment: .leading)
-                }
-            }
+                        ForEach(Array(stride(from: startMin,
+                                             through: endMin,
+                                             by: 60)), id: \.self) { t in
+                            ZStack {
+                                // 1) pin the tick to the **leading** edge, at the bottom
+                                Rectangle()
+                                    .fill(Color.secondary.opacity(0.5))
+                                    .frame(width: 1, height: 4)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             
+                                // 2) center the label *over* that tick by shifting it left ½ cell
+                                Text(timeString(t))
+                                    .font(.caption2)
+                                    .offset(x: -0.5 * 60 * pxPerMin)
+                            }
+                            .frame(width: 60 * pxPerMin)
+                        }
+                    }
             // ── cursor vertical line & live-time pill ─────────
             if let x = hoverX {
-                // hair-line (same tint as canvas)
-                Rectangle()
-                    .fill(Color.secondary.opacity(0.5))
-                    .frame(width: 0.5, height: .infinity)
-                    .offset(x: x)
-                
-                // pill label
-                let lblMin = startMin + minutes(at: x, pxPerMin: pxPerMin)
-                Text(timeString(lblMin))
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(appBG)
-                            .shadow(radius: 1)
-                    )
-                    .offset(x: x - 40)   // tweak so it’s centred over the line
-            }
+                        let lblMin = startMin + minutes(at: x, pxPerMin: pxPerMin)
+                        Text(timeString(lblMin))
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(appBG)
+                                    .shadow(radius: 1)
+                            )
+                            // center the pill exactly on the hairline (x)
+                            // and vertically in the middle of the header (headerH/2)
+                            .position(x: x, y: headerH / 2)
+                            .allowsHitTesting(false)
+                    }
         }.background(appBG)
     }
 }
