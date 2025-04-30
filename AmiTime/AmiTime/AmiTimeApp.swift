@@ -9,9 +9,13 @@ import SwiftUI
 
 @main
 struct AmiTimeApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
+    @AppStorage("didOnboard") private var didOnboard = false
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            if didOnboard { ContentView() }
+            else          { OnboardingFlow() }
         }
     }
 }
