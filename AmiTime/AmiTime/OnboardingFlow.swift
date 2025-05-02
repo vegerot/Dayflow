@@ -33,7 +33,9 @@ struct OnboardingFlow: View {
                         "We can automatically launch AmiTime each time you log in.")
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .toggleStyle(.switch)
-                    .onChange(of: launchAtLogin) { setLogin($0) }
+                    .onChange(of: launchAtLogin) { _, newValue in // <-- Use this signature
+                            setLogin(newValue) // Pass the newValue to your function
+                        }
             case .done:
                 Heading("All set!",
                         "You can now close this window; AmiTime will keep running in the menu-bar.")
