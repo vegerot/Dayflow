@@ -462,7 +462,7 @@ struct SubjectLane: View {
             Color.clear.frame(height: rowH)
             ForEach(0..<(rows + 1), id: \.self) { idx in
                 let label = idx == 0 ? subj.title : subj.subs[idx - 1]
-                TimelineCard(idx: idx,
+                TimelineCardView(idx: idx,
                              pxPerMin: pxPerMin,
                              label: label)
             }
@@ -473,7 +473,7 @@ struct SubjectLane: View {
     }
 }
 
-struct TimelineCard: View {
+struct TimelineCardView: View {
     let idx: Int
     let pxPerMin: CGFloat
     let label: String

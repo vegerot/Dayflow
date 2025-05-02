@@ -29,8 +29,8 @@ final class GeminiAnalysisManager: AnalysisManaging {
     // MARK: - Properties
     private let store: any StorageManaging
     private let geminiService: any GeminiServicing
-    private let checkInterval: TimeInterval = 15 * 60 // Check every 15 minutes
-    private let targetBatchDuration: TimeInterval = 30 * 60 // ~30 minute batches
+    private let checkInterval: TimeInterval = 60 // Check every 15 minutes
+    private let targetBatchDuration: TimeInterval = 5 * 60 // ~30 minute batches
     private let maxLookback: TimeInterval = 24 * 60 * 60 // Last 24 hours
     private var analysisTimer: Timer?
     private var isProcessing = false

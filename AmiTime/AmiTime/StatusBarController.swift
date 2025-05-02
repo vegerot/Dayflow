@@ -36,6 +36,10 @@ final class StatusBarController {
         open.target = self               // ← add this line
         m.addItem(open)
 
+        let debug = NSMenuItem(title: "Batch Viewer…", action: #selector(openBatchViewer), keyEquivalent: "b")
+        debug.target = self
+        m.addItem(debug)
+        
         m.addItem(NSMenuItem.separator())
 
         // Quit
@@ -47,6 +51,21 @@ final class StatusBarController {
 
         return m
     }()
+    
+
+@objc private func openBatchViewer() {
+    let window = NSWindow(
+        contentRect: .init(x: 0, y: 0, width: 800, height: 450),
+        styleMask: [.titled, .closable, .resizable],
+        backing: .buffered,
+        defer: false
+    )
+    window.title = "AmiTime – Batch Viewer"
+    window.contentView = NSHostingView(rootView: BatchDebugView())
+    window.center()
+    window.makeKeyAndOrderFront(nil)
+}
+
     
     @objc private func openFolder() {
         let dir = StorageManager.shared.recordingsRoot
