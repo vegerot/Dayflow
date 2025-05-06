@@ -30,13 +30,13 @@ final class GeminiAnalysisManager: AnalysisManaging {
     private let store: any StorageManaging
     private let geminiService: any GeminiServicing
     private let checkInterval: TimeInterval = 60 // Check every 15 minutes
-    private let targetBatchDuration: TimeInterval = 5 * 60 // ~30 minute batches
+    private let targetBatchDuration: TimeInterval = 15 * 60 // ~15 minute batches
     private let maxLookback: TimeInterval = 24 * 60 * 60 // Last 24 hours
     private var analysisTimer: Timer?
     private var isProcessing = false
     
     // Queue for background processing
-    private let queue = DispatchQueue(label: "com.amitine.geminianalysis.queue", qos: .utility)
+    private let queue = DispatchQueue(label: "com.amitime.geminianalysis.queue", qos: .utility)
     
     // MARK: - Initialization
     private init() {

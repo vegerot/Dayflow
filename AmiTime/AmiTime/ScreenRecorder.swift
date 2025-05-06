@@ -65,45 +65,84 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private var fileURL: URL?
     private var sub    : AnyCancellable?
     private var frames : Int = 0
+    private var isStarting = false            // guards concurrent starts
+    private var resumeAfterSleep = false      // remember intent across sleep
+    private var resumeAfterLock = false
 
     // MARK: public control ----------------------------------------------
     func start() {
         q.async { [weak self] in
-            guard let self, self.stream == nil else { return dbg("start – already running") }
+            guard let self else { return }
+            guard self.stream == nil,       // not already running
+                  self.isStarting == false  // not already starting
+            else { return dbg("start – already starting/running") }
+
+            self.isStarting = true          // ←–––– set once
             Task { await self.makeStream() }
         }
     }
 
     func stop() {
         q.async { [weak self] in
-            self?.finishSegment(restart: false)
-            self?.stopStream()
+            guard let self else { return }
+            self.isStarting = false         // ←–––– clear **immediately**
+            
+            self.finishSegment(restart: false)
+            self.stopStream()               // (stopStream also calls reset())
         }
     }
 
+    private func shouldRetry(_ err: Error) -> Bool {
+        let scErr = err as NSError
+        return scErr.domain == SCStreamErrorDomain               // "com.apple.ScreenCaptureKit.SCStreamErrorDomain"
+            && scErr.code == -3807                                // kSCStreamErrorNoDisplayOrWindow
+    }
+    
     // MARK: stream setup -------------------------------------------------
-    private func makeStream() async {
+    private func makeStream(attempt: Int = 1, maxAttempts: Int = 4) async {
         do {
-            let content = try await SCShareableContent.excludingDesktopWindows(false,
-                                                                               onScreenWindowsOnly: true)
-            guard let display = content.displays.first else { return dbg("no display") }
+            // 1. find a display
+            let content = try await SCShareableContent
+                .excludingDesktopWindows(false, onScreenWindowsOnly: true)
 
+            guard let display = content.displays.first else {
+                throw RecorderError.noDisplay          // ← uses the new case
+            }
+
+            // 2. filter
             let filter = SCContentFilter(display: display,
                                          excludingApplications: [],
                                          exceptingWindows: [])
 
-            let cfg              = SCStreamConfiguration()
-            cfg.width            = C.width
-            cfg.height           = C.height
-            cfg.capturesAudio    = false
-            cfg.pixelFormat      = kCVPixelFormatType_32BGRA
-            cfg.minimumFrameInterval = CMTime(value: 1, timescale: C.fps) // 1 fps
+            // 3. configuration  ←–––– THIS IS THE cfg THAT MUST EXIST
+            let cfg                 = SCStreamConfiguration()
+            cfg.width               = C.width
+            cfg.height              = C.height
+            cfg.capturesAudio       = false
+            cfg.pixelFormat         = kCVPixelFormatType_32BGRA
+            cfg.minimumFrameInterval = CMTime(value: 1,
+                                              timescale: C.fps)   // 1 fps
 
+            // 4. kick‑off
             try await startStream(filter: filter, config: cfg)
-        } catch {
-            dbg("stream setup failed – \(error.localizedDescription)")
+        }
+        catch {
+            dbg("makeStream failed [attempt \(attempt)] – \(error.localizedDescription)")
+
+            // ALWAYS clear the flag on failure
+            q.async { self.isStarting = false }
+
+            // transient “no display” → retry
+            if attempt < maxAttempts, shouldRetry(error) {
+                let delay = Double(attempt)             // 1 s, 2 s, 3 s …
+                dbg("retrying in \(delay)s")
+                q.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.start()                       // sets isStarting again
+                }
+            }
         }
     }
+
 
     @MainActor
     private func startStream(filter: SCContentFilter, config: SCStreamConfiguration) async throws {
@@ -116,6 +155,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 
     private func stopStream() {
         if let s = stream { try? s.stopCapture() }
+        stream = nil
         reset(); dbg("stream stopped")
     }
 
@@ -148,8 +188,34 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     private func finishSegment(restart: Bool = true) {
-        timer?.cancel(); timer = nil
-        guard let w = writer, let inp = input, let url = fileURL else { return reset() }
+        // 1. stop the timer that would have closed the file
+        timer?.cancel()
+        timer = nil
+
+        // 2. make sure we even have something to finish
+        guard let w = writer, let inp = input, let url = fileURL else {
+            return reset()
+        }
+
+        // ── EARLY EXIT ────────────────────────────────────────────────────
+        // If *no* sample was ever appended, calling `markAsFinished()` is
+        // illegal and crashes.  Instead: cancel the writer and flag the file
+        // as failed / empty.
+        guard frames > 0 else {
+            w.cancelWriting()
+            StorageManager.shared.markChunkFailed(url: url)      // or “skipped”
+            return reset()
+        }
+        // ─────────────────────────────────────────────────────────────────
+
+        // 3. only close a writer that is actually in `.writing`
+        guard w.status == .writing else {
+            w.cancelWriting()
+            StorageManager.shared.markChunkFailed(url: url)
+            return reset()
+        }
+
+        // 4. normal shutdown path
         inp.markAsFinished()
         w.finishWriting { [weak self] in
             if w.status == .completed {
@@ -158,9 +224,12 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 StorageManager.shared.markChunkFailed(url: url)
             }
             self?.reset()
-            if restart && AppState.shared.isRecording { self?.beginSegment() }
+            if restart && AppState.shared.isRecording {
+                self?.beginSegment()
+            }
         }
     }
+
 
     private func reset() {
         timer = nil; writer = nil; input = nil; firstPTS = nil; fileURL = nil; frames = 0
@@ -191,16 +260,40 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 
     private func registerForSleepWake() {
         let nc = NSWorkspace.shared.notificationCenter
-        nc.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: nil) { [weak self] _ in
-            dbg("willSleep – pausing"); self?.stop()
+
+        // -------- system will sleep ----------
+        nc.addObserver(forName: NSWorkspace.willSleepNotification,
+                       object: nil, queue: nil) { [weak self] _ in
+            guard let self else { return }
+            dbg("willSleep – pausing")
+
+            // remember whether we should resume afterwards
+            resumeAfterSleep = AppState.shared.isRecording
+            stop()
         }
-        nc.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: nil) { [weak self] _ in
-            dbg("didWake – checking flag"); if AppState.shared.isRecording { self?.start() }
+
+        // -------- system did wake ------------
+        nc.addObserver(forName: NSWorkspace.didWakeNotification,
+                       object: nil, queue: nil) { [weak self] _ in
+            guard let self else { return }
+            dbg("didWake – checking flag")
+
+            guard resumeAfterSleep else { return }
+            resumeAfterSleep = false      // consume the token
+
+            // give ScreenCaptureKit a moment to re‑enumerate displays
+            q.asyncAfter(deadline: .now() + 5) { [weak self] in
+                self?.start()
+            }
         }
+        
+        
     }
 
+
     // MARK: helpers ------------------------------------------------------
-    private enum RecorderError: Error { case badInput }
+    private enum RecorderError: Error { case badInput
+        case noDisplay }
 
     /// Accept only fully‑assembled frames (complete & not dropped).
     private func isComplete(_ sb: CMSampleBuffer) -> Bool {
