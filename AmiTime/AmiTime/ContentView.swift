@@ -199,7 +199,10 @@ struct SyncableScroll<Content: View>: NSViewRepresentable {
                 isProgrammatic = true
                 clip.bounds.origin = CGPoint(x: newX, y: newY)
                 isProgrammatic = false
-                sync.x = newX; sync.y = newY
+                DispatchQueue.main.async {
+                    self.sync.x = newX
+                    self.sync.y = newY
+                }
             default: break
             }
         }
@@ -208,9 +211,15 @@ struct SyncableScroll<Content: View>: NSViewRepresentable {
             guard let clip = n.object as? NSClipView else { return }
             if isProgrammatic { return }
             if role == .master {
-                if clip.bounds.origin.x != sync.x { sync.x = clip.bounds.origin.x }
-                if clip.bounds.origin.y != sync.y { sync.y = clip.bounds.origin.y }
-            } else {
+                    let newX = clip.bounds.origin.x
+                    let newY = clip.bounds.origin.y
+
+                    DispatchQueue.main.async { [weak self] in
+                        guard let sync = self?.sync else { return }
+                        if newX != sync.x { sync.x = newX }
+                        if newY != sync.y { sync.y = newY }
+                    }
+                } else {
                 if clip.bounds.origin.x != sync.x || clip.bounds.origin.y != sync.y {
                     isProgrammatic = true
                     clip.bounds.origin = CGPoint(x: sync.x, y: sync.y)

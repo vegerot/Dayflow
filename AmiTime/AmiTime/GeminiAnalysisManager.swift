@@ -192,59 +192,33 @@ final class GeminiAnalysisManager: AnalysisManaging {
         return store.fetchUnprocessedChunks(olderThan: oldestTime)
     }
     
-    /// Groups chunks into ~30 minute batches
     private func createBatches(from chunks: [RecordingChunk]) -> [AnalysisBatch] {
-        guard !chunks.isEmpty else { return [] }
-        
-        var batches = [AnalysisBatch]()
-        var currentBatchChunks = [RecordingChunk]()
-        var currentBatchDuration: TimeInterval = 0
-        
-        // Process chunks in chronological order
-        for chunk in chunks.sorted(by: { $0.startTs < $1.startTs }) {
-            // If adding this chunk would exceed our target duration, create a new batch
-            if currentBatchDuration + chunk.duration > targetBatchDuration && !currentBatchChunks.isEmpty {
-                // Finalize the current batch
-                let firstChunk = currentBatchChunks.first!
-                let lastChunk = currentBatchChunks.last!
-                
-                let batch = AnalysisBatch(
-                    chunks: currentBatchChunks,
-                    startTs: firstChunk.startTs,
-                    endTs: lastChunk.endTs
+        let ordered = chunks.sorted { $0.startTs < $1.startTs }
+        var batches: [AnalysisBatch] = []
+
+        var current: [RecordingChunk] = []
+        var currentDur: TimeInterval = 0
+
+        for ch in ordered {
+            current.append(ch)
+            currentDur += ch.duration
+
+            if currentDur >= targetBatchDuration {
+                batches.append(
+                    AnalysisBatch(chunks: current,
+                                  startTs: current.first!.startTs,
+                                  endTs:   current.last!.endTs)
                 )
-                batches.append(batch)
-                
-                // Start a new batch
-                currentBatchChunks = [chunk]
-                currentBatchDuration = chunk.duration
-            } else {
-                // Add to the current batch
-                currentBatchChunks.append(chunk)
-                currentBatchDuration += chunk.duration
+                current = []
+                currentDur = 0
             }
         }
-        
-        // Don't forget the last batch if it's not empty
-        if !currentBatchChunks.isEmpty {
-            let firstChunk = currentBatchChunks.first!
-            let lastChunk = currentBatchChunks.last!
-            
-            let batch = AnalysisBatch(
-                chunks: currentBatchChunks,
-                startTs: firstChunk.startTs,
-                endTs: lastChunk.endTs
-            )
-            batches.append(batch)
-        }
-        
-        print("GeminiAnalysisManager: Created \(batches.count) batches from \(chunks.count) chunks")
-        for (i, batch) in batches.enumerated() {
-            print("  Batch \(i+1): \(batch.chunks.count) chunks, \(Int(batch.duration)/60) minutes duration")
-        }
-        
+
         return batches
     }
+
+
+
     
     /// Saves a batch to the database and marks its chunks as being processed
     /// Returns the batch ID if successful, or nil if it fails
