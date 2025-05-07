@@ -233,6 +233,7 @@ struct SyncableScroll<Content: View>: NSViewRepresentable {
 // MARK: – Root view -------------------------------------------------------------
 
 struct ContentView: View {
+    @EnvironmentObject var appState: AppState
     @StateObject private var link = ScrollSync()
     @State private var subjects = demo
     @State private var zoom: Zoom = .h4
@@ -249,8 +250,18 @@ struct ContentView: View {
                     Picker("", selection: $zoom) {
                         ForEach(Zoom.allCases) { z in Text(z.label) }
                     }
-                    .pickerStyle(.segmented)
-                    .frame(width: 180)
+                    .frame(width: 70)
+                    .padding(.trailing, 20)
+
+                    Picker("View", selection: $appState.currentView) {
+                        ForEach(CurrentView.allCases) { viewCase in
+                            Text(viewCase.rawValue).tag(viewCase)
+                        }
+                    }
+                    .pickerStyle(SegmentedPickerStyle())
+                    .frame(width: 200)
+
+                    Spacer()
                 }
                 .padding(.leading, 12)
                 .font(.caption.weight(.semibold))
@@ -286,6 +297,17 @@ struct ContentView: View {
                     Canvas(subjects: subjects,
                            pxPerMin: pxPerMin,
                            hoverX: $hoverX)
+                }
+            }
+
+            HSplitView {
+                leftPane
+                    .frame(minWidth: sidebarW, idealWidth: sidebarW, maxWidth: sidebarW)
+                
+                if appState.currentView == .timeline {
+                    rightPane(pxPerMin)
+                } else {
+                    DebugViewPlaceholder()
                 }
             }
         }
@@ -525,9 +547,27 @@ struct TimelineCardView: View {
     }
 }
 
+// Placeholder for the new Debug View
+struct DebugViewPlaceholder: View {
+    var body: some View {
+        VStack {
+            Text("Debug View")
+                .font(.largeTitle)
+                .padding()
+            Text("This view is currently under construction.")
+                .font(.title2)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
 // MARK: – Preview --------------------------------------------------------------
 
-#Preview {
-    ContentView()
-        .frame(width: 1000, height: 650)
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView()
+            .environmentObject(AppState.shared)
+    }
 }

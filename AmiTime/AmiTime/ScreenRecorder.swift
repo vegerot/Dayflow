@@ -67,7 +67,6 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private var frames : Int = 0
     private var isStarting = false            // guards concurrent starts
     private var resumeAfterSleep = false      // remember intent across sleep
-    private var resumeAfterLock = false
 
     // MARK: public control ----------------------------------------------
     func start() {
@@ -164,6 +163,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         guard writer == nil else { finishSegment(); return }
         let url = StorageManager.shared.nextFileURL(); fileURL = url; frames = 0
 
+        StorageManager.shared.registerChunk(url: url)
         do {
             let w = try AVAssetWriter(outputURL: url, fileType: .mp4)
             let inp = AVAssetWriterInput(mediaType: .video,
@@ -286,8 +286,6 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 self?.start()
             }
         }
-        
-        
     }
 
 

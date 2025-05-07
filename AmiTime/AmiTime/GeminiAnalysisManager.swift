@@ -97,7 +97,6 @@ final class GeminiAnalysisManager: AnalysisManaging {
         
         // Step 1: Find unprocessed recording chunks from the last 24 hours
         let unprocessedChunks = fetchUnprocessedChunks()
-        
         // Step 2: Group chunks into ~30 minute batches
         let batches = createBatches(from: unprocessedChunks)
         
