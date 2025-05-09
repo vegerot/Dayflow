@@ -155,6 +155,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private func stopStream() {
         if let s = stream { try? s.stopCapture() }
         stream = nil
+        isStarting = false
         reset(); dbg("stream stopped")
     }
 
@@ -254,7 +255,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     // MARK: error & sleep / wake ----------------------------------------
     func stream(_ s: SCStream, didStopWithError err: Error) {
         dbg("stream error – \(err.localizedDescription)")
-        q.async { [weak self] in self?.finishSegment(restart: false); self?.stopStream() }
+        stop()
         if AppState.shared.isRecording { start() }
     }
 

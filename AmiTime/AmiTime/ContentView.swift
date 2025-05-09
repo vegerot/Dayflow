@@ -283,8 +283,9 @@ struct ContentView: View {
                 Rectangle().fill(Color.secondary.opacity(0.25)).frame(height: 0.5)
             }
 
-            // sidebar + canvas
-            HStack(spacing: 0) {
+            // sidebar + canvas (REPLACED with HSplitView for view switching)
+            HSplitView {
+                // Left Pane: Sidebar
                 SyncableScroll(.y, role: .follower, sync: link) {
                     Sidebar(subjects: $subjects)
                         .frame(width: sidebarW, alignment: .leading)
@@ -292,22 +293,17 @@ struct ContentView: View {
                 .overlay(alignment: .trailing) {
                     Rectangle().fill(Color.secondary.opacity(0.25)).frame(width: 0.5)
                 }
-
-                SyncableScroll(.both, role: .master, sync: link) {
-                    Canvas(subjects: subjects,
-                           pxPerMin: pxPerMin,
-                           hoverX: $hoverX)
-                }
-            }
-
-            HSplitView {
-                leftPane
-                    .frame(minWidth: sidebarW, idealWidth: sidebarW, maxWidth: sidebarW)
+                .frame(minWidth: sidebarW, idealWidth: sidebarW, maxWidth: sidebarW)
                 
+                // Right Pane: Conditional content (Timeline Canvas or Debug View)
                 if appState.currentView == .timeline {
-                    rightPane(pxPerMin)
+                    SyncableScroll(.both, role: .master, sync: link) {
+                        Canvas(subjects: subjects,
+                               pxPerMin: pxPerMin,
+                               hoverX: $hoverX)
+                    }
                 } else {
-                    DebugViewPlaceholder()
+                    BatchDebugView()
                 }
             }
         }
@@ -544,22 +540,6 @@ struct TimelineCardView: View {
                     .opacity(hover ? 1 : 0)
             )
             .onHover { hover = $0 }
-    }
-}
-
-// Placeholder for the new Debug View
-struct DebugViewPlaceholder: View {
-    var body: some View {
-        VStack {
-            Text("Debug View")
-                .font(.largeTitle)
-                .padding()
-            Text("This view is currently under construction.")
-                .font(.title2)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 

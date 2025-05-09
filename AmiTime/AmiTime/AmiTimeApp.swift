@@ -14,8 +14,13 @@ struct AmiTimeApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if didOnboard { ContentView() }
-            else          { OnboardingFlow() }
+            if didOnboard {
+                ContentView()
+                    .environmentObject(AppState.shared)
+            } else {
+                OnboardingFlow()
+                    .environmentObject(AppState.shared)
+            }
         }
     }
 }
