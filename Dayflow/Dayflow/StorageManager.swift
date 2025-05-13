@@ -1,6 +1,6 @@
 //
 //  StorageManager.swift
-//  AmiTime
+//  Dayflow
 //
 //  Created by Jerry Liu on 4/26/25.
 //  Revised 5/1/25 – remove @MainActor isolation so callers from background
@@ -11,6 +11,50 @@
 
 import Foundation
 import GRDB
+
+// Helper DateFormatter (can be static var in an extension or class)
+extension DateFormatter {
+    static let yyyyMMdd: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        // Using current time zone. Consider UTC if needed for absolute consistency.
+        formatter.timeZone = Calendar.current.timeZone
+        return formatter
+    }()
+
+    // Add ISO8601 formatter if needed for parsing Gemini strings elsewhere
+    // Example:
+    // static let iso8601Full: ISO8601DateFormatter = {
+    //     let formatter = ISO8601DateFormatter()
+    //     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    //     return formatter
+    // }()
+}
+
+// MARK: - Date Helper Extension
+extension Date {
+    /// Calculates the "day" based on a 4 AM start time.
+    /// Returns the date string (YYYY-MM-DD) and the Date objects for the start and end of that day.
+    func getDayInfoFor4AMBoundary() -> (dayString: String, startOfDay: Date, endOfDay: Date) {
+        let calendar = Calendar.current
+        guard let fourAMToday = calendar.date(bySettingHour: 4, minute: 0, second: 0, of: self) else {
+            print("Error: Could not calculate 4 AM for date \(self). Falling back to standard day.")
+            let start = calendar.startOfDay(for: self)
+            let end = calendar.date(byAdding: .day, value: 1, to: start)!
+            return (DateFormatter.yyyyMMdd.string(from: start), start, end)
+        }
+
+        let startOfDay: Date
+        if self < fourAMToday {
+            startOfDay = calendar.date(byAdding: .day, value: -1, to: fourAMToday)!
+        } else {
+            startOfDay = fourAMToday
+        }
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        let dayString = DateFormatter.yyyyMMdd.string(from: startOfDay)
+        return (dayString, startOfDay, endOfDay)
+    }
+}
 
 // MARK: - Protocol ------------------------------------------------------------
 
@@ -35,9 +79,36 @@ protocol StorageManaging: Sendable {
 
     // Timeline‑cards
     func saveTimelineCards(batchId: Int64, cards: [TimelineCard])
+    func deleteTimelineCards(forDay day: String)
 
     // Helper for GeminiService – map file paths → timestamps
     func getTimestampsForVideoFiles(paths: [String]) -> [String: (startTs: Int, endTs: Int)]
+
+    // Timeline Queries
+    func fetchTimelineCards(forDay day: String) -> [TimelineCard]
+}
+
+// MARK: - Data Structures -----------------------------------------------------
+
+// Re-add Distraction struct, as it's used by TimelineCard
+struct Distraction: Codable, Sendable {
+    let startTime: String
+    let endTime: String
+    let title: String
+    let summary: String
+}
+
+struct TimelineCard: Codable, Sendable, Identifiable {
+    let id = UUID()
+    let startTimestamp: String
+    let endTimestamp: String
+    let category: String
+    let subcategory: String
+    let title: String
+    let summary: String
+    let detailedSummary: String
+    let day: String
+    let distractions: [Distraction]?
 }
 
 // MARK: - Implementation ------------------------------------------------------
@@ -48,7 +119,7 @@ final class StorageManager: StorageManaging {
     private let db: DatabaseQueue
     private let fileMgr = FileManager.default
     private let root: URL
-    private let quota = 5 * 1024 * 1024 * 1024  // 5 GB
+    private let quota = 5 * 1024 * 1024 * 1024  // 5 GB
     var recordingsRoot: URL { root }
 
     private init() {
@@ -100,14 +171,18 @@ final class StorageManager: StorageManaging {
                 CREATE TABLE IF NOT EXISTS timeline_cards (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     batch_id   INTEGER REFERENCES analysis_batches(id) ON DELETE CASCADE,
-                    start_ts   INTEGER NOT NULL,
-                    end_ts     INTEGER NOT NULL,
+                    start   TEXT NOT NULL, -- Renamed from start_ts
+                    end     TEXT NOT NULL, -- Renamed from end_ts
+                    day        DATE    NOT NULL,
                     title      TEXT    NOT NULL,
-                    description TEXT,
+                    summary TEXT,
                     category    TEXT    NOT NULL,
-                    metadata    TEXT,
+                    subcategory TEXT,
+                    detailed_summary TEXT,
+                    metadata    TEXT, -- For distractions JSON
                     created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+                 CREATE INDEX IF NOT EXISTS idx_timeline_cards_day ON timeline_cards(day);
             """)
         }
     }
@@ -187,13 +262,34 @@ final class StorageManager: StorageManaging {
 
     func saveTimelineCards(batchId: Int64, cards: [TimelineCard]) {
         guard !cards.isEmpty else { return }
+        let encoder = JSONEncoder()
         try? db.write { db in
             for c in cards {
+                var metadataString: String? = nil
+                if let distractions = c.distractions, !distractions.isEmpty {
+                    if let jsonData = try? encoder.encode(distractions) {
+                        metadataString = String(data: jsonData, encoding: .utf8)
+                    }
+                }
+
                 try db.execute(sql: """
-                    INSERT INTO timeline_cards(batch_id, start_ts, end_ts, title, description, category, metadata)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, arguments: [batchId, c.startTimestamp, c.endTimestamp, c.title, c.description, c.category, c.metadata])
+                    INSERT INTO timeline_cards(
+                        batch_id, start, end, day, title, -- Renamed start_ts, end_ts
+                        summary, category, subcategory, detailed_summary, metadata
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    batchId, c.startTimestamp, c.endTimestamp, c.day, c.title,
+                    c.summary,
+                    c.category, c.subcategory, c.detailedSummary, metadataString
+                ])
             }
+        }
+    }
+
+    func deleteTimelineCards(forDay day: String) {
+        try? db.write {
+            try $0.execute(sql: "DELETE FROM timeline_cards WHERE day = ?", arguments: [day])
         }
     }
 
@@ -244,8 +340,44 @@ final class StorageManager: StorageManaging {
         }) ?? []
     }
 
+    // MARK: - Timeline Queries -----------------------------------------------
 
-    private let purgeQ = DispatchQueue(label: "com.amitine.storage.purge", qos: .background)
+    func fetchTimelineCards(forDay day: String) -> [TimelineCard] {
+        let decoder = JSONDecoder()
+        let cards: [TimelineCard]? = try? db.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT * FROM timeline_cards
+                WHERE day = ?
+                ORDER BY start ASC -- Order by renamed column 'start'
+            """, arguments: [day])
+            .map { row in
+                // Decode distractions from metadata JSON
+                var distractions: [Distraction]? = nil
+                if let metadataString: String = row["metadata"],
+                   let jsonData = metadataString.data(using: .utf8) {
+                    distractions = try? decoder.decode([Distraction].self, from: jsonData)
+                }
+
+                // Create TimelineCard instance using renamed columns
+                return TimelineCard(
+                    startTimestamp: row["start"] ?? "", // Use row["start"]
+                    endTimestamp: row["end"] ?? "",   // Use row["end"]
+                    category: row["category"],
+                    subcategory: row["subcategory"],
+                    title: row["title"],
+                    summary: row["summary"],
+                    detailedSummary: row["detailed_summary"],
+                    day: row["day"],
+                    distractions: distractions
+                )
+            }
+        }
+        return cards ?? []
+    }
+
+    // MARK: – Purging Logic --------------------------------------------------
+
+    private let purgeQ = DispatchQueue(label: "com.dayflow.storage.purge", qos: .background)
 
     private func purgeIfNeeded() {
         purgeQ.async {

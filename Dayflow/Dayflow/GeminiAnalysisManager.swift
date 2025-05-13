@@ -39,7 +39,7 @@ final class GeminiAnalysisManager: AnalysisManaging {
 
     private var analysisTimer: Timer?
     private var isProcessing = false
-    private let queue = DispatchQueue(label: "com.amitime.geminianalysis.queue", qos: .utility)
+    private let queue = DispatchQueue(label: "com.dayflow.geminianalysis.queue", qos: .utility)
 
     // MARK: – Public API -----------------------------------------------------
 
@@ -89,15 +89,88 @@ final class GeminiAnalysisManager: AnalysisManaging {
     private func queueGeminiRequest(batchId: Int64) {
         updateBatchStatus(batchId: batchId, status: "processing")
 
+        // Define an ISO8601DateFormatter for parsing timestamps from Gemini -- REMOVED as format is 'hh:mm AM/PM'
+        // let isoFormatter = ISO8601DateFormatter()
+        // isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds, .withTimeZone]
+
         geminiService.processBatch(batchId) { [weak self] result in
             guard let self else { return }
+
+            // Determine the current logical day based on 4AM boundary BEFORE processing results
+            let now = Date()
+            let currentDayInfo = now.getDayInfoFor4AMBoundary()
+            let currentLogicalDayString = currentDayInfo.dayString
+            print("Processing batch \\(batchId) for logical day: \\(currentLogicalDayString)")
+
             switch result {
-            case .success(let resp):
-//                let cards = resp.toTimelineCards()
-//                self.store.saveTimelineCards(batchId: batchId, cards: cards)
-//                self.updateBatchStatus(batchId: batchId, status: "done")
-                print("Batch \(batchId) processed")
+            case .success(let activityCards):
+                print("Gemini succeeded for Batch \\(batchId). Processing \\(activityCards.count) activity cards for day \\(currentLogicalDayString).")
+
+                // --- Step 1: Delete existing cards for the current logical day --- 
+                print("Clearing existing timeline cards for day: \\(currentLogicalDayString) before saving new cards for batch \\(batchId)")
+                self.store.deleteTimelineCards(forDay: currentLogicalDayString)
+
+                // --- Step 2: Convert ActivityCards to TimelineCards, assigning the CURRENT logical day --- 
+                var timelineCardsToSave: [TimelineCard] = []
+                // var uniqueDaysToClear: Set<String> = [] // No longer needed
+
+                for activityCard in activityCards {
+                    // Removed date parsing as format is not ISO8601
+                    // guard let startDate = isoFormatter.date(from: activityCard.startTime) else {
+                    //     print("Error: Could not parse startTime string \\(activityCard.startTime) ...")
+                    //     continue
+                    // }
+                    // let dayInfo = startDate.getDayInfoFor4AMBoundary() // No longer calculating per card
+                    // uniqueDaysToClear.insert(dayInfo.dayString) // No longer needed
+
+                    // Simple mapping from GeminiService.Distraction to StorageManager.Distraction
+                    // Assumes both structs are now non-recursive and have identical fields.
+                    let timelineCardDistractions = activityCard.distractions?.map { gsDistraction in
+                        // We need to explicitly create the StorageManager version of Distraction.
+                        // Assuming Distraction struct is defined globally in StorageManager.swift
+                        // If defined elsewhere or nested, adjust the type name.
+                        Distraction( // This refers to StorageManager.Distraction
+                            startTime: gsDistraction.startTime,
+                            endTime: gsDistraction.endTime,
+                            title: gsDistraction.title,
+                            summary: gsDistraction.summary
+                        )
+                    }
+
+                    // Assign the single, current logical day string to every card in the batch
+                    let timelineCard = TimelineCard(
+                        startTimestamp: activityCard.startTime,
+                        endTimestamp: activityCard.endTime,
+                        category: activityCard.category,
+                        subcategory: activityCard.subcategory,
+                        title: activityCard.title,
+                        summary: activityCard.summary,
+                        detailedSummary: activityCard.detailedSummary,
+                        day: currentLogicalDayString, // Use the day calculated from 'now'
+                        distractions: timelineCardDistractions
+                    )
+                    timelineCardsToSave.append(timelineCard)
+                }
+
+                // Delete logic moved before the loop
+                // if !uniqueDaysToClear.isEmpty { ... }
+
+                // --- Step 3: Save the new timeline cards --- 
+                if !timelineCardsToSave.isEmpty {
+                    print("Saving \\(timelineCardsToSave.count) new timeline cards for batch \\(batchId) (Day: \\(currentLogicalDayString))")
+                    self.store.saveTimelineCards(batchId: batchId, cards: timelineCardsToSave)
+                    self.updateBatchStatus(batchId: batchId, status: "completed")
+                } else {
+                    // No cards were converted/saved, but deletion happened.
+                    print("No new timeline cards to save for batch \\(batchId) after clearing day \\(currentLogicalDayString). Marking as completed.")
+                    self.updateBatchStatus(batchId: batchId, status: "completed")
+                }
+                
             case .failure(let err):
+                // Deletion for currentLogicalDayString might have already happened before failure was known
+                // Consider if this is the desired behavior or if deletion should only occur on success.
+                // Current logic: Deletion happens BEFORE the switch, so it always occurs if the block is entered.
+                print("Gemini failed for Batch \\(batchId). Day \\(currentLogicalDayString) may have been cleared. Error: \\(err.localizedDescription)")
                 self.markBatchFailed(batchId: batchId, reason: err.localizedDescription)
             }
         }

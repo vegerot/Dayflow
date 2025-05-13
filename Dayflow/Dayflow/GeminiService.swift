@@ -1,6 +1,6 @@
 //
 //  GeminiService.swift
-//  AmiTime
+//  Dayflow
 //
 //  2025‑05‑08  —  Switch from **inline video** to the **Files API** so we can
 //  send >20 MB batches without hitting the inline limit.  Flow:
@@ -29,7 +29,6 @@ struct Distraction: Codable {
     let endTime: String
     let title: String
     let summary: String
-    let distractions: [Distraction]?
 }
 
 struct ActivityCard: Codable {

@@ -56,7 +56,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     deinit { sub?.cancel(); dbg("deinit") }
 
     // MARK: private state ----------------------------------------------
-    private let q = DispatchQueue(label: "com.amitime.recorder", qos: .userInitiated)
+    private let q = DispatchQueue(label: "com.dayflow.recorder", qos: .userInitiated)
     private var stream : SCStream?
     private var writer : AVAssetWriter?
     private var input  : AVAssetWriterInput?

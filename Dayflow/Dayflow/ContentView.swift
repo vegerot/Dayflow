@@ -11,38 +11,17 @@ import AppKit
 
 // MARK: – Data -----------------------------------------------------------------
 
-struct Subject: Identifiable {
+// Add a struct to hold grouped TimelineCard data for the UI
+struct CategoryGroup: Identifiable {
     let id = UUID()
-    var title: String
-    var subs: [String]
-    var isExpanded: Bool = true
-    var rows: Int { subs.count }
+    var category: String
+    var cards: [TimelineCard] // Keep original cards for details
+    var subcategories: [String] { // Extract unique subcategories for sidebar display (optional)
+        Array(Set(cards.map { $0.subcategory })).sorted()
+    }
+    var isExpanded: Bool = true // Retain expansion state if needed for sidebar
+    var rows: Int { subcategories.count } // Or adjust based on how you display in sidebar
 }
-
-let demo: [Subject] = [
-    .init(title: "Computer Science",
-          subs: ["Research & Brainstorming",
-                 "First Draft",
-                 "Presentation Creation"]),
-    .init(title: "Geography",
-          subs: ["Maps"]),
-    .init(title: "Mathematics",
-          subs: ["Algebra",
-                 "Calc HW",
-                 "Video",
-                 "Review"]),
-    .init(title: "Biology",
-          subs: ["Lab prep",
-                 "Reading"]),
-    .init(title: "Mathematics",
-          subs: ["Algebra",
-                 "Calc HW",
-                 "Video",
-                 "Review"]),
-    .init(title: "Biology",
-          subs: ["Lab prep",
-                 "Reading"]),
-]
 
 // MARK: – Zoom model -----------------------------------------------------------
 
@@ -232,12 +211,106 @@ struct SyncableScroll<Content: View>: NSViewRepresentable {
 
 // MARK: – Root view -------------------------------------------------------------
 
+// --- Add Mock Data Generator ---
+func generateMockTimelineCards(forDay day: String) -> [TimelineCard] {
+    var cards: [TimelineCard] = []
+
+    // Card 1: Programming
+    cards.append(TimelineCard(
+        startTimestamp: "9:05 AM",
+        endTimestamp: "10:15 AM",
+        category: "Work",
+        subcategory: "Development",
+        title: "Implement Timeline View",
+        summary: "Refactored ContentView to use real data structure.",
+        detailedSummary: "Replaced Subject struct with CategoryGroup, updated sidebar and canvas, added time parsing.",
+        day: day,
+        distractions: [
+            Distraction(startTime: "9:45 AM", endTime: "9:50 AM", title: "Slack Check", summary: "Quick check of messages")
+        ]
+    ))
+
+    // Card 2: Meeting
+    cards.append(TimelineCard(
+        startTimestamp: "10:30 AM",
+        endTimestamp: "11:00 AM",
+        category: "Work",
+        subcategory: "Meetings",
+        title: "Daily Standup",
+        summary: "Discussed progress and blockers.",
+        detailedSummary: "Covered timeline refactor status, next steps for data integration.",
+        day: day,
+        distractions: nil
+    ))
+
+    // Card 3: Break
+    cards.append(TimelineCard(
+        startTimestamp: "11:05 AM",
+        endTimestamp: "11:20 AM",
+        category: "Personal",
+        subcategory: "Break",
+        title: "Coffee Break",
+        summary: "Short break.",
+        detailedSummary: "Made coffee and stretched.",
+        day: day,
+        distractions: nil
+    ))
+    
+    // Card 4: More Programming
+    cards.append(TimelineCard(
+        startTimestamp: "11:25 AM",
+        endTimestamp: "1:10 PM", // Crosses midday
+        category: "Work",
+        subcategory: "Development",
+        title: "Debug Layout Issues",
+        summary: "Investigated why cards overlap.",
+        detailedSummary: "Used view debugger, checked offset calculations, tested different zoom levels.",
+        day: day,
+        distractions: [
+             Distraction(startTime: "12:30 PM", endTime: "12:35 PM", title: "Email", summary: "Replied to urgent email"),
+             Distraction(startTime: "12:55 PM", endTime: "1:00 PM", title: "Web Browsing", summary: "Looked up documentation")
+        ]
+    ))
+
+    // Card 5: Lunch
+     cards.append(TimelineCard(
+         startTimestamp: "1:15 PM",
+         endTimestamp: "1:55 PM",
+         category: "Personal",
+         subcategory: "Meals",
+         title: "Lunch Break",
+         summary: "Ate lunch.",
+         detailedSummary: "Had leftovers, watched a short video.",
+         day: day,
+         distractions: nil
+     ))
+
+     // Card 6: Reading
+     cards.append(TimelineCard(
+         startTimestamp: "2:00 PM",
+         endTimestamp: "2:45 PM",
+         category: "Learning",
+         subcategory: "Reading",
+         title: "SwiftUI Documentation",
+         summary: "Read about layout process.",
+         detailedSummary: "Focused on NSViewRepresentable and geometry readers.",
+         day: day,
+         distractions: nil
+     ))
+
+    return cards
+}
+
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var link = ScrollSync()
-    @State private var subjects = demo
+    @State private var categoryGroups: [CategoryGroup] = []
     @State private var zoom: Zoom = .h4
     @State private var hoverX: CGFloat?
+    @State private var currentDayString: String = ""
+
+    // Access StorageManager (kept for future switch back)
+    private let storageManager = StorageManager.shared
 
     var body: some View {
         let pxPerMin = zoom.pxPerMin
@@ -246,7 +319,7 @@ struct ContentView: View {
             // header
             HStack(spacing: 0) {
                 HStack(spacing: 8) {
-                    Text("SUBJECTS")
+                    Text("CATEGORIES") // Changed from SUBJECTS
                     Picker("", selection: $zoom) {
                         ForEach(Zoom.allCases) { z in Text(z.label) }
                     }
@@ -287,7 +360,7 @@ struct ContentView: View {
             HSplitView {
                 // Left Pane: Sidebar
                 SyncableScroll(.y, role: .follower, sync: link) {
-                    Sidebar(subjects: $subjects)
+                    Sidebar(groups: $categoryGroups)
                         .frame(width: sidebarW, alignment: .leading)
                 }
                 .overlay(alignment: .trailing) {
@@ -298,7 +371,7 @@ struct ContentView: View {
                 // Right Pane: Conditional content (Timeline Canvas or Debug View)
                 if appState.currentView == .timeline {
                     SyncableScroll(.both, role: .master, sync: link) {
-                        Canvas(subjects: subjects,
+                        Canvas(groups: categoryGroups,
                                pxPerMin: pxPerMin,
                                hoverX: $hoverX)
                     }
@@ -312,6 +385,37 @@ struct ContentView: View {
                maxHeight: .infinity,
                alignment: .topLeading)
         .background(appBG)
+        .onAppear(perform: loadTimelineData)
+    }
+
+    func loadTimelineData() {
+        let dayInfo = Date().getDayInfoFor4AMBoundary()
+        currentDayString = dayInfo.dayString
+        print("Loading timeline data for day: \(currentDayString)")
+
+        // --- Use Mock Data --- 
+        print("--- USING MOCK DATA FOR TESTING ---")
+        let fetchedCards = generateMockTimelineCards(forDay: currentDayString)
+        // --- Comment out real data fetching ---
+        // let fetchedCards = storageManager.fetchTimelineCards(forDay: currentDayString)
+        
+        // Group fetched cards by category (Keep this logic)
+        let grouped = Dictionary(grouping: fetchedCards, by: { $0.category })
+        
+        // Convert grouped dictionary to CategoryGroup array (Keep this logic)
+        categoryGroups = grouped.map { category, cardsInGroup in
+            // Sort cards within the group by start time using the parser
+            let sortedCards = cardsInGroup.sorted { 
+                guard let startMin1 = parseTimeHMMA(timeString: $0.startTimestamp),
+                      let startMin2 = parseTimeHMMA(timeString: $1.startTimestamp) else {
+                    return false // Keep original order if parsing fails for comparison
+                }
+                return startMin1 < startMin2
+            }
+            return CategoryGroup(category: category, cards: sortedCards)
+        }.sorted { $0.category < $1.category } // Sort categories alphabetically
+        
+        print("Loaded \(categoryGroups.count) categories with a total of \(fetchedCards.count) mock cards.")
     }
 }
 
@@ -368,25 +472,25 @@ struct TimeScale: View {
 // MARK: – Sidebar --------------------------------------------------------------
 
 struct Sidebar: View {
-    @Binding var subjects: [Subject]
+    @Binding var groups: [CategoryGroup]
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(subjects.indices, id: \.self) { i in
-                let s = subjects[i]
+            ForEach(groups.indices, id: \.self) { i in
+                let group = groups[i]
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 4) {
-                        Image(systemName: s.isExpanded ? "chevron.down" : "chevron.right")
+                        Image(systemName: group.isExpanded ? "chevron.down" : "chevron.right")
                             .font(.system(size: 11, weight: .semibold))
-                        Text(s.title).font(.system(size: 16, weight: .semibold))
+                        Text(group.category).font(.system(size: 16, weight: .semibold))
                     }
                     .frame(height: rowH)
                     .padding(.horizontal, 12)
                     .contentShape(Rectangle())
-                    .onTapGesture { subjects[i].isExpanded.toggle() }
+                    .onTapGesture { groups[i].isExpanded.toggle() }
                     
-                    if s.isExpanded {
-                        ForEach(Array(s.subs.enumerated()), id: \.offset) { (_, name) in
-                            Text(name)
+                    if group.isExpanded {
+                        ForEach(group.subcategories, id: \.self) { subcatName in
+                            Text(subcatName)
                                 .font(.system(size: 16))
                                 .foregroundColor(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -409,7 +513,7 @@ struct Sidebar: View {
 // MARK: – Canvas ---------------------------------------------------------------
 
 struct Canvas: View {
-    let subjects: [Subject]
+    let groups: [CategoryGroup]
     let pxPerMin: CGFloat
     @Binding var hoverX: CGFloat?
 
@@ -426,8 +530,8 @@ struct Canvas: View {
             }
 
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(subjects) { s in
-                    SubjectLane(subj: s, pxPerMin: pxPerMin)
+                ForEach(groups) { group in
+                    CategoryLane(group: group, pxPerMin: pxPerMin)
                         .overlay(alignment: .bottom) {
                             Rectangle()
                                 .fill(Color.secondary.opacity(0.25))
@@ -480,66 +584,82 @@ private struct HoverSensor: NSViewRepresentable {
 
 // MARK: – Lanes & cards --------------------------------------------------------
 
-struct SubjectLane: View {
-    let subj: Subject
+struct CategoryLane: View {
+    let group: CategoryGroup
     let pxPerMin: CGFloat
     var body: some View {
-        let rows = subj.isExpanded ? subj.rows : 0
+        let rows = group.isExpanded ? group.cards.count : 0
         ZStack(alignment: .topLeading) {
-            Color.clear.frame(height: rowH)
-            ForEach(0..<(rows + 1), id: \.self) { idx in
-                let label = idx == 0 ? subj.title : subj.subs[idx - 1]
-                TimelineCardView(idx: idx,
-                             pxPerMin: pxPerMin,
-                             label: label)
+            Color.clear.frame(height: CGFloat(rows + 1) * rowH)
+            ForEach(Array(group.cards.enumerated()), id: \.element.id) { idx, card in
+                TimelineCardView(card: card, 
+                             rowIndex: idx,
+                             pxPerMin: pxPerMin)
             }
         }
         .frame(width: CGFloat(endMin - startMin) * pxPerMin,
-               height: CGFloat(rows + 1) * rowH,
+               height: CGFloat(rows) * rowH,
                alignment: .topLeading)
     }
 }
 
 struct TimelineCardView: View {
-    let idx: Int
+    let card: TimelineCard
+    let rowIndex: Int
     let pxPerMin: CGFloat
-    let label: String
     @State private var hover = false
 
-    // geometry
-    private var start: Int { startMin + 20 + idx * 20 }
-    private var end:   Int { start + 15 + idx * 10 }
-    private var width: CGFloat { CGFloat(end - start) * pxPerMin }
-    private var xOffset: CGFloat { CGFloat(start - startMin) * pxPerMin }
+    private var startMinute: Int? { parseTimeHMMA(timeString: card.startTimestamp) }
+    private var endMinute: Int? { parseTimeHMMA(timeString: card.endTimestamp) }
+    
+    private var width: CGFloat {
+        guard let startM = startMinute, let endM = endMinute, endM > startM else { return 0 }
+        return CGFloat(endM - startM) * pxPerMin
+    }
+    private var xOffset: CGFloat {
+        guard let startM = startMinute else { return 0 }
+        return CGFloat(max(0, startM - startMin)) * pxPerMin 
+    }
+    private var yOffset: CGFloat {
+        CGFloat(rowIndex) * rowH + 4
+    }
 
     var body: some View {
-        // fixed-size background
-        RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .fill(Color.white)
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(Color(red: 0.90, green: 0.90, blue: 0.90), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.05), radius: 1, x: 0, y: 1)
-            .frame(width: width, height: rowH - 8)              // ← card width DOES NOT change
-            .overlay(alignment: .leading) {                     // text drawn *on top* of width-locked card
-                Text(label)
-                    .font(.system(size: 16, weight: .semibold))
-                    .lineLimit(1)                                // no wrapping
-                    .fixedSize(horizontal: true, vertical: false) // let it run past right edge
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-            }
-            .offset(x: xOffset, y: CGFloat(idx) * rowH + 4)
-            .overlay(                                           // hover time tooltip
-                Text("\(timeString(start)) – \(timeString(end))")
-                    .font(.caption2)
-                    .padding(4)
-                    .background(Color.white.opacity(0.9))
-                    .cornerRadius(4)
-                    .opacity(hover ? 1 : 0)
-            )
-            .onHover { hover = $0 }
+        if let startM = startMinute, let endM = endMinute, endM > startM, width > 0 {
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(Color.white)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(Color(red: 0.90, green: 0.90, blue: 0.90), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.05), radius: 1, x: 0, y: 1)
+                .frame(width: width, height: rowH - 8)
+                .overlay(alignment: .leading) {
+                    Text(card.title)
+                        .font(.system(size: 16, weight: .semibold))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                }
+                .offset(x: xOffset, y: yOffset)
+                .overlay(
+                    Text("\(card.startTimestamp) – \(card.endTimestamp)")
+                        .font(.caption2)
+                        .padding(4)
+                        .background(Color.white.opacity(0.9))
+                        .cornerRadius(4)
+                        .opacity(hover ? 1 : 0)
+                        .offset(x: xOffset, y: yOffset - 20)
+                        .animation(.easeInOut(duration: 0.1), value: hover)
+                )
+                .onHover { hover = $0 }
+        } else {
+            EmptyView()
+                .onAppear {
+                    print("Warning: Could not render card '\(card.title)' due to invalid time: Start='\(card.startTimestamp)', End='\(card.endTimestamp)'")
+                }
+        }
     }
 }
 

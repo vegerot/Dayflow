@@ -19,13 +19,3 @@ struct RecordingChunk: Codable {
         TimeInterval(endTs - startTs)
     }
 }
-
-/// Represents a timeline card for display
-struct TimelineCard: Codable {
-    let title: String
-    let description: String?
-    let category: String
-    let startTimestamp: Int
-    let endTimestamp: Int
-    let metadata: String?  // JSON string for additional data
-}

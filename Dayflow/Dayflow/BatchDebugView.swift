@@ -1,6 +1,6 @@
 //
 //  BatchDebugView.swift
-//  AmiTime
+//  Dayflow
 //
 //  2025‑05‑08  – Adds “Download MP4” button next to “Process Batch”.
 //                When clicked it stitches the selected batch into a single
