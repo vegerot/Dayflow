@@ -7,7 +7,6 @@
 
 import Testing
 @testable import AmiTime
-@testable import Dayflow
 
 struct AmiTimeTests {
 

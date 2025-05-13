@@ -1,6 +1,6 @@
 //
-//  DayflowApp.swift
-//  Dayflow
+//  AmiTimeApp.swift
+//  AmiTime
 //
 //  Created by Jerry Liu on 4/20/25.
 //
@@ -8,7 +8,7 @@
 import SwiftUI
 
 @main
-struct DayflowApp: App {
+struct AmiTimeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @AppStorage("didOnboard") private var didOnboard = false
 
