@@ -1,6 +1,6 @@
 //
 //  AppDelegate.swift
-//  AmiTime
+//  Dayflow
 //
 //  Created by Jerry Liu on 4/26/25.
 //

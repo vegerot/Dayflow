@@ -16,14 +16,14 @@
 			containerPortal = C4C1D2992DB56805007D5A55 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = C4C1D2A02DB56805007D5A55;
-			remoteInfo = AmiTime;
+			remoteInfo = Dayflow;
 		};
 		C4C1D2BD2DB56806007D5A55 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = C4C1D2992DB56805007D5A55 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = C4C1D2A02DB56805007D5A55;
-			remoteInfo = AmiTime;
+			remoteInfo = Dayflow;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -120,7 +120,7 @@
 			packageProductDependencies = (
 				C4EBF0012DBDF82000FC5824 /* GRDB */,
 			);
-			productName = AmiTime;
+			productName = Dayflow;
 			productReference = C4C1D2A12DB56805007D5A55 /* Dayflow.app */;
 			productType = "com.apple.product-type.application";
 		};
@@ -140,7 +140,7 @@
 			name = DayflowTests;
 			packageProductDependencies = (
 			);
-			productName = AmiTimeTests;
+			productName = DayflowTests;
 			productReference = C4C1D2B22DB56806007D5A55 /* DayflowTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
@@ -160,7 +160,7 @@
 			name = DayflowUITests;
 			packageProductDependencies = (
 			);
-			productName = AmiTimeUITests;
+			productName = DayflowUITests;
 			productReference = C4C1D2BC2DB56806007D5A55 /* DayflowUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
@@ -503,7 +503,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = AmiTime;
+				TEST_TARGET_NAME = Dayflow;
 			};
 			name = Debug;
 		};
@@ -519,7 +519,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = AmiTime;
+				TEST_TARGET_NAME = Dayflow;
 			};
 			name = Release;
 		};

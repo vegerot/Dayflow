@@ -1,13 +1,13 @@
 //
-//  AmiTimeUITestsLaunchTests.swift
-//  AmiTimeUITests
+//  DayflowUITestsLaunchTests.swift
+//  DayflowUITests
 //
 //  Created by Jerry Liu on 4/20/25.
 //
 
 import XCTest
 
-final class AmiTimeUITestsLaunchTests: XCTestCase {
+final class DayflowUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true

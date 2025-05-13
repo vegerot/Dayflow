@@ -53,7 +53,7 @@ final class StorageManager: StorageManaging {
 
     private init() {
         root = fileMgr.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("AmiTime/recordings", isDirectory: true)
+            .appendingPathComponent("Dayflow/recordings", isDirectory: true)
         try? fileMgr.createDirectory(at: root, withIntermediateDirectories: true)
 
         db = try! DatabaseQueue(path: root.appendingPathComponent("chunks.sqlite").path)

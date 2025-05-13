@@ -20,25 +20,25 @@ struct OnboardingFlow: View {
         VStack(spacing: 24) {
             switch step {
             case .welcome:
-                Heading("Welcome to AmiTime",
-                        "We’ll record your screen (1 fps, 720 p) so you can see how you spend your day.")
+                Heading("Welcome to Dayflow",
+                        "We'll record your screen (1 fps, 720 p) so you can see how you spend your day.")
             case .screen:
                 Heading("Give screen-recording permission",
-                        "macOS will open System Settings → Screen Recording. Please enable AmiTime.")
+                        "macOS will open System Settings → Screen Recording. Please enable Dayflow.")
             case .access:
                 Heading("Optional: Accessibility",
-                        "If you’d like us to tag window titles, allow Accessibility access next.")
+                        "If you'd like us to tag window titles, allow Accessibility access next.")
             case .login:
-                Heading("Start at login?",
-                        "We can automatically launch AmiTime each time you log in.")
+                Heading("Start Dayflow at Login",
+                        "We can automatically launch Dayflow each time you log in.")
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .toggleStyle(.switch)
                     .onChange(of: launchAtLogin) { _, newValue in // <-- Use this signature
                             setLogin(newValue) // Pass the newValue to your function
                         }
             case .done:
-                Heading("All set!",
-                        "You can now close this window; AmiTime will keep running in the menu-bar.")
+                Heading("Setup Complete",
+                        "You can now close this window; Dayflow will keep running in the menu-bar.")
             }
             
             HStack {

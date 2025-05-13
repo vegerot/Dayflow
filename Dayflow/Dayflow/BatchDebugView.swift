@@ -2,9 +2,9 @@
 //  BatchDebugView.swift
 //  AmiTime
 //
-//  2025‑05‑08  – Adds “Download MP4” button next to “Process Batch”.
+//  2025‑05‑08  – Adds “Download MP4” button next to “Process Batch”.
 //                When clicked it stitches the selected batch into a single
-//                MP4 and copies it to the user’s Downloads folder as
+//                MP4 and copies it to the user's Downloads folder as
 //                Batch_<id>.mp4, then shows a confirmation alert.
 //
 import SwiftUI
@@ -30,7 +30,7 @@ struct BatchDebugView: View {
             List(batches, id: \..id, selection: $selected) { b in
                 VStack(alignment: .leading) {
                     Text("Batch \(b.id)").font(.headline)
-                    Text("\(dateString(b.start)) – \(dateString(b.end))")
+                    Text("\(dateString(b.start)) – \(dateString(b.end))")
                         .font(.caption).foregroundColor(.secondary)
                     Text(b.status).font(.caption2)
                 }

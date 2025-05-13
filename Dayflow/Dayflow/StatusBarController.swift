@@ -15,10 +15,10 @@ final class StatusBarController {
     
     init() {
         sub = AppState.shared.$isRecording.sink { [weak self] rec in
-            self?.item.button?.title = rec ? "● AmiTime" : "◌ AmiTime"
+            self?.item.button?.title = rec ? "● Dayflow" : "◌ Dayflow"
         }
         item.menu = menu
-        item.button?.title = "● AmiTime"
+        item.button?.title = "● Dayflow"
     }
     
     private lazy var menu: NSMenu = {
@@ -60,7 +60,7 @@ final class StatusBarController {
         backing: .buffered,
         defer: false
     )
-    window.title = "AmiTime – Batch Viewer"
+    window.title = "Dayflow – Batch Viewer"
     window.contentView = NSHostingView(rootView: BatchDebugView())
     window.center()
     window.makeKeyAndOrderFront(nil)

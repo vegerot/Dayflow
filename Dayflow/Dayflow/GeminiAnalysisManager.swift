@@ -1,6 +1,6 @@
 //
 //  GeminiAnalysisManager.swift
-//  AmiTime
+//  Dayflow
 //
 //  Re‑written 2025‑05‑07 to use the new `GeminiServicing.processBatch` API.
 //  • Drops the per‑chunk URL plumbing – the service handles stitching/encoding.

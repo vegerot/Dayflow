@@ -1,5 +1,5 @@
 //  ScreenRecorder.swift
-//  AmiTime
+//  Dayflow
 //
 //  Lightweight screen recorder – captures the main display at 1280 × 720
 //  and stores 15‑second H.264 (.mp4) chunks while `AppState.shared.isRecording` is true.
@@ -22,7 +22,7 @@ private enum C {
     static let width  = 1280
     static let height = 720
     static let chunk  : TimeInterval = 15       // seconds per file
-    static let fps    : Int32 = 1               // keep @ 1 fps
+    static let fps    : Int32 = 1               // keep @ 1 fps
 }
 
 #if DEBUG
@@ -100,7 +100,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     // MARK: stream setup -------------------------------------------------
     private func makeStream(attempt: Int = 1, maxAttempts: Int = 4) async {
         do {
-            // 1. find a display
+            // 1. find a display
             let content = try await SCShareableContent
                 .excludingDesktopWindows(false, onScreenWindowsOnly: true)
 
@@ -108,21 +108,21 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 throw RecorderError.noDisplay          // ← uses the new case
             }
 
-            // 2. filter
+            // 2. filter
             let filter = SCContentFilter(display: display,
                                          excludingApplications: [],
                                          exceptingWindows: [])
 
-            // 3. configuration  ←–––– THIS IS THE cfg THAT MUST EXIST
+            // 3. configuration  ←–––– THIS IS THE cfg THAT MUST EXIST
             let cfg                 = SCStreamConfiguration()
             cfg.width               = C.width
             cfg.height              = C.height
             cfg.capturesAudio       = false
             cfg.pixelFormat         = kCVPixelFormatType_32BGRA
             cfg.minimumFrameInterval = CMTime(value: 1,
-                                              timescale: C.fps)   // 1 fps
+                                              timescale: C.fps)   // 1 fps
 
-            // 4. kick‑off
+            // 4. kick‑off
             try await startStream(filter: filter, config: cfg)
         }
         catch {
@@ -131,9 +131,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             // ALWAYS clear the flag on failure
             q.async { self.isStarting = false }
 
-            // transient “no display” → retry
+            // transient "no display" → retry
             if attempt < maxAttempts, shouldRetry(error) {
-                let delay = Double(attempt)             // 1 s, 2 s, 3 s …
+                let delay = Double(attempt)             // 1 s, 2 s, 3 s …
                 dbg("retrying in \(delay)s")
                 q.asyncAfter(deadline: .now() + delay) { [weak self] in
                     self?.start()                       // sets isStarting again
@@ -204,7 +204,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         // as failed / empty.
         guard frames > 0 else {
             w.cancelWriting()
-            StorageManager.shared.markChunkFailed(url: url)      // or “skipped”
+            StorageManager.shared.markChunkFailed(url: url)      // or "skipped"
             return reset()
         }
         // ─────────────────────────────────────────────────────────────────
