@@ -24,13 +24,6 @@ protocol GeminiServicing {
 
 // MARK: – DTOs & Errors ------------------------------------------------------
 
-struct Distraction: Codable {
-    let startTime: String
-    let endTime: String
-    let title: String
-    let summary: String
-}
-
 struct ActivityCard: Codable {
     let startTime: String
     let endTime: String

@@ -123,21 +123,19 @@ final class GeminiAnalysisManager: AnalysisManaging {
                     // let dayInfo = startDate.getDayInfoFor4AMBoundary() // No longer calculating per card
                     // uniqueDaysToClear.insert(dayInfo.dayString) // No longer needed
 
-                    // Simple mapping from GeminiService.Distraction to StorageManager.Distraction
-                    // Assumes both structs are now non-recursive and have identical fields.
-                    let timelineCardDistractions = activityCard.distractions?.map { gsDistraction in
-                        // We need to explicitly create the StorageManager version of Distraction.
-                        // Assuming Distraction struct is defined globally in StorageManager.swift
-                        // If defined elsewhere or nested, adjust the type name.
-                        Distraction( // This refers to StorageManager.Distraction
-                            startTime: gsDistraction.startTime,
-                            endTime: gsDistraction.endTime,
-                            title: gsDistraction.title,
-                            summary: gsDistraction.summary
-                        )
-                    }
+                    // The explicit mapping is no longer needed as both ActivityCard and TimelineCard
+                    // will use the same Distraction type from StorageManager.swift.
+                    // let timelineCardDistractions = activityCard.distractions?.map { gsDistraction in
+                    //     Distraction( // This refers to StorageManager.Distraction
+                    //         startTime: gsDistraction.startTime,
+                    //         endTime: gsDistraction.endTime,
+                    //         title: gsDistraction.title,
+                    //         summary: gsDistraction.summary
+                    //     )
+                    // }
+                    // Direct assignment should work now:
+                    let timelineCardDistractions = activityCard.distractions
 
-                    // Assign the single, current logical day string to every card in the batch
                     let timelineCard = TimelineCard(
                         startTimestamp: activityCard.startTime,
                         endTimestamp: activityCard.endTime,
@@ -146,8 +144,8 @@ final class GeminiAnalysisManager: AnalysisManaging {
                         title: activityCard.title,
                         summary: activityCard.summary,
                         detailedSummary: activityCard.detailedSummary,
-                        day: currentLogicalDayString, // Use the day calculated from 'now'
-                        distractions: timelineCardDistractions
+                        day: currentLogicalDayString,
+                        distractions: timelineCardDistractions // Use directly assigned distractions
                     )
                     timelineCardsToSave.append(timelineCard)
                 }

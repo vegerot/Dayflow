@@ -19,7 +19,6 @@ struct CategoryGroup: Identifiable {
     var subcategories: [String] { // Extract unique subcategories for sidebar display (optional)
         Array(Set(cards.map { $0.subcategory })).sorted()
     }
-    var isExpanded: Bool = true // Retain expansion state if needed for sidebar
     var rows: Int { subcategories.count } // Or adjust based on how you display in sidebar
 }
 
@@ -158,7 +157,7 @@ struct SyncableScroll<Content: View>: NSViewRepresentable {
         @ObservedObject var sync: ScrollSync
         init(sync: ScrollSync, role: Role) {
             self._sync = ObservedObject(wrappedValue: sync)
-            self.role  = role
+            self.role = role
         }
         private var isProgrammatic = false
         private var dragAnchor = CGPoint.zero
@@ -209,13 +208,29 @@ struct SyncableScroll<Content: View>: NSViewRepresentable {
     }
 }
 
+// MARK: – Placeholder View for No Data
+
+struct WaitingForDataView: View {
+    var body: some View {
+        VStack {
+            Spacer()
+            Text("Waiting to collect enough data...")
+                .font(.title2)
+                .foregroundColor(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(appBG) // Match the app background
+    }
+}
+
 // MARK: – Root view -------------------------------------------------------------
 
 // --- Add Mock Data Generator ---
 func generateMockTimelineCards(forDay day: String) -> [TimelineCard] {
     var cards: [TimelineCard] = []
 
-    // Card 1: Programming
+    // Card 1: Programming (has distractions, no change needed here for nil)
     cards.append(TimelineCard(
         startTimestamp: "9:05 AM",
         endTimestamp: "10:15 AM",
@@ -234,13 +249,13 @@ func generateMockTimelineCards(forDay day: String) -> [TimelineCard] {
     cards.append(TimelineCard(
         startTimestamp: "10:30 AM",
         endTimestamp: "11:00 AM",
-        category: "Work",
+        category: "Poop",
         subcategory: "Meetings",
         title: "Daily Standup",
         summary: "Discussed progress and blockers.",
         detailedSummary: "Covered timeline refactor status, next steps for data integration.",
         day: day,
-        distractions: nil
+        distractions: nil as [Distraction]? // Explicitly typed nil
     ))
 
     // Card 3: Break
@@ -253,10 +268,10 @@ func generateMockTimelineCards(forDay day: String) -> [TimelineCard] {
         summary: "Short break.",
         detailedSummary: "Made coffee and stretched.",
         day: day,
-        distractions: nil
+        distractions: nil as [Distraction]? // Explicitly typed nil
     ))
     
-    // Card 4: More Programming
+    // Card 4: More Programming (has distractions, no change needed here for nil)
     cards.append(TimelineCard(
         startTimestamp: "11:25 AM",
         endTimestamp: "1:10 PM", // Crosses midday
@@ -282,7 +297,7 @@ func generateMockTimelineCards(forDay day: String) -> [TimelineCard] {
          summary: "Ate lunch.",
          detailedSummary: "Had leftovers, watched a short video.",
          day: day,
-         distractions: nil
+         distractions: nil as [Distraction]? // Explicitly typed nil
      ))
 
      // Card 6: Reading
@@ -295,7 +310,7 @@ func generateMockTimelineCards(forDay day: String) -> [TimelineCard] {
          summary: "Read about layout process.",
          detailedSummary: "Focused on NSViewRepresentable and geometry readers.",
          day: day,
-         distractions: nil
+         distractions: nil as [Distraction]? // Explicitly typed nil
      ))
 
     return cards
@@ -308,6 +323,7 @@ struct ContentView: View {
     @State private var zoom: Zoom = .h4
     @State private var hoverX: CGFloat?
     @State private var currentDayString: String = ""
+    @State private var refreshTimer: Timer?
 
     // Access StorageManager (kept for future switch back)
     private let storageManager = StorageManager.shared
@@ -325,14 +341,6 @@ struct ContentView: View {
                     }
                     .frame(width: 70)
                     .padding(.trailing, 20)
-
-                    Picker("View", selection: $appState.currentView) {
-                        ForEach(CurrentView.allCases) { viewCase in
-                            Text(viewCase.rawValue).tag(viewCase)
-                        }
-                    }
-                    .pickerStyle(SegmentedPickerStyle())
-                    .frame(width: 200)
 
                     Spacer()
                 }
@@ -356,27 +364,28 @@ struct ContentView: View {
                 Rectangle().fill(Color.secondary.opacity(0.25)).frame(height: 0.5)
             }
 
-            // sidebar + canvas (REPLACED with HSplitView for view switching)
-            HSplitView {
-                // Left Pane: Sidebar
-                SyncableScroll(.y, role: .follower, sync: link) {
-                    Sidebar(groups: $categoryGroups)
-                        .frame(width: sidebarW, alignment: .leading)
-                }
-                .overlay(alignment: .trailing) {
-                    Rectangle().fill(Color.secondary.opacity(0.25)).frame(width: 0.5)
-                }
-                .frame(minWidth: sidebarW, idealWidth: sidebarW, maxWidth: sidebarW)
-                
-                // Right Pane: Conditional content (Timeline Canvas or Debug View)
-                if appState.currentView == .timeline {
+            // --- Body: Conditional display of Timeline or Placeholder ---
+            if categoryGroups.isEmpty {
+                WaitingForDataView()
+            } else {
+                // sidebar + canvas (REPLACED with HSplitView for view switching)
+                HSplitView {
+                    // Left Pane: Sidebar
+                    SyncableScroll(.y, role: .follower, sync: link) {
+                        Sidebar(groups: $categoryGroups)
+                            .frame(width: sidebarW, alignment: .leading)
+                    }
+                    .overlay(alignment: .trailing) {
+                        Rectangle().fill(Color.secondary.opacity(0.25)).frame(width: 0.5)
+                    }
+                    .frame(minWidth: sidebarW, idealWidth: sidebarW, maxWidth: sidebarW)
+                    
+                    // Right Pane: Always show Timeline Canvas
                     SyncableScroll(.both, role: .master, sync: link) {
                         Canvas(groups: categoryGroups,
                                pxPerMin: pxPerMin,
                                hoverX: $hoverX)
                     }
-                } else {
-                    BatchDebugView()
                 }
             }
         }
@@ -385,7 +394,18 @@ struct ContentView: View {
                maxHeight: .infinity,
                alignment: .topLeading)
         .background(appBG)
-        .onAppear(perform: loadTimelineData)
+        .onAppear {
+            loadTimelineData()
+            refreshTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: true) { _ in
+                print("Timer fired: Refreshing timeline data...")
+                loadTimelineData()
+            }
+        }
+        .onDisappear {
+            refreshTimer?.invalidate()
+            refreshTimer = nil
+            print("ContentView disappeared: Refresh timer invalidated.")
+        }
     }
 
     func loadTimelineData() {
@@ -393,11 +413,11 @@ struct ContentView: View {
         currentDayString = dayInfo.dayString
         print("Loading timeline data for day: \(currentDayString)")
 
-        // --- Use Mock Data --- 
-        print("--- USING MOCK DATA FOR TESTING ---")
-        let fetchedCards = generateMockTimelineCards(forDay: currentDayString)
-        // --- Comment out real data fetching ---
-        // let fetchedCards = storageManager.fetchTimelineCards(forDay: currentDayString)
+        // --- Use Real Data --- 
+        // print("--- USING MOCK DATA FOR TESTING ---")
+        // let fetchedCards = generateMockTimelineCards(forDay: currentDayString)
+        // --- Switch to real data fetching ---
+        let fetchedCards = storageManager.fetchTimelineCards(forDay: currentDayString)
         
         // Group fetched cards by category (Keep this logic)
         let grouped = Dictionary(grouping: fetchedCards, by: { $0.category })
@@ -415,7 +435,7 @@ struct ContentView: View {
             return CategoryGroup(category: category, cards: sortedCards)
         }.sorted { $0.category < $1.category } // Sort categories alphabetically
         
-        print("Loaded \(categoryGroups.count) categories with a total of \(fetchedCards.count) mock cards.")
+        print("Loaded \(categoryGroups.count) categories with a total of \(fetchedCards.count) cards from StorageManager.")
     }
 }
 
@@ -479,24 +499,18 @@ struct Sidebar: View {
                 let group = groups[i]
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 4) {
-                        Image(systemName: group.isExpanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 11, weight: .semibold))
                         Text(group.category).font(.system(size: 16, weight: .semibold))
                     }
                     .frame(height: rowH)
                     .padding(.horizontal, 12)
-                    .contentShape(Rectangle())
-                    .onTapGesture { groups[i].isExpanded.toggle() }
                     
-                    if group.isExpanded {
-                        ForEach(group.subcategories, id: \.self) { subcatName in
-                            Text(subcatName)
+                    ForEach(group.subcategories, id: \.self) { subcatName in
+                        Text(subcatName)
                                 .font(.system(size: 16))
                                 .foregroundColor(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 32)
+                            .padding(.horizontal, 12)
                                 .frame(height: rowH)
-                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -588,17 +602,25 @@ struct CategoryLane: View {
     let group: CategoryGroup
     let pxPerMin: CGFloat
     var body: some View {
-        let rows = group.isExpanded ? group.cards.count : 0
+        // Calculate height: 1 row for Category header + 1 row for each Subcategory (no longer depends on isExpanded)
+        let totalRows = 1 + group.subcategories.count
+        
         ZStack(alignment: .topLeading) {
-            Color.clear.frame(height: CGFloat(rows + 1) * rowH)
-            ForEach(Array(group.cards.enumerated()), id: \.element.id) { idx, card in
-                TimelineCardView(card: card, 
-                             rowIndex: idx,
-                             pxPerMin: pxPerMin)
+            Color.clear.frame(height: CGFloat(totalRows) * rowH)
+
+            ForEach(Array(group.subcategories.enumerated()), id: \.element) { subcategoryIndex, subcategoryName in
+                let cardsInSubcategory = group.cards.filter { $0.subcategory == subcategoryName }
+                let cardRowIndex = subcategoryIndex + 1
+                
+                ForEach(cardsInSubcategory) { card in
+                    TimelineCardView(card: card,
+                                     rowIndex: cardRowIndex,
+                                     pxPerMin: pxPerMin)
+                }
             }
         }
         .frame(width: CGFloat(endMin - startMin) * pxPerMin,
-               height: CGFloat(rows) * rowH,
+               height: CGFloat(totalRows) * rowH,
                alignment: .topLeading)
     }
 }
@@ -626,34 +648,34 @@ struct TimelineCardView: View {
 
     var body: some View {
         if let startM = startMinute, let endM = endMinute, endM > startM, width > 0 {
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(Color.white)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(Color(red: 0.90, green: 0.90, blue: 0.90), lineWidth: 1)
-                )
-                .shadow(color: Color.black.opacity(0.05), radius: 1, x: 0, y: 1)
+        RoundedRectangle(cornerRadius: 4, style: .continuous)
+            .fill(Color.white)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(Color(red: 0.90, green: 0.90, blue: 0.90), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.05), radius: 1, x: 0, y: 1)
                 .frame(width: width, height: rowH - 8)
                 .overlay(alignment: .leading) {
                     Text(card.title)
-                        .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+            }
                 .offset(x: xOffset, y: yOffset)
                 .overlay(
                     Text("\(card.startTimestamp) – \(card.endTimestamp)")
-                        .font(.caption2)
-                        .padding(4)
-                        .background(Color.white.opacity(0.9))
-                        .cornerRadius(4)
-                        .opacity(hover ? 1 : 0)
+                    .font(.caption2)
+                    .padding(4)
+                    .background(Color.white.opacity(0.9))
+                    .cornerRadius(4)
+                    .opacity(hover ? 1 : 0)
                         .offset(x: xOffset, y: yOffset - 20)
                         .animation(.easeInOut(duration: 0.1), value: hover)
-                )
-                .onHover { hover = $0 }
+            )
+            .onHover { hover = $0 }
         } else {
             EmptyView()
                 .onAppear {
