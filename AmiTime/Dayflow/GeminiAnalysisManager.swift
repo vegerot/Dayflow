@@ -93,10 +93,10 @@ final class GeminiAnalysisManager: AnalysisManaging {
             guard let self else { return }
             switch result {
             case .success(let resp):
-                let cards = resp.toTimelineCards()
-                self.store.saveTimelineCards(batchId: batchId, cards: cards)
-                self.updateBatchStatus(batchId: batchId, status: "done")
-                print("Batch \(batchId) processed – \(cards.count) cards")
+//                let cards = resp.toTimelineCards()
+//                self.store.saveTimelineCards(batchId: batchId, cards: cards)
+//                self.updateBatchStatus(batchId: batchId, status: "done")
+                print("Batch \(batchId) processed")
             case .failure(let err):
                 self.markBatchFailed(batchId: batchId, reason: err.localizedDescription)
             }
