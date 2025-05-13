@@ -48,12 +48,12 @@ final class StorageManager: StorageManaging {
     private let db: DatabaseQueue
     private let fileMgr = FileManager.default
     private let root: URL
-    private let quota = 5 * 1024 * 1024 * 1024  // 5 GB
+    private let quota = 10 * 1024 * 1024 * 1024  // 5 GB
     var recordingsRoot: URL { root }
 
     private init() {
         root = fileMgr.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("AmiTime/recordings", isDirectory: true)
+            .appendingPathComponent("Dayflow/recordings", isDirectory: true)
         try? fileMgr.createDirectory(at: root, withIntermediateDirectories: true)
 
         db = try! DatabaseQueue(path: root.appendingPathComponent("chunks.sqlite").path)

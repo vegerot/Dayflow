@@ -17,34 +17,30 @@ import UniformTypeIdentifiers
 
 protocol GeminiServicing {
     func processBatch(_ batchId: Int64,
-                      completion: @escaping (Result<GeminiAnalysisResponse, Error>) -> Void)
+                      completion: @escaping (Result<[ActivityCard], Error>) -> Void)
     func apiKey() -> String?
     func setApiKey(_ key: String)
 }
 
 // MARK: – DTOs & Errors ------------------------------------------------------
 
-struct GeminiAnalysisResponse: Codable {
-    struct Card: Codable {
-        let title: String
-        let description: String?
-        let category: String
-        let startTimestamp: Int
-        let endTimestamp: Int
-        let metadata: String?
-    }
-    let cards: [Card]
+struct Distraction: Codable {
+    let startTime: String
+    let endTime: String
+    let title: String
+    let summary: String
+    let distractions: [Distraction]?
+}
 
-    func toTimelineCards() -> [TimelineCard] {
-        cards.map { c in
-            TimelineCard(title: c.title,
-                         description: c.description,
-                         category: c.category,
-                         startTimestamp: c.startTimestamp,
-                         endTimestamp: c.endTimestamp,
-                         metadata: c.metadata)
-        }
-    }
+struct ActivityCard: Codable {
+    let startTime: String
+    let endTime: String
+    let category: String
+    let subcategory: String
+    let title: String
+    let summary: String
+    let detailedSummary: String
+    let distractions: [Distraction]?
 }
 
 enum GeminiServiceError: Error, LocalizedError {
@@ -67,18 +63,38 @@ enum GeminiServiceError: Error, LocalizedError {
     }
 }
 
+// Intermediate structs to parse the Gemini API's wrapped response
+private struct GeminiAPIContentPart: Codable {
+    let text: String
+}
+
+private struct GeminiAPIContent: Codable {
+    let parts: [GeminiAPIContentPart]
+    let role: String? // role might not always be present or needed for our specific extraction
+}
+
+private struct GeminiAPICandidate: Codable {
+    let content: GeminiAPIContent
+    // We don't need finishReason, index, etc. for this step
+}
+
+private struct GeminiAPIResponse: Codable {
+    let candidates: [GeminiAPICandidate]
+    // We don't need usageMetadata for this step
+}
+
 // MARK: – Service ------------------------------------------------------------
 
 final class GeminiService: GeminiServicing {
     static let shared: GeminiServicing = GeminiService()
     private init() {}
 
-    private let genEndpoint  = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-exp-03-25:generateContent"
+    private let genEndpoint  = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent"
     private let fileEndpoint = "https://generativelanguage.googleapis.com/upload/v1beta/files"
 
     private let apiKeyKey = "AIzaSyBdPY2tes0GSNlOj5ks49T2SMwXbs9BpsI"
     private let userDefaults = UserDefaults.standard
-    private let queue = DispatchQueue(label: "com.amitime.gemini", qos: .utility)
+    private let queue = DispatchQueue(label: "com.dayflow.gemini", qos: .utility)
 
     func apiKey() -> String? { apiKeyKey }
     func setApiKey(_ key: String) { userDefaults.set(key, forKey: apiKeyKey) }
@@ -86,7 +102,7 @@ final class GeminiService: GeminiServicing {
     // MARK: – Public ---------------------------------------------------------
 
     func processBatch(_ batchId: Int64,
-                      completion: @escaping (Result<GeminiAnalysisResponse, Error>) -> Void) {
+                      completion: @escaping (Result<[ActivityCard], Error>) -> Void) {
         guard let key = apiKey(), !key.isEmpty else {
             completion(.failure(GeminiServiceError.missingApiKey)); return
         }
@@ -106,7 +122,45 @@ final class GeminiService: GeminiServicing {
 
 
                 // 3. generateContent -------------------------------------------------
-                let prompt = "Analyze this screen recording and return a JSON array of timeline cards with title, description, category, startTimestamp, endTimestamp."
+                let prompt = "Analyze this screen recording. Return a JSON array where each object represents an activity with the following fields in this order: 'startTime' (string), 'endTime' (string), 'category' (string), 'subcategory' (string), 'title' (string), 'summary' (string), 'detailedSummary' (string), and an optional 'distractions' array. Each object in the 'distractions' array, if present, should have these fields in order: 'startTime' (string), 'endTime' (string), 'title' (string), and 'summary' (string). Adhere strictly to this schema and property ordering."
+
+                let distractionSchema: [String: Any] = [
+                    "type": "OBJECT",
+                    "properties": [
+                        "startTime": ["type": "STRING"],
+                        "endTime": ["type": "STRING"],
+                        "title": ["type": "STRING"],
+                        "summary": ["type": "STRING"]
+                    ],
+                    "required": ["startTime", "endTime", "title", "summary"],
+                    "propertyOrdering": ["startTime", "endTime", "title", "summary"]
+                ]
+
+                let activityCardSchema: [String: Any] = [
+                    "type": "OBJECT",
+                    "properties": [
+                        "startTime": ["type": "STRING"],
+                        "endTime": ["type": "STRING"],
+                        "category": ["type": "STRING"],
+                        "subcategory": ["type": "STRING"],
+                        "title": ["type": "STRING"],
+                        "summary": ["type": "STRING"],
+                        "detailedSummary": ["type": "STRING"],
+                        "distractions": [
+                            "type": "ARRAY",
+                            "items": distractionSchema,
+                            "nullable": true
+                        ]
+                    ],
+                    "required": ["startTime", "endTime", "category", "subcategory", "title", "summary", "detailedSummary"],
+                    "propertyOrdering": ["startTime", "endTime", "category", "subcategory", "title", "summary", "detailedSummary", "distractions"]
+                ]
+
+                let responseSchemaForApi: [String: Any] = [
+                    "type": "ARRAY",
+                    "items": activityCardSchema
+                ]
+
                 let body: [String: Any] = [
                     "contents": [[
                         "parts": [
@@ -119,10 +173,12 @@ final class GeminiService: GeminiServicing {
                     ]],
                     "generationConfig": [
                         "temperature": 0.2,
-                        "topK": 32,
-                        "topP": 0.95,
-                        "maxOutputTokens": 4096,
-                        "responseMimeType": "application/json"
+                        "maxOutputTokens": 65536,
+                        "responseMimeType": "application/json",
+                        "responseSchema": responseSchemaForApi,
+                        "thinkingConfig": [
+                            "thinkingBudget": 24576
+                        ]
                     ]
                 ]
                 let jsonData = try JSONSerialization.data(withJSONObject: body)
@@ -141,8 +197,33 @@ final class GeminiService: GeminiServicing {
                     throw GeminiServiceError.requestFailed(msg)
                 }
                 guard let data = d else { throw GeminiServiceError.invalidResponse }
-                let decoded = try JSONDecoder().decode(GeminiAnalysisResponse.self, from: data)
-                DispatchQueue.main.async { completion(.success(decoded)) }
+                
+                // Log the raw response data as a string for debugging
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("📄 Raw Gemini Response Data:")
+                    print(responseString)
+                } else {
+                    print("📄 Could not decode raw Gemini response data as UTF-8.")
+                }
+
+                // 1. Decode the top-level API response
+                let apiResponse = try JSONDecoder().decode(GeminiAPIResponse.self, from: data)
+
+                // 2. Extract the JSON string from the relevant part
+                guard let firstCandidate = apiResponse.candidates.first,
+                      let firstPart = firstCandidate.content.parts.first,
+                      let jsonDataString = firstPart.text.data(using: .utf8) else {
+                    throw GeminiServiceError.invalidResponse // Or a more specific error
+                }
+                
+                // 3. Decode the actual [ActivityCard] array from the extracted string data
+                let decodedCards = try JSONDecoder().decode([ActivityCard].self, from: jsonDataString)
+                
+                // Print the decoded cards for verification
+                print("✅ Decoded Activity Cards:")
+                print(decodedCards)
+
+                DispatchQueue.main.async { completion(.success(decodedCards)) }
 
             } catch {
                 DispatchQueue.main.async { completion(.failure(error)) }

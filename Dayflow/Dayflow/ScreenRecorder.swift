@@ -17,10 +17,12 @@ import Foundation
 import AVFoundation
 import Combine
 import IOKit.pwr_mgt   // sleep / wake notifications
+import CoreGraphics
+import CoreText
 
 private enum C {
     static let width  = 1280
-    static let height = 720
+    static let height = 800
     static let chunk  : TimeInterval = 15       // seconds per file
     static let fps    : Int32 = 1               // keep @ 1 fps
 }
@@ -56,7 +58,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     deinit { sub?.cancel(); dbg("deinit") }
 
     // MARK: private state ----------------------------------------------
-    private let q = DispatchQueue(label: "com.amitime.recorder", qos: .userInitiated)
+    private let q = DispatchQueue(label: "com.dayflow.recorder", qos: .userInitiated)
     private var stream : SCStream?
     private var writer : AVAssetWriter?
     private var input  : AVAssetWriterInput?
@@ -131,17 +133,23 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             // ALWAYS clear the flag on failure
             q.async { self.isStarting = false }
 
-            // transient “no display” → retry
-            if attempt < maxAttempts, shouldRetry(error) {
-                let delay = Double(attempt)             // 1 s, 2 s, 3 s …
-                dbg("retrying in \(delay)s")
-                q.asyncAfter(deadline: .now() + delay) { [weak self] in
-                    self?.start()                       // sets isStarting again
+            // 🔹 NEW: treat `RecorderError.noDisplay` like any other transient issue
+                let retryable = shouldRetry(error) || (error as? RecorderError) == .noDisplay
+
+                if retryable, attempt < maxAttempts {
+                    let delay = Double(attempt)               // 1 s, 2 s, 3 s …
+                    dbg("retrying in \(delay)s")
+                    q.asyncAfter(deadline: .now() + delay) { [weak self] in self?.start() }
+                } else {
+                    // ✱ FINAL failure: reflect truth in global state
+                    Task { @MainActor in self.forceStopFlag() }
                 }
-            }
         }
     }
-
+    @MainActor
+    private func forceStopFlag() {
+        AppState.shared.isRecording = false
+    }
 
     @MainActor
     private func startStream(filter: SCContentFilter, config: SCStreamConfiguration) async throws {
@@ -204,7 +212,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         // as failed / empty.
         guard frames > 0 else {
             w.cancelWriting()
-            StorageManager.shared.markChunkFailed(url: url)      // or “skipped”
+            StorageManager.shared.markChunkFailed(url: url)      // or "skipped"
             return reset()
         }
         // ─────────────────────────────────────────────────────────────────
@@ -239,6 +247,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     // MARK: sample‑buffer handling ---------------------------------------
     func stream(_ s: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, CMSampleBufferDataIsReady(sb), isComplete(sb) else { return }
+        if let pb = CMSampleBufferGetImageBuffer(sb) {
+            overlayClock(on: pb)          // ← inject the clock into this frame
+        }
         if writer == nil { beginSegment() }
         guard let w = writer, let inp = input else { return }
 
@@ -300,5 +311,54 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
               let raw = arr.first?[SCStreamFrameInfo.status] as? Int,
               let status = SCFrameStatus(rawValue: raw) else { return false }
         return status == .complete
+    }
+    
+    private func overlayClock(on pb: CVPixelBuffer) {
+        CVPixelBufferLockBaseAddress(pb, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
+
+        guard let base = CVPixelBufferGetBaseAddress(pb) else { return }
+
+        let w = CVPixelBufferGetWidth(pb)
+        let h = CVPixelBufferGetHeight(pb)
+        let bpr = CVPixelBufferGetBytesPerRow(pb)
+
+        guard let ctx = CGContext(data: base,
+                                  width: w,
+                                  height: h,
+                                  bitsPerComponent: 8,
+                                  bytesPerRow: bpr,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue)
+        else { return }
+
+        // ---- draw black box ----
+        let padding: CGFloat = 12
+        let fontSize: CGFloat = 36
+
+        let fmt = DateFormatter()
+        fmt.dateFormat = "h:mm a"
+        let text = fmt.string(from: Date())
+
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: CTFontCreateWithName("Menlo" as CFString, fontSize, nil),
+            .foregroundColor: CGColor(red: 1, green: 0, blue: 0, alpha: 1) // red
+        ]
+        let line   = CTLineCreateWithAttributedString(NSAttributedString(string: text,
+                                                                         attributes: attrs))
+        let bounds = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+
+        let boxW = bounds.width  + padding * 2
+        let boxH = bounds.height + padding * 2
+        let originX = CGFloat(w) - boxW
+        let originY = CGFloat(h) - boxH
+
+        ctx.setFillColor(CGColor(gray: 0, alpha: 1))           // black
+        ctx.fill(CGRect(x: originX, y: originY,
+                        width: boxW,  height: boxH))
+
+        ctx.textPosition = CGPoint(x: originX + padding,
+                                   y: originY + padding - bounds.minY)
+        CTLineDraw(line, ctx)
     }
 }

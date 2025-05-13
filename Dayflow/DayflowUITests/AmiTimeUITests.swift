@@ -1,13 +1,13 @@
 //
-//  AmiTimeUITests.swift
-//  AmiTimeUITests
+//  DayflowUITests.swift
+//  DayflowUITests
 //
 //  Created by Jerry Liu on 4/20/25.
 //
 
 import XCTest
 
-final class AmiTimeUITests: XCTestCase {
+final class DayflowUITests: XCTestCase {
 
     override func setUpWithError() throws {
         // Put setup code here. This method is called before the invocation of each test method in the class.
