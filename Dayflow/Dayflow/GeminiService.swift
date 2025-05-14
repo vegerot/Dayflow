@@ -84,7 +84,7 @@ final class GeminiService: GeminiServicing {
     private let genEndpoint  = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent"
     private let fileEndpoint = "https://generativelanguage.googleapis.com/upload/v1beta/files"
 
-    private let apiKeyKey = "AIzaSyBdPY2tes0GSNlOj5ks49T2SMwXbs9BpsI"
+    private let apiKeyKey = "AIzaSyCwblI-EMEw7UAWwdhjklc1eVE_87AHLpE"
     private let userDefaults = UserDefaults.standard
     private let queue = DispatchQueue(label: "com.dayflow.gemini", qos: .utility)
 
@@ -112,10 +112,99 @@ final class GeminiService: GeminiServicing {
                 let mime = self.mimeType(for: stitched) ?? "video/mp4"
                 let (fileName, fileURI) = try self.uploadAndAwait(stitched, mimeType: mime, key: key)
 
+                // --- Prepare previous segments ---
+                let todayString = self.getCurrentDayStringFor4AMBoundary()
+                let previousCards = StorageManager.shared.fetchTimelineCards(forDay: todayString)
+                var previousSegmentsJSONString = "No previous segments for today."
+
+                if !previousCards.isEmpty {
+                    let encoder = JSONEncoder()
+                    encoder.outputFormatting = .prettyPrinted // Optional: for better readability in the prompt
+                    if let jsonData = try? encoder.encode(previousCards) {
+                        if let jsonString = String(data: jsonData, encoding: .utf8) {
+                            previousSegmentsJSONString = jsonString
+                        } else {
+                            print("Error: Could not convert previous segments jsonData to string.")
+                        }
+                    } else {
+                        print("Error: Could not encode previous segments to JSON data.")
+                    }
+                }
+                // --- End prepare previous segments ---
 
                 // 3. generateContent -------------------------------------------------
-                let prompt = "Analyze this screen recording. Return a JSON array where each object represents an activity with the following fields in this order: 'startTime' (string), 'endTime' (string), 'category' (string), 'subcategory' (string), 'title' (string), 'summary' (string), 'detailedSummary' (string), and an optional 'distractions' array. Each object in the 'distractions' array, if present, should have these fields in order: 'startTime' (string), 'endTime' (string), 'title' (string), and 'summary' (string). Adhere strictly to this schema and property ordering."
+                // --- Load and format user-preferred taxonomy from UserDefaults ---
+                var formattedUserTaxonomy = "No custom taxonomy provided by user."
+                let taxonomyKey = "userDefinedTaxonomyJSON" // Key for UserDefaults
 
+                if let taxonomyJSONString = self.userDefaults.string(forKey: taxonomyKey), !taxonomyJSONString.isEmpty {
+                    if let jsonData = taxonomyJSONString.data(using: .utf8) {
+                        do {
+                            if let taxonomyDict = try JSONSerialization.jsonObject(with: jsonData, options: []) as? [String: [String]] {
+                                var tempFormattedTaxonomy = ""
+                                for (category, subcategories) in taxonomyDict.sorted(by: { $0.key < $1.key }) {
+                                    tempFormattedTaxonomy += "\\(category):\\n"
+                                    for subcategory in subcategories.sorted() {
+                                        tempFormattedTaxonomy += "  - \\(subcategory)\\n"
+                                    }
+                                }
+                                if !tempFormattedTaxonomy.isEmpty {
+                                    formattedUserTaxonomy = tempFormattedTaxonomy.trimmingCharacters(in: .whitespacesAndNewlines)
+                                } else {
+                                    print("Warning: Parsed taxonomy dictionary was empty.")
+                                }
+                            } else {
+                                print("Error: Could not cast parsed taxonomy JSON to [String: [String]]. JSON: \\(taxonomyJSONString)")
+                            }
+                        } catch {
+                            print("Error parsing userDefinedTaxonomyJSON from UserDefaults: \\(error.localizedDescription). JSON: \\(taxonomyJSONString)")
+                        }
+                    } else {
+                         print("Error: Could not convert taxonomyJSONString to data. JSON: \\(taxonomyJSONString)")
+                    }
+                } else {
+                    print("No userDefinedTaxonomyJSON found in UserDefaults or it is empty.")
+                }
+                // --- End load and format user-preferred taxonomy ---
+                
+                let prompt = """
+                You are Dayflow, an AI that converts screen recordings into a JSON timeline.
+                –––––  OUTPUT  –––––
+                Return only a JSON array of segments, each with:
+                startTime (must be in clock time eg 11:30 AM)
+                endTime
+                category
+                subcategory
+                title  (max 3 words, should be 1-2 usually. Something like Coding or Twitter so the user has a quick high level understanding, more precise than subcategory)
+                summary (1-2 sentences concise narration of what the user did, think diary entry from the user perspective)
+                detailed summary (longer factual description used only as context for future analysis)
+                distractions (optional array of {startTime, endTime, title, summary})
+                –––––  CORE RULES  –––––
+                Clock at top‑right is the only time source. Ignore video timecodes.
+                Create a new segment only when a primary activity lasts ≥ 5 min.
+                Sub‑5 min detours → put in distractions.
+                Segments must not overlap but there may be gaps in the recording when looking at the system time
+                since the user may have slept their computer. In that case you should break up the segment.
+                Always try to adhere and use the user provided categories and subcategories wherever possible. If user taxonomy doesn't fit, try to adhere to the taxonomy in the previous segments However, if the segment doesn't fit any of these, try to go with broad categories/subcategories. Some examples for reference Productive Work: [Coding, Writing, Design, Data Analysis, Project Management] Communication & Collaboration: [Email, Meetings, Slack] Distractions [Twitter, Social Media, Texting] Idle: [Idle]
+                Try not to exceed 5 subcategories.
+                Sometimes, users will be idle, in other words nothing will happen on the screen for 5+ minutes. we should create a new segment and label it Idle - Idle in that case.
+                –––––  SCATTERED‑ACTIVITY RULE  –––––
+                For any 5 + min window of rapid switching:
+                • If one activity recurs most, make it the segment; others → distractions.
+                –––––  DISTRACTION DETAILS  –––––
+                Log any digression ≥ 15 s and < 5 min. Ignore 1‑second flicks.
+                –––––  CONTINUITY  –––––
+                Examine the most recent previous Segment carefully. More likely than not, the first segment of this video analysis is a continuation of the previous segment. In that case, you should do your best to combine the two segments into one. For example, if the most recent previous segment was Work/Coding from 11:00 AM to 12:00 PM, and the first 5 minutes of this video is Work/Coding, you should combine it into one segment Work/Coding 11:00 AM to 12:05 PM
+                You also must output all the previous segments provided. The only previous segment you should make changes to is potentially the last one for the reasons listed above.
+                
+                ––––– USER PREFERRED TAXONOMY –––––
+                Remember to adhere to these user provided categories/subcategories wherever possible.
+                \(formattedUserTaxonomy)
+                
+                ----- PREVIOUS SEGMENTS -----
+                \(previousSegmentsJSONString)
+                """
+                print(prompt)
                 let distractionSchema: [String: Any] = [
                     "type": "OBJECT",
                     "properties": [
@@ -164,13 +253,14 @@ final class GeminiService: GeminiServicing {
                         ]
                     ]],
                     "generationConfig": [
-                        "temperature": 0.2,
+                        "temperature": 1,
                         "maxOutputTokens": 65536,
                         "responseMimeType": "application/json",
                         "responseSchema": responseSchemaForApi,
                         "thinkingConfig": [
                             "thinkingBudget": 24576
-                        ]
+                        ],
+                        "mediaResolution": "MEDIA_RESOLUTION_HIGH"
                     ]
                 ]
                 let jsonData = try JSONSerialization.data(withJSONObject: body)
@@ -319,6 +409,30 @@ curl \"\(comps.url!.absoluteString)\" \
         let path = FileManager.default.temporaryDirectory.appendingPathComponent("gemini_batch_\(batchId).sh")
         try? script.write(to: path, atomically: true, encoding: .utf8)
         print("📝 curl 👉 \(path.path)")
+    }
+
+    // MARK: – Helper function to get current day string based on 4 AM boundary
+    private func getCurrentDayStringFor4AMBoundary() -> String {
+        let now = Date()
+        var calendar = Calendar.current
+        calendar.timeZone = TimeZone.current // Ensure it uses the local timezone
+
+        // Check if current time is before 4 AM
+        let hour = calendar.component(.hour, from: now)
+        
+        let targetDate: Date
+        if hour < 4 {
+            // If before 4 AM, it's considered part of the previous day's 4AM-4AM cycle
+            targetDate = calendar.date(byAdding: .day, value: -1, to: now)!
+        } else {
+            // If 4 AM or later, it's part of the current day's 4AM-4AM cycle
+            targetDate = now
+        }
+        
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        dateFormatter.timeZone = TimeZone.current // Ensure formatter also uses local timezone
+        return dateFormatter.string(from: targetDate)
     }
 }
 
