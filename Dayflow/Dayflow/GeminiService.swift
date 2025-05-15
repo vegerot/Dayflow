@@ -115,19 +115,20 @@ final class GeminiService: GeminiServicing {
                 // --- Prepare previous segments ---
                 let todayString = self.getCurrentDayStringFor4AMBoundary()
                 let previousCards = StorageManager.shared.fetchTimelineCards(forDay: todayString)
-                var previousSegmentsJSONString = "No previous segments for today."
+                var previousSegmentsJSONString = "No previous segment for today."
 
-                if !previousCards.isEmpty {
+                if let lastCard = previousCards.last {
                     let encoder = JSONEncoder()
                     encoder.outputFormatting = .prettyPrinted // Optional: for better readability in the prompt
-                    if let jsonData = try? encoder.encode(previousCards) {
+                    // Encode only the last card, wrapped in an array as the Gemini prompt expects an array of segments.
+                    if let jsonData = try? encoder.encode([lastCard]) {
                         if let jsonString = String(data: jsonData, encoding: .utf8) {
                             previousSegmentsJSONString = jsonString
                         } else {
-                            print("Error: Could not convert previous segments jsonData to string.")
+                            print("Error: Could not convert the most recent previous segment jsonData to string.")
                         }
                     } else {
-                        print("Error: Could not encode previous segments to JSON data.")
+                        print("Error: Could not encode the most recent previous segment to JSON data.")
                     }
                 }
                 // --- End prepare previous segments ---
@@ -171,8 +172,8 @@ final class GeminiService: GeminiServicing {
                 You are Dayflow, an AI that converts screen recordings into a JSON timeline.
                 –––––  OUTPUT  –––––
                 Return only a JSON array of segments, each with:
-                startTime (must be in clock time eg 11:30 AM)
-                endTime
+                startTimestamp (video timestamp, like 1:32)
+                endTimestamp
                 category
                 subcategory
                 title  (max 3 words, should be 1-2 usually. Something like Coding or Twitter so the user has a quick high level understanding, more precise than subcategory)
@@ -180,29 +181,32 @@ final class GeminiService: GeminiServicing {
                 detailed summary (longer factual description used only as context for future analysis)
                 distractions (optional array of {startTime, endTime, title, summary})
                 –––––  CORE RULES  –––––
-                Clock at top‑right is the only time source. Ignore video timecodes.
-                Create a new segment only when a primary activity lasts ≥ 5 min.
+                Segments should always be 5+ minutes
+                Strongly prioritize keeping all continuous work related to a single project, feature, or overall goal within one segment.
                 Sub‑5 min detours → put in distractions.
-                Segments must not overlap but there may be gaps in the recording when looking at the system time
-                since the user may have slept their computer. In that case you should break up the segment.
-                Always try to adhere and use the user provided categories and subcategories wherever possible. If user taxonomy doesn't fit, try to adhere to the taxonomy in the previous segments However, if the segment doesn't fit any of these, try to go with broad categories/subcategories. Some examples for reference Productive Work: [Coding, Writing, Design, Data Analysis, Project Management] Communication & Collaboration: [Email, Meetings, Slack] Distractions [Twitter, Social Media, Texting] Idle: [Idle]
-                Try not to exceed 5 subcategories.
+                Segments must not overlap.
+                Always try to adhere and use the user provided categories and subcategories wherever possible. If none fit, try adhering to the categories and subcategories in previous segments, which will be provided below. However, if the segment doesn't fit any of the provided taxonomy, or no taxonomy is provided, try to go with broad categories/subcategories. Some examples for reference Productive Work: [Coding, Writing, Design, Data Analysis, Project Management] Communication & Collaboration: [Email, Meetings, Slack] Distractions [Twitter, Social Media, Texting] Idle: [Idle]
+                Try not to exceed 4 subcategories.
                 Sometimes, users will be idle, in other words nothing will happen on the screen for 5+ minutes. we should create a new segment and label it Idle - Idle in that case.
                 –––––  SCATTERED‑ACTIVITY RULE  –––––
                 For any 5 + min window of rapid switching:
                 • If one activity recurs most, make it the segment; others → distractions.
                 –––––  DISTRACTION DETAILS  –––––
-                Log any digression ≥ 15 s and < 5 min. Ignore 1‑second flicks.
+                Log any distraction ≥ 30 s and < 5 min. do not log distractions that are shorter than 30s
                 –––––  CONTINUITY  –––––
-                Examine the most recent previous Segment carefully. More likely than not, the first segment of this video analysis is a continuation of the previous segment. In that case, you should do your best to combine the two segments into one. For example, if the most recent previous segment was Work/Coding from 11:00 AM to 12:00 PM, and the first 5 minutes of this video is Work/Coding, you should combine it into one segment Work/Coding 11:00 AM to 12:05 PM
-                You also must output all the previous segments provided. The only previous segment you should make changes to is potentially the last one for the reasons listed above.
-                
-                ––––– USER PREFERRED TAXONOMY –––––
+                Examine the most recent previous Segment carefully. More likely than not, the first segment of this video analysis is a continuation of the previous segment. In that case, you should do your best to use the same category/subcategory.
+                –––––  USER PREFERRED TAXONOMY  –––––
                 Remember to adhere to these user provided categories/subcategories wherever possible.
                 \(formattedUserTaxonomy)
                 
                 ----- PREVIOUS SEGMENTS -----
                 \(previousSegmentsJSONString)
+
+                ----- Thinking Instructions/Plan you should always adhere to ------
+                First create a high level description of everything the user did using timestamps. Remember that timestamps are in this format MM:SS. so 0:00 to 5:00 is 5 minutes.
+                Now you should have around 15 minutes of screentime to review.
+                Then, using the instructions above try to group the screentime into larger 5+ minute segments.
+                At the end of your thinking, you should have about 15 minute's worth of segments and each segment should be 5+ minutes long. Unless absolutely necessary, have only one segment. Distractions should be >30s long. At the end of your thinking, reflect rigorously on whether you have met these guidelines and make corrections if you need before outputting the final answer.
                 """
                 print(prompt)
                 let distractionSchema: [String: Any] = [
@@ -253,14 +257,13 @@ final class GeminiService: GeminiServicing {
                         ]
                     ]],
                     "generationConfig": [
-                        "temperature": 1,
+                        "temperature": 0,
                         "maxOutputTokens": 65536,
                         "responseMimeType": "application/json",
                         "responseSchema": responseSchemaForApi,
                         "thinkingConfig": [
                             "thinkingBudget": 24576
-                        ],
-                        "mediaResolution": "MEDIA_RESOLUTION_HIGH"
+                        ]
                     ]
                 ]
                 let jsonData = try JSONSerialization.data(withJSONObject: body)

@@ -193,22 +193,68 @@ final class GeminiAnalysisManager: AnalysisManaging {
         return store.fetchUnprocessedChunks(olderThan: oldest)
     }
 
-    private func createBatches(from chunks: [RecordingChunk]) -> [AnalysisBatch] {
-        let ordered = chunks.sorted { $0.startTs < $1.startTs }
-        var out: [AnalysisBatch] = []
-        var bucket: [RecordingChunk] = []; var dur: TimeInterval = 0
+    // MARK: – Batching logic -----------------------------------------------------
 
-        for ch in ordered {
-            bucket.append(ch); dur += ch.duration
-            if dur >= targetBatchDuration {
-                out.append(AnalysisBatch(chunks: bucket,
-                                         start: bucket.first!.startTs,
-                                         end:   bucket.last!.endTs))
-                bucket.removeAll(); dur = 0
-            }
+private func createBatches(from chunks: [RecordingChunk]) -> [AnalysisBatch] {
+    guard !chunks.isEmpty else { return [] }
+
+    let ordered = chunks.sorted { $0.startTs < $1.startTs }
+    let maxGap: TimeInterval        = 120             // ≤ 2 min between chunks
+    let maxBatchDuration: TimeInterval = targetBatchDuration // 900 s (15 min)
+
+    var batches: [AnalysisBatch] = []
+
+    var bucket: [RecordingChunk]   = []
+    var bucketDur: TimeInterval    = 0                // sum of 15‑s chunks
+
+    for chunk in ordered {
+        if bucket.isEmpty {
+            bucket.append(chunk)
+            bucketDur = chunk.duration                // first chunk → 15 s
+            continue
         }
-        return out
+
+        let prev       = bucket.last!
+        let gap        = TimeInterval(chunk.startTs - prev.endTs)
+        let wouldBurst = bucketDur + chunk.duration > maxBatchDuration
+
+        if gap > maxGap || wouldBurst {
+            // close current batch
+            batches.append(
+                AnalysisBatch(chunks: bucket,
+                              start: bucket.first!.startTs,
+                              end:   bucket.last!.endTs)
+            )
+            // start new bucket with this chunk
+            bucket      = [chunk]
+            bucketDur   = chunk.duration
+        } else {
+            // still in same batch
+            bucket.append(chunk)
+            bucketDur += chunk.duration
+        }
     }
+
+    // Flush any leftover bucket
+    if !bucket.isEmpty {
+        batches.append(
+            AnalysisBatch(chunks: bucket,
+                          start: bucket.first!.startTs,
+                          end:   bucket.last!.endTs)
+        )
+    }
+
+    // ─── Special rule: drop the *most‑recent* batch if < 15 min ───
+    if let last = batches.last {
+        let dur = last.chunks.reduce(0) { $0 + $1.duration }   // sum of 15‑s chunks
+        if dur < maxBatchDuration {
+            batches.removeLast()
+        }
+    }
+
+    return batches
+}
+
 
     private func saveBatch(_ batch: AnalysisBatch) -> Int64? {
         let ids = batch.chunks.map { $0.id }
