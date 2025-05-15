@@ -87,11 +87,34 @@ final class GeminiAnalysisManager: AnalysisManaging {
     // MARK: – Gemini kick‑off ----------------------------------------------
 
     private func queueGeminiRequest(batchId: Int64) {
-        updateBatchStatus(batchId: batchId, status: "processing")
+        let chunksInBatch = StorageManager.shared.chunksForBatch(batchId)
 
-        // Define an ISO8601DateFormatter for parsing timestamps from Gemini -- REMOVED as format is 'hh:mm AM/PM'
-        // let isoFormatter = ISO8601DateFormatter()
-        // isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds, .withTimeZone]
+        if chunksInBatch.isEmpty {
+            print("Warning: Batch \(batchId) has no chunks. Marking as 'failed_empty'.")
+            self.updateBatchStatus(batchId: batchId, status: "failed_empty")
+            // Consider if self.markBatchFailed should also be called here with a reason, e.g.:
+            // self.markBatchFailed(batchId: batchId, reason: "Batch contains no video chunks")
+            return
+        }
+
+        let totalVideoDurationSeconds = chunksInBatch.reduce(0.0) { acc, chunk -> TimeInterval in
+            // Assuming startTs and endTs are Int representing seconds.
+            let duration = TimeInterval(chunk.endTs - chunk.startTs)
+            return acc + duration
+        }
+
+        let minimumDurationSeconds: TimeInterval = 300.0 // 5 minutes (5 * 60 seconds)
+
+        if totalVideoDurationSeconds < minimumDurationSeconds {
+            print("Batch \(batchId) duration (\(totalVideoDurationSeconds)s) is less than \(minimumDurationSeconds)s. Marking as 'skipped_short'.")
+            self.updateBatchStatus(batchId: batchId, status: "skipped_short")
+            // Optionally, if 'skipped_short' should also have a reason in the 'reason' column:
+            // self.markBatchFailed(batchId: batchId, reason: "Video duration less than 5 minutes")
+            return
+        }
+
+        // If all checks pass, then update status to processing and proceed
+        updateBatchStatus(batchId: batchId, status: "processing")
 
         geminiService.processBatch(batchId) { [weak self] result in
             guard let self else { return }
