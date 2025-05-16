@@ -90,7 +90,8 @@ protocol StorageManaging: Sendable {
 // MARK: - Data Structures -----------------------------------------------------
 
 // Re-add Distraction struct, as it's used by TimelineCard
-struct Distraction: Codable, Sendable {
+struct Distraction: Codable, Sendable, Identifiable {
+    let id = UUID()
     let startTime: String
     let endTime: String
     let title: String

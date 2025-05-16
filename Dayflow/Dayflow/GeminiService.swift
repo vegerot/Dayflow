@@ -205,14 +205,14 @@ final class GeminiService: GeminiServicing {
                 }
                 
                 print("User Taxonomy: \(formattedUserTaxonomy)")
-                print("Extracted Taxonomy: \(formattedExtractedTaxonomy)")
+                print("System generated Taxonomy: \(formattedExtractedTaxonomy)")
                 // --- End load and format taxonomies ---
                 
                 let prompt = """
                 You are Dayflow, an AI that converts screen recordings into a JSON timeline.
                 –––––  OUTPUT  –––––
                 Return only a JSON array of segments, each with:
-                startTimestamp (video timestamp, like 1:32)
+                startTimestamp (video timestamp, like 1:32, NEVER reference the system clock time like 3:23PM)
                 endTimestamp
                 category
                 subcategory
@@ -239,17 +239,17 @@ final class GeminiService: GeminiServicing {
                 Remember to adhere to these user provided categories/subcategories wherever possible.
                 \(formattedUserTaxonomy)
                 
-                –––––  PREVIOUSLY EXTRACTED TAXONOMY  –––––
+                –––––  SYSTEM GENERATED TAXONOMY  –––––
                 If the user taxonomy doesn't fit, try to use these categories/subcategories extracted from previous segments.
                 \(formattedExtractedTaxonomy)
                 
-                ----- PREVIOUS SEGMENTS -----
+                ----- PREVIOUS SEGMENT -----
                 \(previousSegmentsJSONString)
 
                 ----- Thinking Instructions/Plan you should always adhere to ------
                 First create a high level description of everything the user did using timestamps. Remember that timestamps are in this format MM:SS. so 0:00 to 5:00 is 5 minutes.
                 Then, using the instructions above try to group the screentime into larger 5+ minute segments.
-                At the end of your thinking, you should have about 15 minute's worth of segments and each segment should be 5+ minutes long. Unless absolutely necessary, have only one segment. Distractions should be >30s long. At the end of your thinking, reflect rigorously on whether you have met these guidelines and make corrections if you need before outputting the final answer.
+                At the end of your thinking each segment should be 5+ minutes long. Do your best to minimize the amount of segments if at all possible. Distractions should be >30s long. At the end of your thinking, reflect rigorously on whether you have met these guidelines and make corrections if you need before outputting the final answer.
                 """
                 
                 // New variables for retry logic
@@ -528,7 +528,7 @@ curl \"\(comps.url!.absoluteString)\" \
         
         \(output)
         
-        Reflect on whether the output satisfies the requirements in the prompt. If it does, return "pass". If it does not, return "fail".
+        Reflect on whether the output satisfies 1. each segment is 5+ minutes long. 2. segments  If it does, return "pass". If it does not, return "fail".
         """
         
         print("🔍 Validating Gemini output...")
