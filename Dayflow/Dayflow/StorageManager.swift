@@ -79,7 +79,6 @@ protocol StorageManaging: Sendable {
 
     // Timeline‑cards
     func saveTimelineCards(batchId: Int64, cards: [TimelineCard])
-    func deleteTimelineCards(forDay day: String)
 
     // Helper for GeminiService – map file paths → timestamps
     func getTimestampsForVideoFiles(paths: [String]) -> [String: (startTs: Int, endTs: Int)]
@@ -96,6 +95,7 @@ struct Distraction: Codable, Sendable {
     let endTime: String
     let title: String
     let summary: String
+    let videoSummaryURL: String? // Optional link to video summary for the distraction
 }
 
 struct TimelineCard: Codable, Sendable, Identifiable {
@@ -109,6 +109,7 @@ struct TimelineCard: Codable, Sendable, Identifiable {
     let detailedSummary: String
     let day: String
     let distractions: [Distraction]?
+    let videoSummaryURL: String? // Optional link to video summary
 }
 
 // MARK: - Implementation ------------------------------------------------------
@@ -180,6 +181,7 @@ final class StorageManager: StorageManaging {
                     subcategory TEXT,
                     detailed_summary TEXT,
                     metadata    TEXT, -- For distractions JSON
+                    video_summary_url TEXT, -- Link to video summary on filesystem
                     created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                  CREATE INDEX IF NOT EXISTS idx_timeline_cards_day ON timeline_cards(day);
@@ -275,21 +277,15 @@ final class StorageManager: StorageManaging {
                 try db.execute(sql: """
                     INSERT INTO timeline_cards(
                         batch_id, start, end, day, title, -- Renamed start_ts, end_ts
-                        summary, category, subcategory, detailed_summary, metadata
+                        summary, category, subcategory, detailed_summary, metadata, video_summary_url
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [
                     batchId, c.startTimestamp, c.endTimestamp, c.day, c.title,
                     c.summary,
-                    c.category, c.subcategory, c.detailedSummary, metadataString
+                    c.category, c.subcategory, c.detailedSummary, metadataString, c.videoSummaryURL
                 ])
             }
-        }
-    }
-
-    func deleteTimelineCards(forDay day: String) {
-        try? db.write {
-            try $0.execute(sql: "DELETE FROM timeline_cards WHERE day = ?", arguments: [day])
         }
     }
 
@@ -368,7 +364,8 @@ final class StorageManager: StorageManaging {
                     summary: row["summary"],
                     detailedSummary: row["detailed_summary"],
                     day: row["day"],
-                    distractions: distractions
+                    distractions: distractions,
+                    videoSummaryURL: row["video_summary_url"]
                 )
             }
         }

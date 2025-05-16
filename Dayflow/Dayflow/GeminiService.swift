@@ -136,23 +136,30 @@ final class GeminiService: GeminiServicing {
                 // 3. generateContent -------------------------------------------------
                 // --- Load and format user-preferred taxonomy from UserDefaults ---
                 var formattedUserTaxonomy = "No custom taxonomy provided by user."
+                var formattedExtractedTaxonomy = "No previous taxonomy found."
                 let taxonomyKey = "userDefinedTaxonomyJSON" // Key for UserDefaults
 
+                // First, parse the user-defined taxonomy
+                var userTaxonomyDict: [String: Set<String>] = [:]
                 if let taxonomyJSONString = self.userDefaults.string(forKey: taxonomyKey), !taxonomyJSONString.isEmpty {
                     if let jsonData = taxonomyJSONString.data(using: .utf8) {
                         do {
-                            if let taxonomyDict = try JSONSerialization.jsonObject(with: jsonData, options: []) as? [String: [String]] {
+                            if let parsedDict = try JSONSerialization.jsonObject(with: jsonData, options: []) as? [String: [String]] {
+                                // Convert arrays to sets for faster lookups
+                                for (category, subcategories) in parsedDict {
+                                    userTaxonomyDict[category] = Set(subcategories)
+                                }
+                                
                                 var tempFormattedTaxonomy = ""
-                                for (category, subcategories) in taxonomyDict.sorted(by: { $0.key < $1.key }) {
-                                    tempFormattedTaxonomy += "\\(category):\\n"
-                                    for subcategory in subcategories.sorted() {
-                                        tempFormattedTaxonomy += "  - \\(subcategory)\\n"
-                                    }
+                                for (category, subcategories) in parsedDict.sorted(by: { $0.key < $1.key }) {
+                                    // Format subcategories as a JSON-style array with quotes
+                                    let subcategoriesFormatted = subcategories.sorted().map { "\"\($0)\"" }.joined(separator: ", ")
+                                    tempFormattedTaxonomy += "\(category): [\(subcategoriesFormatted)]\n"
                                 }
                                 if !tempFormattedTaxonomy.isEmpty {
                                     formattedUserTaxonomy = tempFormattedTaxonomy.trimmingCharacters(in: .whitespacesAndNewlines)
                                 } else {
-                                    print("Warning: Parsed taxonomy dictionary was empty.")
+                                    print("Warning: Parsed user taxonomy dictionary was empty.")
                                 }
                             } else {
                                 print("Error: Could not cast parsed taxonomy JSON to [String: [String]]. JSON: \\(taxonomyJSONString)")
@@ -166,7 +173,40 @@ final class GeminiService: GeminiServicing {
                 } else {
                     print("No userDefinedTaxonomyJSON found in UserDefaults or it is empty.")
                 }
-                // --- End load and format user-preferred taxonomy ---
+                
+                // Next, extract taxonomy from previous timeline cards
+                var extractedTaxonomyDict: [String: Set<String>] = [:]
+                if !previousCards.isEmpty {
+                    for card in previousCards {
+                        let category = card.category
+                        let subcategory = card.subcategory
+                        
+                        // Only add if this category/subcategory pair isn't in the user taxonomy
+                        if userTaxonomyDict[category]?.contains(subcategory) != true {
+                            // Initialize the set if needed
+                            if extractedTaxonomyDict[category] == nil {
+                                extractedTaxonomyDict[category] = []
+                            }
+                            extractedTaxonomyDict[category]?.insert(subcategory)
+                        }
+                    }
+                    
+                    // Format the extracted taxonomy
+                    if !extractedTaxonomyDict.isEmpty {
+                        var tempFormattedTaxonomy = ""
+                        for (category, subcategories) in extractedTaxonomyDict.sorted(by: { $0.key < $1.key }) {
+                            let subcategoriesFormatted = Array(subcategories).sorted().map { "\"\($0)\"" }.joined(separator: ", ")
+                            tempFormattedTaxonomy += "\(category): [\(subcategoriesFormatted)]\n"
+                        }
+                        if !tempFormattedTaxonomy.isEmpty {
+                            formattedExtractedTaxonomy = tempFormattedTaxonomy.trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
+                    }
+                }
+                
+                print("User Taxonomy: \(formattedUserTaxonomy)")
+                print("Extracted Taxonomy: \(formattedExtractedTaxonomy)")
+                // --- End load and format taxonomies ---
                 
                 let prompt = """
                 You are Dayflow, an AI that converts screen recordings into a JSON timeline.
@@ -183,132 +223,173 @@ final class GeminiService: GeminiServicing {
                 –––––  CORE RULES  –––––
                 Segments should always be 5+ minutes
                 Strongly prioritize keeping all continuous work related to a single project, feature, or overall goal within one segment.
-                Sub‑5 min detours → put in distractions.
+                Sub‑5 min detours → put in distractions.
                 Segments must not overlap.
-                Always try to adhere and use the user provided categories and subcategories wherever possible. If none fit, try adhering to the categories and subcategories in previous segments, which will be provided below. However, if the segment doesn't fit any of the provided taxonomy, or no taxonomy is provided, try to go with broad categories/subcategories. Some examples for reference Productive Work: [Coding, Writing, Design, Data Analysis, Project Management] Communication & Collaboration: [Email, Meetings, Slack] Distractions [Twitter, Social Media, Texting] Idle: [Idle]
+                Always try to adhere and use the user provided categories and subcategories wherever possible. If none fit, try adhering to the previously extracted taxonomy, which will be provided below. However, if the segment doesn't fit any of the provided taxonomy, or no taxonomy is provided, try to go with broad categories/subcategories. Some examples for reference Productive Work: [Coding, Writing, Design, Data Analysis, Project Management] Communication & Collaboration: [Email, Meetings, Slack] Distractions [Twitter, Social Media, Texting] Idle: [Idle]
                 Try not to exceed 4 subcategories.
                 Sometimes, users will be idle, in other words nothing will happen on the screen for 5+ minutes. we should create a new segment and label it Idle - Idle in that case.
                 –––––  SCATTERED‑ACTIVITY RULE  –––––
-                For any 5 + min window of rapid switching:
+                For any 5 + min window of rapid switching:
                 • If one activity recurs most, make it the segment; others → distractions.
                 –––––  DISTRACTION DETAILS  –––––
-                Log any distraction ≥ 30 s and < 5 min. do not log distractions that are shorter than 30s
+                Log any distraction ≥ 30 s and < 5 min. do not log distractions that are shorter than 30s
                 –––––  CONTINUITY  –––––
                 Examine the most recent previous Segment carefully. More likely than not, the first segment of this video analysis is a continuation of the previous segment. In that case, you should do your best to use the same category/subcategory.
                 –––––  USER PREFERRED TAXONOMY  –––––
                 Remember to adhere to these user provided categories/subcategories wherever possible.
                 \(formattedUserTaxonomy)
                 
+                –––––  PREVIOUSLY EXTRACTED TAXONOMY  –––––
+                If the user taxonomy doesn't fit, try to use these categories/subcategories extracted from previous segments.
+                \(formattedExtractedTaxonomy)
+                
                 ----- PREVIOUS SEGMENTS -----
                 \(previousSegmentsJSONString)
 
                 ----- Thinking Instructions/Plan you should always adhere to ------
                 First create a high level description of everything the user did using timestamps. Remember that timestamps are in this format MM:SS. so 0:00 to 5:00 is 5 minutes.
-                Now you should have around 15 minutes of screentime to review.
                 Then, using the instructions above try to group the screentime into larger 5+ minute segments.
                 At the end of your thinking, you should have about 15 minute's worth of segments and each segment should be 5+ minutes long. Unless absolutely necessary, have only one segment. Distractions should be >30s long. At the end of your thinking, reflect rigorously on whether you have met these guidelines and make corrections if you need before outputting the final answer.
                 """
-                print(prompt)
-                let distractionSchema: [String: Any] = [
-                    "type": "OBJECT",
-                    "properties": [
-                        "startTime": ["type": "STRING"],
-                        "endTime": ["type": "STRING"],
-                        "title": ["type": "STRING"],
-                        "summary": ["type": "STRING"]
-                    ],
-                    "required": ["startTime", "endTime", "title", "summary"],
-                    "propertyOrdering": ["startTime", "endTime", "title", "summary"]
-                ]
+                
+                // New variables for retry logic
+                var attempts = 0
+                var maxAttempts = 3  // Original attempt + 2 retries
+                var finalDecodedCards: [ActivityCard]? = nil
+                
+                // Start retry loop
+                while attempts < maxAttempts && finalDecodedCards == nil {
+                    attempts += 1
+                    print("📝 Processing batch \(batchId): Attempt \(attempts) of \(maxAttempts)")
+                    
+                    let distractionSchema: [String: Any] = [
+                        "type": "OBJECT",
+                        "properties": [
+                            "startTime": ["type": "STRING"],
+                            "endTime": ["type": "STRING"],
+                            "title": ["type": "STRING"],
+                            "summary": ["type": "STRING"]
+                        ],
+                        "required": ["startTime", "endTime", "title", "summary"],
+                        "propertyOrdering": ["startTime", "endTime", "title", "summary"]
+                    ]
 
-                let activityCardSchema: [String: Any] = [
-                    "type": "OBJECT",
-                    "properties": [
-                        "startTime": ["type": "STRING"],
-                        "endTime": ["type": "STRING"],
-                        "category": ["type": "STRING"],
-                        "subcategory": ["type": "STRING"],
-                        "title": ["type": "STRING"],
-                        "summary": ["type": "STRING"],
-                        "detailedSummary": ["type": "STRING"],
-                        "distractions": [
-                            "type": "ARRAY",
-                            "items": distractionSchema,
-                            "nullable": true
-                        ]
-                    ],
-                    "required": ["startTime", "endTime", "category", "subcategory", "title", "summary", "detailedSummary"],
-                    "propertyOrdering": ["startTime", "endTime", "category", "subcategory", "title", "summary", "detailedSummary", "distractions"]
-                ]
+                    let activityCardSchema: [String: Any] = [
+                        "type": "OBJECT",
+                        "properties": [
+                            "startTime": ["type": "STRING"],
+                            "endTime": ["type": "STRING"],
+                            "category": ["type": "STRING"],
+                            "subcategory": ["type": "STRING"],
+                            "title": ["type": "STRING"],
+                            "summary": ["type": "STRING"],
+                            "detailedSummary": ["type": "STRING"],
+                            "distractions": [
+                                "type": "ARRAY",
+                                "items": distractionSchema,
+                                "nullable": true
+                            ]
+                        ],
+                        "required": ["startTime", "endTime", "category", "subcategory", "title", "summary", "detailedSummary"],
+                        "propertyOrdering": ["startTime", "endTime", "category", "subcategory", "title", "summary", "detailedSummary", "distractions"]
+                    ]
 
-                let responseSchemaForApi: [String: Any] = [
-                    "type": "ARRAY",
-                    "items": activityCardSchema
-                ]
+                    let responseSchemaForApi: [String: Any] = [
+                        "type": "ARRAY",
+                        "items": activityCardSchema
+                    ]
 
-                let body: [String: Any] = [
-                    "contents": [[
-                        "parts": [
-                            ["file_data": [
-                                "mime_type": mime,
-                                "file_uri": fileURI
-                            ]],
-                            ["text": prompt]
-                        ]
-                    ]],
-                    "generationConfig": [
-                        "temperature": 0,
-                        "maxOutputTokens": 65536,
-                        "responseMimeType": "application/json",
-                        "responseSchema": responseSchemaForApi,
-                        "thinkingConfig": [
-                            "thinkingBudget": 24576
+                    let body: [String: Any] = [
+                        "contents": [[
+                            "parts": [
+                                ["file_data": [
+                                    "mime_type": mime,
+                                    "file_uri": fileURI
+                                ]],
+                                ["text": prompt]
+                            ]
+                        ]],
+                        "generationConfig": [
+                            "temperature": 0,
+                            "maxOutputTokens": 65536,
+                            "responseMimeType": "application/json",
+                            "responseSchema": responseSchemaForApi,
+                            "thinkingConfig": [
+                                "thinkingBudget": 24576
+                            ]
                         ]
                     ]
-                ]
-                let jsonData = try JSONSerialization.data(withJSONObject: body)
+                    let jsonData = try JSONSerialization.data(withJSONObject: body)
 
-                // curl dump -------------------------------------------------------
-                self.dumpCurl(batchId: batchId, json: jsonData, key: key)
+                    // curl dump -------------------------------------------------------
+                    self.dumpCurl(batchId: batchId, json: jsonData, key: key)
 
-                // request --------------------------------------------------------
-                var comps = URLComponents(string: self.genEndpoint)!; comps.queryItems = [URLQueryItem(name: "key", value: key)]
-                var req = URLRequest(url: comps.url!);
-                req.httpMethod = "POST"; req.setValue("application/json", forHTTPHeaderField: "Content-Type"); req.httpBody = jsonData; req.timeoutInterval = 300
+                    // request --------------------------------------------------------
+                    var comps = URLComponents(string: self.genEndpoint)!; comps.queryItems = [URLQueryItem(name: "key", value: key)]
+                    var req = URLRequest(url: comps.url!);
+                    req.httpMethod = "POST"; req.setValue("application/json", forHTTPHeaderField: "Content-Type"); req.httpBody = jsonData; req.timeoutInterval = 300
 
-                let (d, r) = try URLSession.shared.syncDataTask(with: req)
-                guard let http = r as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                    let msg = String(data: d ?? Data(), encoding: .utf8) ?? "<no body>"
-                    throw GeminiServiceError.requestFailed(msg)
+                    let (d, r) = try URLSession.shared.syncDataTask(with: req)
+                    guard let http = r as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                        let msg = String(data: d ?? Data(), encoding: .utf8) ?? "<no body>"
+                        throw GeminiServiceError.requestFailed(msg)
+                    }
+                    guard let data = d else { throw GeminiServiceError.invalidResponse }
+                    
+                    // Log the raw response data as a string for debugging
+                    if let responseString = String(data: data, encoding: .utf8) {
+                        print("📄 Raw Gemini Response Data:")
+                        print(responseString)
+                    } else {
+                        print("📄 Could not decode raw Gemini response data as UTF-8.")
+                    }
+
+                    // 1. Decode the top-level API response
+                    let apiResponse = try JSONDecoder().decode(GeminiAPIResponse.self, from: data)
+
+                    // 2. Extract the JSON string from the relevant part
+                    guard let firstCandidate = apiResponse.candidates.first,
+                          let firstPart = firstCandidate.content.parts.first,
+                          let jsonDataString = firstPart.text.data(using: .utf8) else {
+                        throw GeminiServiceError.invalidResponse
+                    }
+                    
+                    // 3. Decode the actual [ActivityCard] array from the extracted string data
+                    let decodedCards = try JSONDecoder().decode([ActivityCard].self, from: jsonDataString)
+                    
+                    // Print the decoded cards for verification
+                    print("✅ Decoded Activity Cards (Attempt \(attempts)):")
+                    print(decodedCards)
+                    
+                    // 4. Validate the response with a second Gemini call
+                    if attempts < maxAttempts { // Only validate if we have retries left
+                        // Convert jsonDataString (Data) to a String before passing to validateGeminiOutput
+                        guard let jsonString = String(data: jsonDataString, encoding: .utf8) else {
+                            print("❌ Could not convert JSON data to string for validation")
+                            continue // Try again in the next iteration
+                        }
+                        
+                        let validationResult = try self.validateGeminiOutput(prompt: prompt, output: jsonString, key: key)
+                        if validationResult.contains("pass") {
+                            print("✅ Validation PASSED for attempt \(attempts)")
+                            finalDecodedCards = decodedCards
+                        } else {
+                            print("❌ Validation FAILED for attempt \(attempts) - will retry")
+                            // Will retry in the next loop iteration
+                        }
+                    } else {
+                        // On the last attempt, use whatever we got
+                        print("⚠️ Final attempt \(attempts) - using result regardless of validation")
+                        finalDecodedCards = decodedCards
+                    }
                 }
-                guard let data = d else { throw GeminiServiceError.invalidResponse }
                 
-                // Log the raw response data as a string for debugging
-                if let responseString = String(data: data, encoding: .utf8) {
-                    print("📄 Raw Gemini Response Data:")
-                    print(responseString)
-                } else {
-                    print("📄 Could not decode raw Gemini response data as UTF-8.")
+                // If we exited the loop without valid cards, throw an error
+                guard let finalCards = finalDecodedCards else {
+                    throw GeminiServiceError.processingFailed("Failed to generate valid output after \(maxAttempts) attempts")
                 }
 
-                // 1. Decode the top-level API response
-                let apiResponse = try JSONDecoder().decode(GeminiAPIResponse.self, from: data)
-
-                // 2. Extract the JSON string from the relevant part
-                guard let firstCandidate = apiResponse.candidates.first,
-                      let firstPart = firstCandidate.content.parts.first,
-                      let jsonDataString = firstPart.text.data(using: .utf8) else {
-                    throw GeminiServiceError.invalidResponse // Or a more specific error
-                }
-                
-                // 3. Decode the actual [ActivityCard] array from the extracted string data
-                let decodedCards = try JSONDecoder().decode([ActivityCard].self, from: jsonDataString)
-                
-                // Print the decoded cards for verification
-                print("✅ Decoded Activity Cards:")
-                print(decodedCards)
-
-                DispatchQueue.main.async { completion(.success(decodedCards)) }
+                DispatchQueue.main.async { completion(.success(finalCards)) }
 
             } catch {
                 DispatchQueue.main.async { completion(.failure(error)) }
@@ -351,8 +432,6 @@ final class GeminiService: GeminiServicing {
                 throw GeminiServiceError.invalidResponse          // malformed JSON
             }
             
-            print("📡 poll JSON →", String(data: bytes, encoding: .utf8) ?? "<non‑utf8>")
-            print("🛰️ state =", newState)
             state = newState          // update loop variable
             
             if state == "ACTIVE" {
@@ -436,6 +515,61 @@ curl \"\(comps.url!.absoluteString)\" \
         dateFormatter.dateFormat = "yyyy-MM-dd"
         dateFormatter.timeZone = TimeZone.current // Ensure formatter also uses local timezone
         return dateFormatter.string(from: targetDate)
+    }
+
+    // Helper function to validate Gemini output
+    private func validateGeminiOutput(prompt: String, output: String, key: String) throws -> String {
+        let validationPrompt = """
+        Given this prompt:
+        
+        \(prompt)
+        
+        And this output:
+        
+        \(output)
+        
+        Reflect on whether the output satisfies the requirements in the prompt. If it does, return "pass". If it does not, return "fail".
+        """
+        
+        print("🔍 Validating Gemini output...")
+        
+        let body: [String: Any] = [
+            "contents": [[
+                "parts": [
+                    ["text": validationPrompt]
+                ]
+            ]],
+            "generationConfig": [
+                "temperature": 0,
+                "maxOutputTokens": 10000,
+                "thinkingConfig": [
+                                "thinkingBudget": 24576
+                            ]
+            ]
+        ]
+        
+        let jsonData = try JSONSerialization.data(withJSONObject: body)
+        var comps = URLComponents(string: self.genEndpoint)!; comps.queryItems = [URLQueryItem(name: "key", value: key)]
+        var req = URLRequest(url: comps.url!);
+        req.httpMethod = "POST"; req.setValue("application/json", forHTTPHeaderField: "Content-Type"); req.httpBody = jsonData; req.timeoutInterval = 60
+        
+        let (d, r) = try URLSession.shared.syncDataTask(with: req)
+        guard let http = r as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let msg = String(data: d ?? Data(), encoding: .utf8) ?? "<no body>"
+            throw GeminiServiceError.requestFailed("Validation request failed: \(msg)")
+        }
+        
+        guard let data = d,
+              let apiResponse = try? JSONDecoder().decode(GeminiAPIResponse.self, from: data),
+              let firstCandidate = apiResponse.candidates.first,
+              let firstPart = firstCandidate.content.parts.first else {
+            throw GeminiServiceError.invalidResponse
+        }
+        
+        let validationResponse = firstPart.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        print("🔍 Validation response: \(validationResponse)")
+        
+        return validationResponse
     }
 }
 

@@ -30,6 +30,5 @@ func parseTimeHMMA(timeString: String) -> Int? {
     // Fallback for times like "11:00 AM" (note the space before AM/PM)
     // This was covered by "h:mm a" and "hh:mm a" but kept for explicitness in thought process
 
-    print("Error: Could not parse time string: \(timeString) with any known format.")
     return nil
 } 

@@ -226,96 +226,6 @@ struct WaitingForDataView: View {
 
 // MARK: – Root view -------------------------------------------------------------
 
-// --- Add Mock Data Generator ---
-func generateMockTimelineCards(forDay day: String) -> [TimelineCard] {
-    var cards: [TimelineCard] = []
-
-    // Card 1: Programming (has distractions, no change needed here for nil)
-    cards.append(TimelineCard(
-        startTimestamp: "9:05 AM",
-        endTimestamp: "10:15 AM",
-        category: "Work",
-        subcategory: "Development",
-        title: "Implement Timeline View",
-        summary: "Refactored ContentView to use real data structure.",
-        detailedSummary: "Replaced Subject struct with CategoryGroup, updated sidebar and canvas, added time parsing.",
-        day: day,
-        distractions: [
-            Distraction(startTime: "9:45 AM", endTime: "9:50 AM", title: "Slack Check", summary: "Quick check of messages")
-        ]
-    ))
-
-    // Card 2: Meeting
-    cards.append(TimelineCard(
-        startTimestamp: "10:30 AM",
-        endTimestamp: "11:00 AM",
-        category: "Poop",
-        subcategory: "Meetings",
-        title: "Daily Standup",
-        summary: "Discussed progress and blockers.",
-        detailedSummary: "Covered timeline refactor status, next steps for data integration.",
-        day: day,
-        distractions: nil as [Distraction]? // Explicitly typed nil
-    ))
-
-    // Card 3: Break
-    cards.append(TimelineCard(
-        startTimestamp: "11:05 AM",
-        endTimestamp: "11:20 AM",
-        category: "Personal",
-        subcategory: "Break",
-        title: "Coffee Break",
-        summary: "Short break.",
-        detailedSummary: "Made coffee and stretched.",
-        day: day,
-        distractions: nil as [Distraction]? // Explicitly typed nil
-    ))
-    
-    // Card 4: More Programming (has distractions, no change needed here for nil)
-    cards.append(TimelineCard(
-        startTimestamp: "11:25 AM",
-        endTimestamp: "1:10 PM", // Crosses midday
-        category: "Work",
-        subcategory: "Development",
-        title: "Debug Layout Issues",
-        summary: "Investigated why cards overlap.",
-        detailedSummary: "Used view debugger, checked offset calculations, tested different zoom levels.",
-        day: day,
-        distractions: [
-             Distraction(startTime: "12:30 PM", endTime: "12:35 PM", title: "Email", summary: "Replied to urgent email"),
-             Distraction(startTime: "12:55 PM", endTime: "1:00 PM", title: "Web Browsing", summary: "Looked up documentation")
-        ]
-    ))
-
-    // Card 5: Lunch
-     cards.append(TimelineCard(
-         startTimestamp: "1:15 PM",
-         endTimestamp: "1:55 PM",
-         category: "Personal",
-         subcategory: "Meals",
-         title: "Lunch Break",
-         summary: "Ate lunch.",
-         detailedSummary: "Had leftovers, watched a short video.",
-         day: day,
-         distractions: nil as [Distraction]? // Explicitly typed nil
-     ))
-
-     // Card 6: Reading
-     cards.append(TimelineCard(
-         startTimestamp: "2:00 PM",
-         endTimestamp: "2:45 PM",
-         category: "Learning",
-         subcategory: "Reading",
-         title: "SwiftUI Documentation",
-         summary: "Read about layout process.",
-         detailedSummary: "Focused on NSViewRepresentable and geometry readers.",
-         day: day,
-         distractions: nil as [Distraction]? // Explicitly typed nil
-     ))
-
-    return cards
-}
-
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var link = ScrollSync()
@@ -397,7 +307,6 @@ struct ContentView: View {
         .onAppear {
             loadTimelineData()
             refreshTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: true) { _ in
-                print("Timer fired: Refreshing timeline data...")
                 loadTimelineData()
             }
         }
@@ -411,7 +320,6 @@ struct ContentView: View {
     func loadTimelineData() {
         let dayInfo = Date().getDayInfoFor4AMBoundary()
         currentDayString = dayInfo.dayString
-        print("Loading timeline data for day: \(currentDayString)")
 
         // --- Use Real Data --- 
         // print("--- USING MOCK DATA FOR TESTING ---")
@@ -419,8 +327,11 @@ struct ContentView: View {
         // --- Switch to real data fetching ---
         let fetchedCards = storageManager.fetchTimelineCards(forDay: currentDayString)
         
+        // Merge timeline segments with small gaps
+        let mergedCards = mergeCardsWithSmallGaps(cards: fetchedCards)
+        
         // Group fetched cards by category (Keep this logic)
-        let grouped = Dictionary(grouping: fetchedCards, by: { $0.category })
+        let grouped = Dictionary(grouping: mergedCards, by: { $0.category })
         
         // Convert grouped dictionary to CategoryGroup array (Keep this logic)
         categoryGroups = grouped.map { category, cardsInGroup in
@@ -435,7 +346,92 @@ struct ContentView: View {
             return CategoryGroup(category: category, cards: sortedCards)
         }.sorted { $0.category < $1.category } // Sort categories alphabetically
         
-        print("Loaded \(categoryGroups.count) categories with a total of \(fetchedCards.count) cards from StorageManager.")
+    }
+    
+    /// Merges timeline cards that have the same category and subcategory with less than 5 minutes gap between them
+    private func mergeCardsWithSmallGaps(cards: [TimelineCard]) -> [TimelineCard] {
+        guard !cards.isEmpty else { return [] }
+        
+        // Sort cards by start time
+        let sortedCards = cards.sorted { card1, card2 -> Bool in
+            guard let startMin1 = parseTimeHMMA(timeString: card1.startTimestamp),
+                  let startMin2 = parseTimeHMMA(timeString: card2.startTimestamp) else {
+                return false
+            }
+            return startMin1 < startMin2
+        }
+        
+        var result: [TimelineCard] = []
+        var currentCard: TimelineCard? = nil
+        
+        for card in sortedCards {
+            if let current = currentCard {
+                // Check if cards should be merged (same category/subcategory and small gap)
+                guard let currentEndMin = parseTimeHMMA(timeString: current.endTimestamp),
+                      let nextStartMin = parseTimeHMMA(timeString: card.startTimestamp) else {
+                    // If we can't parse times, just keep them separate
+                    result.append(current)
+                    currentCard = card
+                    continue
+                }
+                
+                let timeDifference = nextStartMin - currentEndMin
+                let sameCategory = current.category == card.category
+                let sameSubcategory = current.subcategory == card.subcategory
+                
+                if timeDifference <= 5 && sameCategory && sameSubcategory {
+                    // Merge cards
+                    let mergedDistractions = combineDistractions(current.distractions, card.distractions)
+                    
+                    let mergedCard = TimelineCard(
+                        startTimestamp: current.startTimestamp,
+                        endTimestamp: card.endTimestamp,
+                        category: current.category,
+                        subcategory: current.subcategory,
+                        title: current.title, // Keep the first card's title
+                        summary: "\(current.summary) \(card.summary)", // Combine summaries
+                        detailedSummary: "\(current.detailedSummary) Then: \(card.detailedSummary)", // Combined with separator
+                        day: current.day,
+                        distractions: mergedDistractions,
+                        videoSummaryURL: nil
+                    )
+                    currentCard = mergedCard
+                } else {
+                    // Don't merge, add current to results and set current to the next card
+                    result.append(current)
+                    currentCard = card
+                }
+            } else {
+                // First card
+                currentCard = card
+            }
+        }
+        
+        // Don't forget to add the last card if it exists
+        if let lastCard = currentCard {
+            result.append(lastCard)
+        }
+        
+        return result
+    }
+    
+    /// Helper to combine distractions from two cards
+    private func combineDistractions(_ distractions1: [Distraction]?, _ distractions2: [Distraction]?) -> [Distraction]? {
+        // If both are nil, result is nil
+        if distractions1 == nil && distractions2 == nil {
+            return nil
+        }
+        
+        // Start with non-nil array or empty
+        var combined = distractions1 ?? []
+        
+        // Add second array if it exists
+        if let distractions2 = distractions2 {
+            combined.append(contentsOf: distractions2)
+        }
+        
+        // If combined is empty, return nil instead of empty array
+        return combined.isEmpty ? nil : combined
     }
 }
 
