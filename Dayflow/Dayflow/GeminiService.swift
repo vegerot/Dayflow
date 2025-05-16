@@ -84,11 +84,11 @@ final class GeminiService: GeminiServicing {
     private let genEndpoint  = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent"
     private let fileEndpoint = "https://generativelanguage.googleapis.com/upload/v1beta/files"
 
-    private let apiKeyKey = "AIzaSyCwblI-EMEw7UAWwdhjklc1eVE_87AHLpE"
+    private let apiKeyKey = "GeminiAPIKey"
     private let userDefaults = UserDefaults.standard
     private let queue = DispatchQueue(label: "com.dayflow.gemini", qos: .utility)
 
-    func apiKey() -> String? { apiKeyKey }
+    func apiKey() -> String? { userDefaults.string(forKey: apiKeyKey) }
     func setApiKey(_ key: String) { userDefaults.set(key, forKey: apiKeyKey) }
 
     // MARK: – Public ---------------------------------------------------------
@@ -100,6 +100,7 @@ final class GeminiService: GeminiServicing {
         }
 
         queue.async {
+            var callLogs: [LLMCall] = []
             do {
                 // 1. gather & stitch -------------------------------------------------
                 let chunks = StorageManager.shared.chunksForBatch(batchId)
@@ -162,13 +163,13 @@ final class GeminiService: GeminiServicing {
                                     print("Warning: Parsed user taxonomy dictionary was empty.")
                                 }
                             } else {
-                                print("Error: Could not cast parsed taxonomy JSON to [String: [String]]. JSON: \\(taxonomyJSONString)")
+                                print("Error: Could not cast parsed taxonomy JSON to [String: [String]]. JSON: \(taxonomyJSONString)")
                             }
                         } catch {
-                            print("Error parsing userDefinedTaxonomyJSON from UserDefaults: \\(error.localizedDescription). JSON: \\(taxonomyJSONString)")
+                            print("Error parsing userDefinedTaxonomyJSON from UserDefaults: \(error.localizedDescription). JSON: \(taxonomyJSONString)")
                         }
                     } else {
-                         print("Error: Could not convert taxonomyJSONString to data. JSON: \\(taxonomyJSONString)")
+                         print("Error: Could not convert taxonomyJSONString to data. JSON: \(taxonomyJSONString)")
                     }
                 } else {
                     print("No userDefinedTaxonomyJSON found in UserDefaults or it is empty.")
@@ -329,7 +330,10 @@ final class GeminiService: GeminiServicing {
                     var req = URLRequest(url: comps.url!);
                     req.httpMethod = "POST"; req.setValue("application/json", forHTTPHeaderField: "Content-Type"); req.httpBody = jsonData; req.timeoutInterval = 300
 
+                    let requestString = String(data: jsonData, encoding: .utf8) ?? ""
+                    let startCall = Date()
                     let (d, r) = try URLSession.shared.syncDataTask(with: req)
+                    let latency = Date().timeIntervalSince(startCall)
                     guard let http = r as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                         let msg = String(data: d ?? Data(), encoding: .utf8) ?? "<no body>"
                         throw GeminiServiceError.requestFailed(msg)
@@ -337,7 +341,8 @@ final class GeminiService: GeminiServicing {
                     guard let data = d else { throw GeminiServiceError.invalidResponse }
                     
                     // Log the raw response data as a string for debugging
-                    if let responseString = String(data: data, encoding: .utf8) {
+                    let responseString = String(data: data, encoding: .utf8) ?? ""
+                    if !responseString.isEmpty {
                         print("📄 Raw Gemini Response Data:")
                         print(responseString)
                     } else {
@@ -360,6 +365,10 @@ final class GeminiService: GeminiServicing {
                     // Print the decoded cards for verification
                     print("✅ Decoded Activity Cards (Attempt \(attempts)):")
                     print(decodedCards)
+                    callLogs.append(LLMCall(timestamp: startCall,
+                                            latency: latency,
+                                            input: requestString,
+                                            output: responseString))
                     
                     // 4. Validate the response with a second Gemini call
                     if attempts < maxAttempts { // Only validate if we have retries left
@@ -369,7 +378,8 @@ final class GeminiService: GeminiServicing {
                             continue // Try again in the next iteration
                         }
                         
-                        let validationResult = try self.validateGeminiOutput(prompt: prompt, output: jsonString, key: key)
+                        let (validationResult, valCall) = try self.validateGeminiOutput(prompt: prompt, output: jsonString, key: key)
+                        callLogs.append(valCall)
                         if validationResult.contains("pass") {
                             print("✅ Validation PASSED for attempt \(attempts)")
                             finalDecodedCards = decodedCards
@@ -389,9 +399,11 @@ final class GeminiService: GeminiServicing {
                     throw GeminiServiceError.processingFailed("Failed to generate valid output after \(maxAttempts) attempts")
                 }
 
+                StorageManager.shared.updateBatchLLMMetadata(batchId: batchId, calls: callLogs)
                 DispatchQueue.main.async { completion(.success(finalCards)) }
 
             } catch {
+                StorageManager.shared.updateBatchLLMMetadata(batchId: batchId, calls: callLogs)
                 DispatchQueue.main.async { completion(.failure(error)) }
             }
         }
@@ -518,7 +530,7 @@ curl \"\(comps.url!.absoluteString)\" \
     }
 
     // Helper function to validate Gemini output
-    private func validateGeminiOutput(prompt: String, output: String, key: String) throws -> String {
+    private func validateGeminiOutput(prompt: String, output: String, key: String) throws -> (String, LLMCall) {
         let validationPrompt = """
         Given this prompt:
         
@@ -549,11 +561,14 @@ curl \"\(comps.url!.absoluteString)\" \
         ]
         
         let jsonData = try JSONSerialization.data(withJSONObject: body)
+        let requestString = String(data: jsonData, encoding: .utf8) ?? ""
         var comps = URLComponents(string: self.genEndpoint)!; comps.queryItems = [URLQueryItem(name: "key", value: key)]
         var req = URLRequest(url: comps.url!);
         req.httpMethod = "POST"; req.setValue("application/json", forHTTPHeaderField: "Content-Type"); req.httpBody = jsonData; req.timeoutInterval = 60
-        
+
+        let startCall = Date()
         let (d, r) = try URLSession.shared.syncDataTask(with: req)
+        let latency = Date().timeIntervalSince(startCall)
         guard let http = r as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let msg = String(data: d ?? Data(), encoding: .utf8) ?? "<no body>"
             throw GeminiServiceError.requestFailed("Validation request failed: \(msg)")
@@ -568,8 +583,9 @@ curl \"\(comps.url!.absoluteString)\" \
         
         let validationResponse = firstPart.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         print("🔍 Validation response: \(validationResponse)")
-        
-        return validationResponse
+
+        let call = LLMCall(timestamp: startCall, latency: latency, input: requestString, output: validationResponse)
+        return (validationResponse, call)
     }
 }
 

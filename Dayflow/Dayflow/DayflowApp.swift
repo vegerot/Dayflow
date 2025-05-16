@@ -11,6 +11,7 @@ import SwiftUI
 enum AppView: String, CaseIterable, Identifiable {
     case timeline = "Timeline"
     case settings = "Settings"
+    case debug = "Debug"
     var id: String { self.rawValue }
 }
 
@@ -292,9 +293,11 @@ struct AppRootView: View {
             // Conditional content based on selection
             if currentAppView == .timeline {
                 ContentView()
-                    .environmentObject(AppState.shared) // Ensure ContentView still gets its environment object
-            } else {
+                    .environmentObject(AppState.shared)
+            } else if currentAppView == .settings {
                 SettingsView()
+            } else {
+                DebugView()
             }
         }
     }
