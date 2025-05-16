@@ -77,8 +77,13 @@ protocol StorageManaging: Sendable {
     func updateBatchStatus(batchId: Int64, status: String)
     func markBatchFailed(batchId: Int64, reason: String)
 
+    // Record details about all LLM calls for a batch
+    func updateBatchLLMMetadata(batchId: Int64, calls: [LLMCall])
+    func fetchBatchLLMMetadata(batchId: Int64) -> [LLMCall]
+
     // Timeline‑cards
     func saveTimelineCards(batchId: Int64, cards: [TimelineCard])
+    func fetchTimelineCards(forBatch batchId: Int64) -> [TimelineCard]
 
     // Helper for GeminiService – map file paths → timestamps
     func getTimestampsForVideoFiles(paths: [String]) -> [String: (startTs: Int, endTs: Int)]
@@ -110,6 +115,14 @@ struct TimelineCard: Codable, Sendable, Identifiable {
     let day: String
     let distractions: [Distraction]?
     let videoSummaryURL: String? // Optional link to video summary
+}
+
+/// Metadata about a single LLM request/response cycle
+struct LLMCall: Codable, Sendable {
+    let timestamp: Date
+    let latency: TimeInterval
+    let input: String
+    let output: String
 }
 
 // MARK: - Implementation ------------------------------------------------------
@@ -155,10 +168,14 @@ final class StorageManager: StorageManaging {
                     batch_end_ts   INTEGER NOT NULL,
                     status         TEXT    NOT NULL DEFAULT 'pending',
                     reason         TEXT,
+                    llm_metadata   TEXT,
                     created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE INDEX IF NOT EXISTS idx_analysis_batches_status ON analysis_batches(status);
             """)
+
+            // Attempt to add the new column if the table pre-dates it
+            try? db.execute(sql: "ALTER TABLE analysis_batches ADD COLUMN llm_metadata TEXT")
 
             try db.execute(sql: """
                 CREATE TABLE IF NOT EXISTS batch_chunks (
@@ -260,6 +277,28 @@ final class StorageManager: StorageManaging {
         try? db.write { db in
             try db.execute(sql: "UPDATE analysis_batches SET status = 'failed', reason = ? WHERE id = ?", arguments: [reason, batchId])
         }
+    }
+
+    func updateBatchLLMMetadata(batchId: Int64, calls: [LLMCall]) {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(calls), let json = String(data: data, encoding: .utf8) else { return }
+        try? db.write { db in
+            try db.execute(sql: "UPDATE analysis_batches SET llm_metadata = ? WHERE id = ?", arguments: [json, batchId])
+        }
+    }
+
+    func fetchBatchLLMMetadata(batchId: Int64) -> [LLMCall] {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? db.read { db in
+            if let row = try Row.fetchOne(db, sql: "SELECT llm_metadata FROM analysis_batches WHERE id = ?", arguments: [batchId]),
+               let json: String = row["llm_metadata"],
+               let data = json.data(using: .utf8) {
+                return try decoder.decode([LLMCall].self, from: data)
+            }
+            return []
+        }) ?? []
     }
 
     func saveTimelineCards(batchId: Int64, cards: [TimelineCard]) {
@@ -370,6 +409,31 @@ final class StorageManager: StorageManaging {
             }
         }
         return cards ?? []
+    }
+
+    func fetchTimelineCards(forBatch batchId: Int64) -> [TimelineCard] {
+        let decoder = JSONDecoder()
+        return (try? db.read { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM timeline_cards WHERE batch_id = ? ORDER BY start ASC", arguments: [batchId]).map { row in
+                var distractions: [Distraction]? = nil
+                if let metadataString: String = row["metadata"],
+                   let jsonData = metadataString.data(using: .utf8) {
+                    distractions = try? decoder.decode([Distraction].self, from: jsonData)
+                }
+                return TimelineCard(
+                    startTimestamp: row["start"] ?? "",
+                    endTimestamp: row["end"] ?? "",
+                    category: row["category"],
+                    subcategory: row["subcategory"],
+                    title: row["title"],
+                    summary: row["summary"],
+                    detailedSummary: row["detailed_summary"],
+                    day: row["day"],
+                    distractions: distractions,
+                    videoSummaryURL: row["video_summary_url"]
+                )
+            }
+        }) ?? []
     }
 
     // MARK: – Purging Logic --------------------------------------------------
