@@ -44,14 +44,19 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		C4C1D2A32DB56805007D5A55 /* Dayflow */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				C4EBEFFF2DBDF65500FC5824 /* Exceptions for "Dayflow" folder in "Dayflow" target */,
-			);
-			path = Dayflow;
-			sourceTree = "<group>";
-		};
+                C4C1D2A32DB56805007D5A55 /* Dayflow */ = {
+                        isa = PBXFileSystemSynchronizedRootGroup;
+                        exceptions = (
+                                C4EBEFFF2DBDF65500FC5824 /* Exceptions for "Dayflow" folder in "Dayflow" target */,
+                        );
+                        path = Dayflow;
+                        sourceTree = "<group>";
+                };
+                FEFD599FBA059B170B03FA5E /* DayflowTests */ = {
+                        isa = PBXFileSystemSynchronizedRootGroup;
+                        path = DayflowTests;
+                        sourceTree = "<group>";
+                };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -80,14 +85,15 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		C4C1D2982DB56805007D5A55 = {
-			isa = PBXGroup;
-			children = (
-				C4C1D2A32DB56805007D5A55 /* Dayflow */,
-				C4C1D2A22DB56805007D5A55 /* Products */,
-			);
-			sourceTree = "<group>";
-		};
+                C4C1D2982DB56805007D5A55 = {
+                        isa = PBXGroup;
+                        children = (
+                                C4C1D2A32DB56805007D5A55 /* Dayflow */,
+                                FEFD599FBA059B170B03FA5E /* DayflowTests */,
+                                C4C1D2A22DB56805007D5A55 /* Products */,
+                        );
+                        sourceTree = "<group>";
+                };
 		C4C1D2A22DB56805007D5A55 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -124,26 +130,29 @@
 			productReference = C4C1D2A12DB56805007D5A55 /* Dayflow.app */;
 			productType = "com.apple.product-type.application";
 		};
-		C4C1D2B12DB56806007D5A55 /* DayflowTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = C4C1D2C92DB56806007D5A55 /* Build configuration list for PBXNativeTarget "DayflowTests" */;
-			buildPhases = (
-				C4C1D2AE2DB56806007D5A55 /* Sources */,
-				C4C1D2AF2DB56806007D5A55 /* Frameworks */,
-				C4C1D2B02DB56806007D5A55 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				C4C1D2B42DB56806007D5A55 /* PBXTargetDependency */,
-			);
-			name = DayflowTests;
-			packageProductDependencies = (
-			);
-			productName = DayflowTests;
-			productReference = C4C1D2B22DB56806007D5A55 /* DayflowTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
+                C4C1D2B12DB56806007D5A55 /* DayflowTests */ = {
+                        isa = PBXNativeTarget;
+                        buildConfigurationList = C4C1D2C92DB56806007D5A55 /* Build configuration list for PBXNativeTarget "DayflowTests" */;
+                        buildPhases = (
+                                C4C1D2AE2DB56806007D5A55 /* Sources */,
+                                C4C1D2AF2DB56806007D5A55 /* Frameworks */,
+                                C4C1D2B02DB56806007D5A55 /* Resources */,
+                        );
+                        buildRules = (
+                        );
+                        dependencies = (
+                                C4C1D2B42DB56806007D5A55 /* PBXTargetDependency */,
+                        );
+                        fileSystemSynchronizedGroups = (
+                                FEFD599FBA059B170B03FA5E /* DayflowTests */,
+                        );
+                        name = DayflowTests;
+                        packageProductDependencies = (
+                        );
+                        productName = DayflowTests;
+                        productReference = C4C1D2B22DB56806007D5A55 /* DayflowTests.xctest */;
+                        productType = "com.apple.product-type.bundle.unit-test";
+                };
 		C4C1D2BB2DB56806007D5A55 /* DayflowUITests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = C4C1D2CC2DB56806007D5A55 /* Build configuration list for PBXNativeTarget "DayflowUITests" */;
