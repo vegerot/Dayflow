@@ -1,5 +1,5 @@
 //  ScreenRecorder.swift
-//  AmiTime
+//  Dayflow
 //
 //  Lightweight screen recorder – captures the main display at 1280 × 720
 //  and stores 15‑second H.264 (.mp4) chunks while `AppState.shared.isRecording` is true.

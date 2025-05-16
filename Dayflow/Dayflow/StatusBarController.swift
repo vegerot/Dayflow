@@ -36,7 +36,7 @@ final class StatusBarController {
         open.target = self               // ← add this line
         m.addItem(open)
 
-        let debug = NSMenuItem(title: "Batch Viewer…", action: #selector(openBatchViewer), keyEquivalent: "b")
+        let debug = NSMenuItem(title: "Debug…", action: #selector(openBatchViewer), keyEquivalent: "b")
         debug.target = self
         m.addItem(debug)
         
@@ -60,8 +60,8 @@ final class StatusBarController {
         backing: .buffered,
         defer: false
     )
-    window.title = "Dayflow – Batch Viewer"
-    window.contentView = NSHostingView(rootView: BatchDebugView())
+    window.title = "Dayflow – Debug"
+    window.contentView = NSHostingView(rootView: DebugView())
     window.center()
     window.makeKeyAndOrderFront(nil)
 }
