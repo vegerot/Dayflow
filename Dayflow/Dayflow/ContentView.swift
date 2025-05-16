@@ -8,6 +8,7 @@
 
 import SwiftUI
 import AppKit
+import AVKit // Import AVKit for VideoPlayer
 
 // MARK: – Data -----------------------------------------------------------------
 
@@ -626,52 +627,134 @@ struct TimelineCardView: View {
     let rowIndex: Int
     let pxPerMin: CGFloat
     @State private var hover = false
+    @State private var avPlayer: AVPlayer? = nil
 
     private var startMinute: Int? { parseTimeHMMA(timeString: card.startTimestamp) }
     private var endMinute: Int? { parseTimeHMMA(timeString: card.endTimestamp) }
     
-    private var width: CGFloat {
+    private var cardWidth: CGFloat { // Renamed from width for clarity
         guard let startM = startMinute, let endM = endMinute, endM > startM else { return 0 }
         return CGFloat(endM - startM) * pxPerMin
     }
-    private var xOffset: CGFloat {
+    private var cardXOffset: CGFloat { // Renamed from xOffset
         guard let startM = startMinute else { return 0 }
         return CGFloat(max(0, startM - startMin)) * pxPerMin 
     }
-    private var yOffset: CGFloat {
-        CGFloat(rowIndex) * rowH + 4
+    // yOffset for the top of the entire card unit (including title)
+    private var cardYOffset: CGFloat { 
+        CGFloat(rowIndex) * rowH // Places top of title at the row line
     }
+    
+    private let titleHeight: CGFloat = 18 // Approximate height for one line of title text + small padding
+    private let cardBodyHeight: CGFloat = rowH - 8 // Keep card body height same for now
 
     var body: some View {
-        if let startM = startMinute, let endM = endMinute, endM > startM, width > 0 {
-        RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .fill(Color.white)
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(Color(red: 0.90, green: 0.90, blue: 0.90), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.05), radius: 1, x: 0, y: 1)
-                .frame(width: width, height: rowH - 8)
-                .overlay(alignment: .leading) {
-                    Text(card.title)
-                    .font(.system(size: 16, weight: .semibold))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+        if let cardStartMinute = self.startMinute, 
+           let cardEndMinute = self.endMinute, 
+           cardEndMinute > cardStartMinute, 
+           cardWidth > 0 {
+            
+            VStack(alignment: .leading, spacing: 2) { // Spacing between title and card body
+                // Title Text (Above the card body)
+                Text(card.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                    .foregroundColor(.primary) 
+                    .frame(width: self.cardWidth, height: titleHeight, alignment: .leading)
+                    // .background(Color.yellow.opacity(0.2)) // For debugging title frame
+
+                // Card Body (RoundedRectangle and its contents)
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(Color.white)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .stroke(Color(red: 0.90, green: 0.90, blue: 0.90), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(0.05), radius: 1, x: 0, y: 1)
+                        .frame(width: self.cardWidth, height: cardBodyHeight)
+                        .onHover { hover = $0 } // For popover trigger
+                    
+                    // Distraction Markers (Inside the card body)
+                    if let distractions = card.distractions {
+                        ForEach(distractions, id: \.startTime) { distraction in
+                            if let distractionStartAbsMinute = parseTimeHMMA(timeString: distraction.startTime) {
+                                // Calculate x relative to the card's own start time
+                                let distractionXOffsetInCard = CGFloat(distractionStartAbsMinute - cardStartMinute) * pxPerMin
+                                
+                                // Ensure marker is within the card's width (minus a bit for marker width)
+                                if distractionXOffsetInCard >= 0 && distractionXOffsetInCard <= (self.cardWidth - 16) { // 16 is marker width
+                                    Text("!")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(Color.orange)
+                                        .padding(3)
+                                        .background(
+                                            Circle()
+                                                .fill(Color.white.opacity(0.9))
+                                                .shadow(color: Color.black.opacity(0.3), radius: 1, x: 0, y: 0.5)
+                                        )
+                                        .frame(width: 16, height: 16)
+                                        .offset(x: distractionXOffsetInCard, y: 4) // Position from top-left of card body
+                                        .zIndex(1) // Above card fill
+                                }
+                            }
+                        }
+                    }
+                }
+                .popover(isPresented: $hover, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(card.title) // Full title in popover
+                            .font(.headline)
+                        Text("\(card.startTimestamp) – \(card.endTimestamp)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        Text(card.summary ?? "No summary available.")
+                            .font(.callout)
+                        
+                        if let videoPath = card.videoSummaryURL,
+                           !videoPath.isEmpty,
+                           let videoURL = URL(string: videoPath.hasPrefix("file://") ? videoPath : "file://" + videoPath) {
+                            if let player = avPlayer {
+                                VideoPlayer(player: player)
+                                    .frame(width: 300, height: 168)
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                            } else {
+                                Text("Loading video...")
+                                    .frame(width: 300, height: 168)
+                                    .background(Color.gray.opacity(0.2))
+                                    .cornerRadius(4)
+                            }
+                        } else if card.videoSummaryURL != nil && (card.videoSummaryURL?.isEmpty ?? true) {
+                            Text("Video summary URL is empty.")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                                .frame(width: 300, alignment: .center)
+                        }
+                    }
+                    .padding()
+                    .frame(width: 320)
+                }
+                .onChange(of: hover) { newValue in
+                    if newValue {
+                        if let videoPath = card.videoSummaryURL, 
+                           !videoPath.isEmpty,
+                           let videoURL = URL(string: videoPath.hasPrefix("file://") ? videoPath : "file://" + videoPath) {
+                            let player = AVPlayer(url: videoURL)
+                            self.avPlayer = player
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                               if self.hover { self.avPlayer?.play() }
+                            }
+                        } else {
+                            self.avPlayer = nil
+                        }
+                    } else {
+                        self.avPlayer?.pause()
+                        self.avPlayer = nil
+                    }
+                }
             }
-                .offset(x: xOffset, y: yOffset)
-                .overlay(
-                    Text("\(card.startTimestamp) – \(card.endTimestamp)")
-                    .font(.caption2)
-                    .padding(4)
-                    .background(Color.white.opacity(0.9))
-                    .cornerRadius(4)
-                    .opacity(hover ? 1 : 0)
-                        .offset(x: xOffset, y: yOffset - 20)
-                        .animation(.easeInOut(duration: 0.1), value: hover)
-            )
-            .onHover { hover = $0 }
+            .offset(x: self.cardXOffset, y: self.cardYOffset) // Position the entire VStack (title + card body)
         } else {
             EmptyView()
                 .onAppear {
