@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import AppKit
 
 struct DebugView: View {
     @State private var batches = StorageManager.shared.allBatches()
@@ -7,6 +8,7 @@ struct DebugView: View {
     @State private var player = AVPlayer()
     @State private var timelineCards: [TimelineCard] = []
     @State private var llmCalls: [LLMCall] = []
+    @State private var composition: AVMutableComposition?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -29,6 +31,8 @@ struct DebugView: View {
                         VideoPlayer(player: player)
                             .frame(height: 200)
                             .cornerRadius(8)
+                        Button("Export Video…") { exportVideo() }
+                            .disabled(composition == nil)
 
                         if !timelineCards.isEmpty {
                             Text("Timeline Cards").font(.headline)
@@ -138,11 +142,44 @@ struct DebugView: View {
                 }
             }
             if comp.tracks.first != nil {
+                composition = comp
                 player.replaceCurrentItem(with: AVPlayerItem(asset: comp))
+            } else {
+                composition = nil
             }
+        } else {
+            composition = nil
         }
         timelineCards = StorageManager.shared.fetchTimelineCards(forBatch: id)
         llmCalls = StorageManager.shared.fetchBatchLLMMetadata(batchId: id)
+    }
+
+    private func exportVideo() {
+        guard let comp = composition else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.mpeg4Movie]
+        panel.nameFieldStringValue = "Batch\(selected ?? 0).mp4"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { await exportComposition(comp, to: url) }
+        }
+    }
+
+    private func exportComposition(_ comp: AVMutableComposition, to url: URL) async {
+        do {
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+            guard let exp = AVAssetExportSession(asset: comp,
+                                                presetName: AVAssetExportPresetPassthrough) else { return }
+            exp.outputURL = url
+            exp.outputFileType = .mp4
+            await withCheckedContinuation { cont in
+                exp.exportAsynchronously { cont.resume() }
+            }
+        } catch {
+            print("Export failed: \(error)")
+        }
     }
 
     private func tsString(_ ts: Int) -> String {
