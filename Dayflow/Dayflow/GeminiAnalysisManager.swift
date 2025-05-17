@@ -146,7 +146,8 @@ final class GeminiAnalysisManager: AnalysisManaging {
                 print("First chunk starts at real time: \\\\(firstChunkStartDate)")
 
                 // --- Asynchronous Video Processing Task ---
-                Task {
+                Task { [weak self] in
+                    guard let self else { return }
                     var temporaryFilesToDelete: [URL] = []
                     var mainEventVideoURL: URL? = nil
                     var mainEventSummaryURLPath: String? = nil
@@ -312,7 +313,8 @@ final class GeminiAnalysisManager: AnalysisManaging {
                     }
                     
                     // --- Save the new timeline cards (moved inside Task to use processed data) ---
-                    DispatchQueue.main.async { // Ensure DB operations are on the correct queue if needed, or ensure StorageManager is actor-safe
+                    DispatchQueue.main.async { [weak self] in // Ensure DB operations are on the correct queue if needed
+                        guard let self else { return }
                         if !timelineCardsToSave.isEmpty {
                             print("Saving \(timelineCardsToSave.count) new timeline cards for batch \(batchId) (Day: \(currentLogicalDayString)) with video summaries.")
                             self.store.saveTimelineCards(batchId: batchId, cards: timelineCardsToSave)

@@ -96,7 +96,7 @@ protocol StorageManaging: Sendable {
 
 // Re-add Distraction struct, as it's used by TimelineCard
 struct Distraction: Codable, Sendable, Identifiable {
-    let id = UUID()
+    var id = UUID()
     let startTime: String
     let endTime: String
     let title: String
@@ -105,7 +105,7 @@ struct Distraction: Codable, Sendable, Identifiable {
 }
 
 struct TimelineCard: Codable, Sendable, Identifiable {
-    let id = UUID()
+    var id = UUID()
     let startTimestamp: String
     let endTimestamp: String
     let category: String
@@ -128,7 +128,7 @@ struct LLMCall: Codable, Sendable {
 
 // MARK: - Implementation ------------------------------------------------------
 
-final class StorageManager: StorageManaging {
+final class StorageManager: StorageManaging, @unchecked Sendable {
     static let shared = StorageManager()
 
     private let db: DatabaseQueue
