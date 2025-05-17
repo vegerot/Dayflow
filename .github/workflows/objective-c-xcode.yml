@@ -1,0 +1,65 @@
+name: Xcode - Build and Analyze
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    name: Build and analyze default scheme
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Set Default Scheme
+        run: |
+          scheme_list=$(xcodebuild -list -json | tr -d "\n")
+          default=$(echo $scheme_list | ruby -e "require 'json'; puts JSON.parse(STDIN.gets)['project']['targets'][0]")
+          echo $default | cat >default
+          echo Using default scheme: $default
+          
+      - name: Build and analyze
+        env:
+          scheme: ${{ 'default' }}
+        run: |
+          if [ $scheme = default ]; then scheme=$(cat default); fi
+          if [ "`ls -A | grep -i \\.xcworkspace\$`" ]; then 
+            filetype_parameter="workspace" 
+            file_to_build="`ls -A | grep -i \\.xcworkspace\$`"
+          else 
+            filetype_parameter="project" 
+            file_to_build="`ls -A | grep -i \\.xcodeproj\$`"
+          fi
+          file_to_build=`echo $file_to_build | awk '{$1=$1;print}'`
+          
+          # Run build and capture output
+          xcodebuild clean build analyze -scheme "$scheme" -"$filetype_parameter" "$file_to_build" COMPILER_INDEX_STORE_ENABLE=NO CLANG_ANALYZER_OUTPUT=plist-html CLANG_ANALYZER_OUTPUT_DIR="$(pwd)/analyzer_reports" | tee build.log | xcpretty --report junit
+          
+          # Display warnings but don't fail the build because of them
+          if grep -q "warning:" build.log; then
+            echo "::warning::Build contains warnings:"
+            grep -n "warning:" build.log || true
+          fi
+          
+          # Only fail on actual errors
+          if [ ${PIPESTATUS[0]} -ne 0 ] || grep -q "error:" build.log; then
+            echo "::error::Build contains errors!"
+            grep -n "error:" build.log || true
+            exit 1
+          fi
+          
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-log
+          path: build.log
+          
+      - name: Upload analyzer reports
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: analyzer-reports
+          path: analyzer_reports
