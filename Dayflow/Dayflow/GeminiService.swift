@@ -84,11 +84,11 @@ final class GeminiService: GeminiServicing {
     private let genEndpoint  = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent"
     private let fileEndpoint = "https://generativelanguage.googleapis.com/upload/v1beta/files"
 
-    private let apiKeyKey = "GeminiAPIKey"
+    private let apiKeyKey = "AIzaSyCwblI-EMEw7UAWwdhjklc1eVE_87AHLpE"
     private let userDefaults = UserDefaults.standard
     private let queue = DispatchQueue(label: "com.dayflow.gemini", qos: .utility)
 
-    func apiKey() -> String? { userDefaults.string(forKey: apiKeyKey) }
+    func apiKey() -> String? { "AIzaSyCwblI-EMEw7UAWwdhjklc1eVE_87AHLpE" }
     func setApiKey(_ key: String) { userDefaults.set(key, forKey: apiKeyKey) }
 
     // MARK: – Public ---------------------------------------------------------
