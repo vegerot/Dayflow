@@ -311,7 +311,7 @@ final class GeminiService: GeminiServicing {
                             ]
                         ]],
                         "generationConfig": [
-                            "temperature": 0,
+                            "temperature": 0.3,
                             "maxOutputTokens": 65536,
                             "responseMimeType": "application/json",
                             "responseSchema": responseSchemaForApi,
