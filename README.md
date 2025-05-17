@@ -6,4 +6,4 @@ Dayflow is a macOS application that records the user's screen, analyzes the foot
 Open `Dayflow.xcodeproj` with Xcode 15 or later. The project targets macOS and uses SwiftUI.
 
 ## Debug View
-Select **Debug** from the top segmented control to review analysis batches. The view lets you play back the batch video, inspect the generated timeline cards, and review details of every LLM call made during processing.
+Select **Debug** from the top segmented control to review analysis batches. The view lets you play back the full batch video and expand individual timeline cards to see their summaries. If a card or its distractions include a video summary, it is displayed inline. The Debug view also lists every LLM call for the batch showing the full request and response with JSON prettified when possible.
