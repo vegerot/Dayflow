@@ -720,11 +720,7 @@ struct TimelineCardView: View {
                     .padding()
                     .frame(width: 320)
                 }
-<<<<<<< HEAD
-                .onChange(of: hover) { newValue in // onChange also on the Group for consistency
-=======
                 .onChange(of: hover) { _, newValue in
->>>>>>> a2dfc775964fd0dbc355388a06dee19c5716a251
                     if newValue {
                         if let videoPath = card.videoSummaryURL,
                            !videoPath.isEmpty,
