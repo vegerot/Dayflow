@@ -35,6 +35,16 @@ struct ActivityCard: Codable {
     let distractions: [Distraction]?
 }
 
+/// Minimal info from the most recent segment used as context for the prompt
+/// when processing the next batch.
+struct PreviousSegmentSummary: Codable {
+    let category: String
+    let subcategory: String
+    let title: String
+    let summary: String
+    let detailedSummary: String
+}
+
 enum GeminiServiceError: Error, LocalizedError {
     case missingApiKey, noChunks, stitchingFailed
     case uploadStartFailed(String), uploadFailed(String)
@@ -119,17 +129,24 @@ final class GeminiService: GeminiServicing {
                 var previousSegmentsJSONString = "No previous segment for today."
 
                 if let lastCard = previousCards.last {
+                    let summary = PreviousSegmentSummary(
+                        category: lastCard.category,
+                        subcategory: lastCard.subcategory,
+                        title: lastCard.title,
+                        summary: lastCard.summary,
+                        detailedSummary: lastCard.detailedSummary
+                    )
+
                     let encoder = JSONEncoder()
-                    encoder.outputFormatting = .prettyPrinted // Optional: for better readability in the prompt
-                    // Encode only the last card, wrapped in an array as the Gemini prompt expects an array of segments.
-                    if let jsonData = try? encoder.encode([lastCard]) {
+                    encoder.outputFormatting = .prettyPrinted // easier to read in prompt
+                    if let jsonData = try? encoder.encode([summary]) {
                         if let jsonString = String(data: jsonData, encoding: .utf8) {
                             previousSegmentsJSONString = jsonString
                         } else {
-                            print("Error: Could not convert the most recent previous segment jsonData to string.")
+                            print("Error: Could not convert the previous segment JSON to string.")
                         }
                     } else {
-                        print("Error: Could not encode the most recent previous segment to JSON data.")
+                        print("Error: Could not encode the previous segment summary to JSON data.")
                     }
                 }
                 // --- End prepare previous segments ---
