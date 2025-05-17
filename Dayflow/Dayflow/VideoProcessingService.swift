@@ -121,7 +121,14 @@ actor VideoProcessingService {
                                                      presetName: AVAssetExportPresetPassthrough)
         else { throw VideoProcessingError.exportSessionCreationFailed }
 
-        try await exportSession.export(to: tempOutputURL, outputFileType: .mp4)
+        exportSession.outputURL = tempOutputURL
+                exportSession.outputFileType = .mp4
+                await exportSession.export()
+
+                guard exportSession.status == .completed else {
+                    print("Stitching export failed. Status: \(exportSession.status). Error: \(exportSession.error?.localizedDescription ?? "No error description available")")
+                    throw VideoProcessingError.exportFailed(exportSession.error)
+                }
 
         return tempOutputURL
     }
@@ -145,7 +152,14 @@ actor VideoProcessingService {
             start: CMTime(seconds: startTime, preferredTimescale: timescale),
             duration: CMTime(seconds: duration, preferredTimescale: timescale)
         )
-        try await exportSession.export(to: tempOutputURL, outputFileType: .mp4)
+        exportSession.outputURL = tempOutputURL
+                exportSession.outputFileType = .mp4
+                await exportSession.export()
+
+                guard exportSession.status == .completed else {
+                    print("Stitching export failed. Status: \(exportSession.status). Error: \(exportSession.error?.localizedDescription ?? "No error description available")")
+                    throw VideoProcessingError.exportFailed(exportSession.error)
+                }
 
         return tempOutputURL
     }

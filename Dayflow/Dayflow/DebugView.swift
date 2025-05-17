@@ -132,7 +132,7 @@ struct DebugView: View {
                     let altTracks = try await asset.loadTracks(withMediaType: .audio)
                     guard let track = tracks.first ?? altTracks.first else { continue }
                     let dur = try await asset.load(.duration)
-                    try comp.insertTimeRange(.init(start: .zero, duration: dur), of: asset, at: comp.duration)
+                    try await comp.insertTimeRange(.init(start: .zero, duration: dur), of: asset, at: comp.duration)
                 } catch {
                     print("Failed to process asset \(c.fileUrl): \(error)")
                 }
