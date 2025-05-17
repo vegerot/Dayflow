@@ -693,14 +693,11 @@ struct TimelineCardView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                         
-                        Text(card.summary ?? "No summary available.")
+                        Text(card.summary)
                             .font(.callout)
                         
                         if let videoPath = card.videoSummaryURL,
-                           !videoPath.isEmpty,
-                           let videoURL = URL(string: videoPath.hasPrefix("file://") ? videoPath : "file://" + videoPath) {
-                            // Print the URL being used for debugging
-                            // print("Popover Video URL: \(videoURL.absoluteString)") 
+                           !videoPath.isEmpty {
                             if let player = avPlayer {
                                 VideoPlayer(player: player)
                                     .frame(width: 300, height: 168)
@@ -723,9 +720,13 @@ struct TimelineCardView: View {
                     .padding()
                     .frame(width: 320)
                 }
+<<<<<<< HEAD
                 .onChange(of: hover) { newValue in // onChange also on the Group for consistency
+=======
+                .onChange(of: hover) { _, newValue in
+>>>>>>> a2dfc775964fd0dbc355388a06dee19c5716a251
                     if newValue {
-                        if let videoPath = card.videoSummaryURL, 
+                        if let videoPath = card.videoSummaryURL,
                            !videoPath.isEmpty,
                            let videoURL = URL(string: videoPath.hasPrefix("file://") ? videoPath : "file://" + videoPath) {
                             // print("Attempting to play: \(videoURL.absoluteString)") // Debugging print

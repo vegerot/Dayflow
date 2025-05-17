@@ -19,7 +19,7 @@ struct DebugView: View {
                 }
             }
             .frame(width: 220)
-            .onChange(of: selected) { _, new in loadBatch(new) }
+            .onChange(of: selected) { _, new in Task { await loadBatch(new) } }
 
             Divider()
 
@@ -33,13 +33,46 @@ struct DebugView: View {
                         if !timelineCards.isEmpty {
                             Text("Timeline Cards").font(.headline)
                             ForEach(timelineCards) { card in
-                                VStack(alignment: .leading) {
+                                DisclosureGroup {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text("\(card.startTimestamp) – \(card.endTimestamp)")
+                                            .font(.caption)
+                                        Text(card.category + " / " + card.subcategory)
+                                            .font(.caption2)
+                                        Text(card.summary).font(.caption)
+
+                                        if let path = card.videoSummaryURL,
+                                           !path.isEmpty,
+                                           let url = videoURL(from: path) {
+                                            InlineVideoPlayer(url: url)
+                                                .frame(height: 120)
+                                                .cornerRadius(6)
+                                        }
+
+                                        if let distractions = card.distractions,
+                                           !distractions.isEmpty {
+                                            Text("Distractions").font(.subheadline)
+                                            ForEach(distractions) { d in
+                                                VStack(alignment: .leading, spacing: 4) {
+                                                    Text(d.title).bold().font(.caption)
+                                                    Text("\(d.startTime) – \(d.endTime)")
+                                                        .font(.caption2)
+                                                    Text(d.summary).font(.caption2)
+                                                    if let dPath = d.videoSummaryURL,
+                                                       !dPath.isEmpty,
+                                                       let dUrl = videoURL(from: dPath) {
+                                                        InlineVideoPlayer(url: dUrl)
+                                                            .frame(height: 80)
+                                                            .cornerRadius(4)
+                                                    }
+                                                }
+                                                .padding(.leading, 8)
+                                            }
+                                        }
+                                    }
+                                    .padding(.vertical, 4)
+                                } label: {
                                     Text(card.title).bold()
-                                    Text("\(card.startTimestamp) – \(card.endTimestamp)")
-                                        .font(.caption)
-                                    Text(card.category + " / " + card.subcategory)
-                                        .font(.caption2)
-                                    Text(card.summary).font(.caption)
                                 }
                                 .padding(.bottom, 4)
                             }
@@ -48,19 +81,23 @@ struct DebugView: View {
                         if !llmCalls.isEmpty {
                             Text("LLM Calls").font(.headline)
                             ForEach(Array(llmCalls.enumerated()), id: \.offset) { index, call in
-                                VStack(alignment: .leading, spacing: 2) {
+                                VStack(alignment: .leading, spacing: 4) {
                                     Text("Call \(index + 1) – " + dateFormatter.string(from: call.timestamp))
                                         .font(.subheadline)
                                     Text(String(format: "Latency %.2fs", call.latency))
                                         .font(.caption2)
-                                    Text("Input: \(call.input)")
+                                    Text("Input:")
                                         .font(.caption2)
-                                        .lineLimit(2)
-                                    Text("Output: \(call.output)")
+                                    Text(prettyJSON(call.input))
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .textSelection(.enabled)
+                                    Text("Output:")
                                         .font(.caption2)
-                                        .lineLimit(2)
+                                    Text(prettyJSON(call.output))
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .textSelection(.enabled)
                                 }
-                                .padding(.bottom, 4)
+                                .padding(.bottom, 6)
                             }
                         }
                     }
@@ -78,7 +115,7 @@ struct DebugView: View {
 
     private func refresh() { batches = StorageManager.shared.allBatches() }
 
-    private func loadBatch(_ id: Int64?) {
+    private func loadBatch(_ id: Int64?) async {
         player.pause()
         timelineCards = []
         llmCalls = []
@@ -89,11 +126,16 @@ struct DebugView: View {
             let comp = AVMutableComposition()
             for c in chunks {
                 let asset = AVURLAsset(url: URL(fileURLWithPath: c.fileUrl))
-                guard
-                    asset.isPlayable,
-                    let track = asset.tracks(withMediaType: .video).first ?? asset.tracks(withMediaType: .audio).first
-                else { continue }
-                try? comp.insertTimeRange(.init(start: .zero, duration: asset.duration), of: track.asset!, at: comp.duration)
+                do {
+                    guard try await asset.load(.isPlayable) else { continue }
+                    let tracks = try await asset.loadTracks(withMediaType: .video)
+                    let altTracks = try await asset.loadTracks(withMediaType: .audio)
+                    guard let track = tracks.first ?? altTracks.first else { continue }
+                    let dur = try await asset.load(.duration)
+                    try comp.insertTimeRange(.init(start: .zero, duration: dur), of: asset, at: comp.duration)
+                } catch {
+                    print("Failed to process asset \(c.fileUrl): \(error)")
+                }
             }
             if comp.tracks.first != nil {
                 player.replaceCurrentItem(with: AVPlayerItem(asset: comp))
@@ -112,5 +154,33 @@ struct DebugView: View {
         df.dateStyle = .short
         df.timeStyle = .short
         return df
+    }
+
+    private func videoURL(from path: String) -> URL? {
+        if path.hasPrefix("file://") {
+            return URL(string: path)
+        }
+        return URL(string: "file://" + path)
+    }
+
+    private func prettyJSON(_ text: String) -> String {
+        guard let data = text.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data),
+              let prettyData = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted]),
+              let prettyString = String(data: prettyData, encoding: .utf8) else {
+            return text
+        }
+        return prettyString
+    }
+}
+
+private struct InlineVideoPlayer: View {
+    let url: URL
+    @State private var player = AVPlayer()
+
+    var body: some View {
+        VideoPlayer(player: player)
+            .onAppear { player.replaceCurrentItem(with: AVPlayerItem(url: url)) }
+            .onDisappear { player.pause() }
     }
 }

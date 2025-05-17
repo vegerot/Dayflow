@@ -14,7 +14,7 @@
 //
 import Foundation
 @preconcurrency import ScreenCaptureKit
-import AVFoundation
+@preconcurrency import AVFoundation
 import Combine
 import IOKit.pwr_mgt   // sleep / wake notifications
 import CoreGraphics
@@ -35,7 +35,6 @@ private enum C {
 
 // MARK: - ScreenRecorder
 
-@MainActor
 final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 
     // MARK: lifecycle ----------------------------------------------------
@@ -161,7 +160,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     private func stopStream() {
-        if let s = stream { try? s.stopCapture() }
+        if let s = stream { s.stopCapture() }
         stream = nil
         isStarting = false
         reset(); dbg("stream stopped")

@@ -111,7 +111,7 @@ final class GeminiService: GeminiServicing {
 
                 // 2. upload via Files API -------------------------------------------
                 let mime = self.mimeType(for: stitched) ?? "video/mp4"
-                let (fileName, fileURI) = try self.uploadAndAwait(stitched, mimeType: mime, key: key)
+                let (_, fileURI) = try self.uploadAndAwait(stitched, mimeType: mime, key: key)
 
                 // --- Prepare previous segments ---
                 let todayString = self.getCurrentDayStringFor4AMBoundary()
@@ -255,7 +255,7 @@ final class GeminiService: GeminiServicing {
                 
                 // New variables for retry logic
                 var attempts = 0
-                var maxAttempts = 3  // Original attempt + 2 retries
+                let maxAttempts = 3  // Original attempt + 2 retries
                 var finalDecodedCards: [ActivityCard]? = nil
                 
                 // Start retry loop
