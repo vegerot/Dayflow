@@ -709,12 +709,11 @@ struct TimelineCardView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                         
-                        Text(card.summary ?? "No summary available.")
+                        Text(card.summary)
                             .font(.callout)
                         
                         if let videoPath = card.videoSummaryURL,
-                           !videoPath.isEmpty,
-                           let videoURL = URL(string: videoPath.hasPrefix("file://") ? videoPath : "file://" + videoPath) {
+                           !videoPath.isEmpty {
                             if let player = avPlayer {
                                 VideoPlayer(player: player)
                                     .frame(width: 300, height: 168)
@@ -735,9 +734,9 @@ struct TimelineCardView: View {
                     .padding()
                     .frame(width: 320)
                 }
-                .onChange(of: hover) { newValue in
+                .onChange(of: hover) { _, newValue in
                     if newValue {
-                        if let videoPath = card.videoSummaryURL, 
+                        if let videoPath = card.videoSummaryURL,
                            !videoPath.isEmpty,
                            let videoURL = URL(string: videoPath.hasPrefix("file://") ? videoPath : "file://" + videoPath) {
                             let player = AVPlayer(url: videoURL)
