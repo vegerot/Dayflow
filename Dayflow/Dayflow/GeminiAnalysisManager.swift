@@ -131,7 +131,7 @@ final class GeminiAnalysisManager: AnalysisManaging {
             let now = Date()
             let currentDayInfo = now.getDayInfoFor4AMBoundary()
             let currentLogicalDayString = currentDayInfo.dayString
-            print("Processing batch \\\\(batchId) for logical day: \\\\(currentLogicalDayString)")
+            print("Processing batch \(batchId) for logical day: \(currentLogicalDayString)")
 
             switch result {
             case .success(let activityCards):
