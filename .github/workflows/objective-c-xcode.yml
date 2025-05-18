@@ -1,85 +1,106 @@
-name: Xcode – Build and Analyze
+name: Xcode - Build and Analyze
 on:
   push:
-    branches: [main]
+    branches: [ "main" ]
   pull_request:
-    branches: [main]
+    branches: [ "main" ]
 
 jobs:
   build:
     name: Build and analyze default scheme
-    # macOS-15 images carry only Xcode 16 line — keeps you compatible with
-    # projects saved by Xcode 16 (objectVersion 77)
-    runs-on: macos-15              # ← option 1
+    runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
-
-      # Select the exact Xcode you use locally
-      - uses: maxim-lobanov/setup-xcode@v3
-        with:
-          xcode-version: '16.2'    # bump as new minors land
-
-      # Show the chosen tool-chain in the log
-      - name: Show Xcode version
-        run: xcodebuild -version
-
-      # -------- project discovery --------
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Select Xcode version
+        run: |
+          # List available Xcode versions
+          ls -la /Applications/ | grep Xcode
+          
+          # Select the latest Xcode version 
+          XCODE_PATH=$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)
+          echo "Using Xcode at: $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+        
       - name: Find Xcode project
         id: find-project
         run: |
-          if [ -n "$(find . -maxdepth 1 -name '*.xcodeproj' -o -name '*.xcworkspace')" ]; then
-            echo "PROJECT_PATH=." >>"$GITHUB_OUTPUT"
+          # First check the root directory
+          if [ -n "$(find . -maxdepth 1 -name "*.xcodeproj" -o -name "*.xcworkspace")" ]; then
+            echo "PROJECT_PATH=." >> $GITHUB_OUTPUT
+            echo "Xcode project found in root directory"
           else
-            dir=$(find . -type d \( -name '*.xcodeproj' -o -name '*.xcworkspace' \) -print -quit | xargs dirname)
-            [ -z "$dir" ] && { echo "::error::No Xcode project or workspace found"; exit 1; }
-            echo "PROJECT_PATH=$dir" >>"$GITHUB_OUTPUT"
+            # Search subdirectories
+            PROJECT_DIR=$(find . -type d -name "*.xcodeproj" -o -name "*.xcworkspace" | head -n 1 | xargs dirname 2>/dev/null || echo "")
+            
+            if [ -n "$PROJECT_DIR" ]; then
+              echo "PROJECT_PATH=$PROJECT_DIR" >> $GITHUB_OUTPUT
+              echo "Xcode project found in: $PROJECT_DIR"
+            else
+              echo "::error::No Xcode project or workspace found in the repository"
+              exit 1
+            fi
           fi
-          echo "Project path → $dir"
-
-      # -------- scheme detection --------
-      - name: Detect default scheme
+          
+      - name: Set Default Scheme
+        if: steps.find-project.outputs.PROJECT_PATH != ''
         working-directory: ${{ steps.find-project.outputs.PROJECT_PATH }}
-        id: scheme
         run: |
-          default=$(xcodebuild -list -json 2>/dev/null \
-                    | ruby -rjson -e 'puts JSON.parse(STDIN.read)["project"]["targets"][0] rescue "Default"')
-          echo "scheme=$default"   >>"$GITHUB_ENV"
-          echo "Using scheme → $default"
-
-      # -------- build & static-analyze --------
+          # List available projects/workspaces for debugging
+          echo "Available Xcode projects/workspaces:"
+          ls -la *.xcodeproj *.xcworkspace 2>/dev/null || echo "None found in this directory"
+          
+          # Try to get the scheme list more safely
+          scheme_list=$(xcodebuild -list -json 2>/dev/null | tr -d "\n" || echo '{"project":{"targets":["Default"]}}')
+          default=$(echo $scheme_list | ruby -e "begin; require 'json'; puts JSON.parse(STDIN.gets)['project']['targets'][0]; rescue; puts 'Default'; end")
+          echo $default | cat >default
+          echo "Using default scheme: $default"
+          
       - name: Build and analyze
+        if: steps.find-project.outputs.PROJECT_PATH != ''
         working-directory: ${{ steps.find-project.outputs.PROJECT_PATH }}
         env:
-          scheme: ${{ env.scheme }}
-        shell: bash -eo pipefail
+          scheme: ${{ 'default' }}
         run: |
-          workspace=$(ls *.xcworkspace 2>/dev/null | head -n1)
-          project=$(ls *.xcodeproj    2>/dev/null | head -n1)
-          param=${workspace:+-workspace "$workspace"}${project:+-project "$project"}
-
-          echo "Building $param with scheme $scheme"
-          xcodebuild clean build analyze \
-            $param -scheme "$scheme" \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            CLANG_ANALYZER_OUTPUT=plist-html \
-            CLANG_ANALYZER_OUTPUT_DIR="$PWD/analyzer_reports" \
-            | tee build.log | xcpretty --report junit
-
-          # surface warnings without failing
-          grep -n "warning: " build.log || true
-          # but fail on real errors
-          grep -q "error: " build.log && { echo "::error::Errors found"; exit 1; }
-
-      # -------- artifacts --------
+          if [ $scheme = default ]; then scheme=$(cat default); fi
+          if [ "`ls -A | grep -i \\.xcworkspace\$`" ]; then 
+            filetype_parameter="workspace" 
+            file_to_build="`ls -A | grep -i \\.xcworkspace\$`"
+          else 
+            filetype_parameter="project" 
+            file_to_build="`ls -A | grep -i \\.xcodeproj\$`"
+          fi
+          file_to_build=`echo $file_to_build | awk '{$1=$1;print}'`
+          
+          echo "Building $filetype_parameter: $file_to_build with scheme: $scheme"
+          
+          # Run build and capture output
+          xcodebuild clean build analyze -scheme "$scheme" -"$filetype_parameter" "$file_to_build" COMPILER_INDEX_STORE_ENABLE=NO CLANG_ANALYZER_OUTPUT=plist-html CLANG_ANALYZER_OUTPUT_DIR="$(pwd)/analyzer_reports" | tee build.log | xcpretty --report junit
+          
+          # Display warnings but don't fail the build because of them
+          if grep -q "warning:" build.log; then
+            echo "::warning::Build contains warnings:"
+            grep -n "warning:" build.log || true
+          fi
+          
+          # Only fail on actual errors
+          if [ ${PIPESTATUS[0]} -ne 0 ] || grep -q "error:" build.log; then
+            echo "::error::Build contains errors!"
+            grep -n "error:" build.log || true
+            exit 1
+          fi
+          
       - name: Upload build log
-        if: always()
+        if: always() && steps.find-project.outputs.PROJECT_PATH != ''
         uses: actions/upload-artifact@v4
         with:
           name: build-log
           path: ${{ steps.find-project.outputs.PROJECT_PATH }}/build.log
-
+          
       - name: Upload analyzer reports
-        if: always()
+        if: always() && steps.find-project.outputs.PROJECT_PATH != ''
         uses: actions/upload-artifact@v4
         with:
           name: analyzer-reports
