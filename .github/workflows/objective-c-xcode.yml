@@ -5,6 +5,11 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# Add this permissions block
+permissions:
+  contents: read
+  pull-requests: write  # This allows the workflow to comment on PRs
+
 jobs:
   build:
     name: Build and analyze default scheme
@@ -137,7 +142,6 @@ jobs:
         if: github.event_name == 'pull_request' && always()
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const build = ${{ steps.build.outputs.WARNING_COUNT != '' && steps.build.outputs.ERROR_COUNT != '' && 'true' || 'false' }};
             
