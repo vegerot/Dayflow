@@ -52,14 +52,14 @@ jobs:
           
       - name: Upload build log
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: build-log
           path: build.log
           
       - name: Upload analyzer reports
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: analyzer-reports
           path: analyzer_reports
