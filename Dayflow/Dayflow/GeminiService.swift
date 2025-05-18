@@ -431,6 +431,7 @@ final class GeminiService: GeminiServicing {
                 print("Error during \(phase) for batch \(batchId): \(error)")
                 StorageManager.shared.updateBatchLLMMetadata(batchId: batchId, calls: callLogs)
                 DispatchQueue.main.async { completion(.failure(error)) }
+            }
         }
     }
 
