@@ -111,7 +111,10 @@ final class GeminiService: GeminiServicing {
 
         queue.async {
             var callLogs: [LLMCall] = []
+            var phase = "initial"
+            print("GeminiService.processBatch starting for batch \(batchId)")
             do {
+                phase = "gather & stitch"
                 // 1. gather & stitch -------------------------------------------------
                 let chunks = StorageManager.shared.chunksForBatch(batchId)
                 guard !chunks.isEmpty else { throw GeminiServiceError.noChunks }
@@ -120,6 +123,7 @@ final class GeminiService: GeminiServicing {
                 defer { try? FileManager.default.removeItem(at: stitched) }
 
                 // 2. upload via Files API -------------------------------------------
+                phase = "upload"
                 let mime = self.mimeType(for: stitched) ?? "video/mp4"
                 let (_, fileURI) = try self.uploadAndAwait(stitched, mimeType: mime, key: key)
 
@@ -347,6 +351,7 @@ final class GeminiService: GeminiServicing {
                     var req = URLRequest(url: comps.url!);
                     req.httpMethod = "POST"; req.setValue("application/json", forHTTPHeaderField: "Content-Type"); req.httpBody = jsonData; req.timeoutInterval = 300
 
+                    phase = "generateContent"
                     let requestString = String(data: jsonData, encoding: .utf8) ?? ""
                     let startCall = Date()
                     let (d, r) = try URLSession.shared.syncDataTask(with: req)
@@ -367,6 +372,7 @@ final class GeminiService: GeminiServicing {
                     }
 
                     // 1. Decode the top-level API response
+                    phase = "decode API response"
                     let apiResponse = try JSONDecoder().decode(GeminiAPIResponse.self, from: data)
 
                     // 2. Extract the JSON string from the relevant part
@@ -377,6 +383,7 @@ final class GeminiService: GeminiServicing {
                     }
                     
                     // 3. Decode the actual [ActivityCard] array from the extracted string data
+                    phase = "decode cards"
                     let decodedCards = try JSONDecoder().decode([ActivityCard].self, from: jsonDataString)
                     
                     // Print the decoded cards for verification
@@ -394,6 +401,7 @@ final class GeminiService: GeminiServicing {
                             print("❌ Could not convert JSON data to string for validation")
                             continue // Try again in the next iteration
                         }
+                        phase = "validation"
                         
                         let (validationResult, valCall) = try self.validateGeminiOutput(prompt: prompt, output: jsonString, key: key)
                         callLogs.append(valCall)
@@ -420,9 +428,9 @@ final class GeminiService: GeminiServicing {
                 DispatchQueue.main.async { completion(.success(finalCards)) }
 
             } catch {
+                print("Error during \(phase) for batch \(batchId): \(error)")
                 StorageManager.shared.updateBatchLLMMetadata(batchId: batchId, calls: callLogs)
                 DispatchQueue.main.async { completion(.failure(error)) }
-            }
         }
     }
 
