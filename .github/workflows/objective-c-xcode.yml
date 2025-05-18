@@ -13,14 +13,43 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         
-      - name: Set Default Scheme
+      - name: Find Xcode project
+        id: find-project
         run: |
-          scheme_list=$(xcodebuild -list -json | tr -d "\n")
-          default=$(echo $scheme_list | ruby -e "require 'json'; puts JSON.parse(STDIN.gets)['project']['targets'][0]")
+          # First check the root directory
+          if [ -n "$(find . -maxdepth 1 -name "*.xcodeproj" -o -name "*.xcworkspace")" ]; then
+            echo "PROJECT_PATH=." >> $GITHUB_OUTPUT
+            echo "Xcode project found in root directory"
+          else
+            # Search subdirectories
+            PROJECT_DIR=$(find . -type d -name "*.xcodeproj" -o -name "*.xcworkspace" | head -n 1 | xargs dirname 2>/dev/null || echo "")
+            
+            if [ -n "$PROJECT_DIR" ]; then
+              echo "PROJECT_PATH=$PROJECT_DIR" >> $GITHUB_OUTPUT
+              echo "Xcode project found in: $PROJECT_DIR"
+            else
+              echo "::error::No Xcode project or workspace found in the repository"
+              exit 1
+            fi
+          fi
+          
+      - name: Set Default Scheme
+        if: steps.find-project.outputs.PROJECT_PATH != ''
+        working-directory: ${{ steps.find-project.outputs.PROJECT_PATH }}
+        run: |
+          # List available projects/workspaces for debugging
+          echo "Available Xcode projects/workspaces:"
+          ls -la *.xcodeproj *.xcworkspace 2>/dev/null || echo "None found in this directory"
+          
+          # Try to get the scheme list more safely
+          scheme_list=$(xcodebuild -list -json 2>/dev/null | tr -d "\n" || echo '{"project":{"targets":["Default"]}}')
+          default=$(echo $scheme_list | ruby -e "begin; require 'json'; puts JSON.parse(STDIN.gets)['project']['targets'][0]; rescue; puts 'Default'; end")
           echo $default | cat >default
-          echo Using default scheme: $default
+          echo "Using default scheme: $default"
           
       - name: Build and analyze
+        if: steps.find-project.outputs.PROJECT_PATH != ''
+        working-directory: ${{ steps.find-project.outputs.PROJECT_PATH }}
         env:
           scheme: ${{ 'default' }}
         run: |
@@ -33,6 +62,8 @@ jobs:
             file_to_build="`ls -A | grep -i \\.xcodeproj\$`"
           fi
           file_to_build=`echo $file_to_build | awk '{$1=$1;print}'`
+          
+          echo "Building $filetype_parameter: $file_to_build with scheme: $scheme"
           
           # Run build and capture output
           xcodebuild clean build analyze -scheme "$scheme" -"$filetype_parameter" "$file_to_build" COMPILER_INDEX_STORE_ENABLE=NO CLANG_ANALYZER_OUTPUT=plist-html CLANG_ANALYZER_OUTPUT_DIR="$(pwd)/analyzer_reports" | tee build.log | xcpretty --report junit
@@ -51,15 +82,15 @@ jobs:
           fi
           
       - name: Upload build log
-        if: always()
+        if: always() && steps.find-project.outputs.PROJECT_PATH != ''
         uses: actions/upload-artifact@v4
         with:
           name: build-log
-          path: build.log
+          path: ${{ steps.find-project.outputs.PROJECT_PATH }}/build.log
           
       - name: Upload analyzer reports
-        if: always()
+        if: always() && steps.find-project.outputs.PROJECT_PATH != ''
         uses: actions/upload-artifact@v4
         with:
           name: analyzer-reports
-          path: analyzer_reports
+          path: ${{ steps.find-project.outputs.PROJECT_PATH }}/analyzer_reports
