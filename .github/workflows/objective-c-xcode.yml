@@ -15,10 +15,6 @@ jobs:
         
       - name: Select Xcode version
         run: |
-          # List available Xcode versions
-          ls -la /Applications/ | grep Xcode
-          
-          # Select the latest Xcode version 
           XCODE_PATH=$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)
           echo "Using Xcode at: $XCODE_PATH"
           sudo xcode-select -s "$XCODE_PATH"
@@ -76,8 +72,16 @@ jobs:
           
           echo "Building $filetype_parameter: $file_to_build with scheme: $scheme"
           
-          # Run build and capture output
-          xcodebuild clean build analyze -scheme "$scheme" -"$filetype_parameter" "$file_to_build" COMPILER_INDEX_STORE_ENABLE=NO CLANG_ANALYZER_OUTPUT=plist-html CLANG_ANALYZER_OUTPUT_DIR="$(pwd)/analyzer_reports" | tee build.log | xcpretty --report junit
+          # Run build with code signing disabled
+          xcodebuild clean build analyze \
+            -scheme "$scheme" \
+            -"$filetype_parameter" "$file_to_build" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            CLANG_ANALYZER_OUTPUT=plist-html \
+            CLANG_ANALYZER_OUTPUT_DIR="$(pwd)/analyzer_reports" | tee build.log | xcpretty --report junit
           
           # Display warnings but don't fail the build because of them
           if grep -q "warning:" build.log; then
@@ -85,10 +89,10 @@ jobs:
             grep -n "warning:" build.log || true
           fi
           
-          # Only fail on actual errors
-          if [ ${PIPESTATUS[0]} -ne 0 ] || grep -q "error:" build.log; then
+          # Only fail on actual errors (excluding code signing errors)
+          if [ ${PIPESTATUS[0]} -ne 0 ] || grep -q "error:" build.log | grep -v "No signing certificate"; then
             echo "::error::Build contains errors!"
-            grep -n "error:" build.log || true
+            grep -n "error:" build.log | grep -v "No signing certificate" || true
             exit 1
           fi
           
