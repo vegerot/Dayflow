@@ -628,6 +628,7 @@ struct TimelineCardView: View {
     let pxPerMin: CGFloat
     @State private var hover = false
     @State private var avPlayer: AVPlayer? = nil // Player for video summary
+    @State private var popoverID = UUID() // Forces popover refresh when video loads
 
     private var startMinute: Int? { parseTimeHMMA(timeString: card.startTimestamp) }
     private var endMinute: Int? { parseTimeHMMA(timeString: card.endTimestamp) }
@@ -716,10 +717,10 @@ struct TimelineCardView: View {
                         } 
                         // Removed the 'else' for no video URL to simply show nothing if no video
                     }
-                    .id(avPlayer?.currentItem) // To help refresh VideoPlayer if item changes
                     .padding()
                     .frame(width: 320)
                 }
+                .id(popoverID) // Force NSPopover to reload when ID changes
                 .onChange(of: hover) { _, newValue in
                     if newValue {
                         if let videoPath = card.videoSummaryURL,
@@ -729,18 +730,21 @@ struct TimelineCardView: View {
                             let playerItem = AVPlayerItem(url: videoURL)
                             let player = AVPlayer(playerItem: playerItem)
                             self.avPlayer = player
+                            self.popoverID = UUID() // Trigger popover refresh
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                               if self.hover { 
+                               if self.hover {
                                  self.avPlayer?.play()
                                }
                             }
                         } else {
                             // print("No valid video path for hover playback.") // Debugging print
-                            self.avPlayer = nil 
+                            self.avPlayer = nil
+                            self.popoverID = UUID()
                         }
                     } else {
                         self.avPlayer?.pause()
                         self.avPlayer = nil
+                        self.popoverID = UUID()
                     }
                 }
                 .offset(x: self.xOffset, y: self.yOffset) // Offset the entire Group
