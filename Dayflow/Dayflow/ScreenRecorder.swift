@@ -10,7 +10,8 @@
 //  Notes
 //  -----
 //  •  The recorder lives entirely on its own serial queue (`q`).
-//  •  Recording auto-restarts after errors *and* after system sleep/wake.
+//  •  Recording auto-restarts after errors and after system sleep/wake or
+//     lock/unlock events.
 //  •  Debug prints are compiled-in **only** for DEBUG builds.
 //
 import Foundation
@@ -18,6 +19,7 @@ import Foundation
 @preconcurrency import AVFoundation
 import Combine
 import IOKit.pwr_mgt
+import AppKit
 import CoreGraphics
 import CoreText
 
@@ -57,7 +59,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         // Honor the current flag once (after subscription exists).
         if autoStart, AppState.shared.isRecording { start() }
 
-        registerForSleepWake()
+        registerForSleepAndLock()
     }
 
     deinit { sub?.cancel(); dbg("deinit") }
@@ -73,7 +75,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private var sub    : AnyCancellable?
     private var frames : Int = 0
     private var isStarting = false            // guards concurrent starts
-    private var resumeAfterSleep = false      // remember intent across sleep
+    private var resumeAfterPause = false      // remember intent across interruptions
 
     // MARK: public control ----------------------------------------------
     func start() {
@@ -276,8 +278,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         }
     }
 
-    private func registerForSleepWake() {
+    private func registerForSleepAndLock() {
         let nc = NSWorkspace.shared.notificationCenter
+        let dnc = DistributedNotificationCenter.default()
 
         // -------- system will sleep ----------
         nc.addObserver(forName: NSWorkspace.willSleepNotification,
@@ -286,7 +289,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             dbg("willSleep – pausing")
 
             Task { @MainActor in
-                self.resumeAfterSleep = AppState.shared.isRecording
+                self.resumeAfterPause = AppState.shared.isRecording
             }
             self.stop()
         }
@@ -297,11 +300,63 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             guard let self else { return }
             dbg("didWake – checking flag")
 
-            guard self.resumeAfterSleep else { return }
-            self.resumeAfterSleep = false      // consume the token
+            guard self.resumeAfterPause else { return }
+            self.resumeAfterPause = false      // consume the token
 
             // give ScreenCaptureKit a moment to re-enumerate displays
             self.q.asyncAfter(deadline: .now() + 5) { [weak self] in
+                self?.start()
+            }
+        }
+
+        // -------- screen locked ------------
+        dnc.addObserver(forName: .init("com.apple.screenIsLocked"),
+                        object: nil, queue: nil) { [weak self] _ in
+            guard let self else { return }
+            dbg("screen locked – pausing")
+
+            Task { @MainActor in
+                self.resumeAfterPause = AppState.shared.isRecording
+            }
+            self.stop()
+        }
+
+        // -------- screen unlocked ----------
+        dnc.addObserver(forName: .init("com.apple.screenIsUnlocked"),
+                        object: nil, queue: nil) { [weak self] _ in
+            guard let self else { return }
+            dbg("screen unlocked – checking flag")
+
+            guard self.resumeAfterPause else { return }
+            self.resumeAfterPause = false
+
+            self.q.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.start()
+            }
+        }
+
+        // -------- screensaver started ------
+        dnc.addObserver(forName: .init("com.apple.screensaver.didstart"),
+                        object: nil, queue: nil) { [weak self] _ in
+            guard let self else { return }
+            dbg("screensaver started – pausing")
+
+            Task { @MainActor in
+                self.resumeAfterPause = AppState.shared.isRecording
+            }
+            self.stop()
+        }
+
+        // -------- screensaver stopped ------
+        dnc.addObserver(forName: .init("com.apple.screensaver.didstop"),
+                        object: nil, queue: nil) { [weak self] _ in
+            guard let self else { return }
+            dbg("screensaver stopped – checking flag")
+
+            guard self.resumeAfterPause else { return }
+            self.resumeAfterPause = false
+
+            self.q.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 self?.start()
             }
         }
