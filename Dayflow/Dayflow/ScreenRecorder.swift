@@ -62,7 +62,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         registerForSleepAndLock()
     }
 
-    deinit { sub?.cancel(); dbg("deinit") }
+        deinit { sub?.cancel(); dbg("deinit") }
 
     // MARK: private state ----------------------------------------------
     private let q = DispatchQueue(label: "com.dayflow.recorder", qos: .userInitiated)
@@ -166,7 +166,15 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     private func stopStream() {
-        if let s = stream { s.stopCapture() }
+        if let s = stream { s.stopCapture()
+            do {
+              try s.removeStreamOutput(self, type: .screen)
+            } catch {
+              dbg("removeStreamOutput failed – \(error)")
+            }
+
+        }
+        
         stream = nil
         isStarting = false
         reset(); dbg("stream stopped")

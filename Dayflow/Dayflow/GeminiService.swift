@@ -18,6 +18,9 @@ import UniformTypeIdentifiers
 protocol GeminiServicing {
     func processBatch(_ batchId: Int64,
                       completion: @escaping (Result<[ActivityCard], Error>) -> Void)
+    func transcribeChunk(batchId: Int64, stitchedFileURL: URL, mimeType: String, apiKey: String) async throws -> (transcripts: [TranscriptChunk], log: LLMCall)
+    func generateActivityCardsFromTranscript(batchId: Int64, transcripts: [TranscriptChunk], apiKey: String,
+                                            previousSegmentsJSON: String, userTaxonomy: String, extractedTaxonomy: String) async throws -> (cards: [ActivityCard], log: LLMCall)
     func apiKey() -> String?
     func setApiKey(_ key: String)
 }
@@ -45,6 +48,20 @@ struct PreviousSegmentSummary: Codable {
     let detailedSummary: String
 }
 
+struct TranscriptChunk: Codable, Sendable {
+    let startTimestamp: String   // MM:SS
+    let endTimestamp:   String   // MM:SS
+    let description:    String
+}
+
+// New struct for clock-time based transcripts
+struct ClockTranscriptChunk: Codable, Sendable, Identifiable { // Made Codable for potential storage
+    let id = UUID()
+    let clockStartTime: Date
+    let clockEndTime: Date
+    let description: String
+}
+
 enum GeminiServiceError: Error, LocalizedError {
     case missingApiKey, noChunks, stitchingFailed
     case uploadStartFailed(String), uploadFailed(String)
@@ -61,6 +78,22 @@ enum GeminiServiceError: Error, LocalizedError {
         case .processingFailed(let s): return "File processing failed – \(s)"
         case .requestFailed(let m): return "Gemini request failed – \(m)"
         case .invalidResponse: return "Gemini returned an unexpected payload."
+        }
+    }
+}
+
+enum TranscriptionError: Error, LocalizedError {
+    case invalidTimestampFormat
+    case apiError(String)
+    case decodingError(String)
+    case fileUploadFailed(String) // Added for consistency
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidTimestampFormat: return "Invalid timestamp format. Expected MM:SS."
+        case .apiError(let msg): return "Transcription API error: \\(msg)"
+        case .decodingError(let msg): return "Transcription decoding error: \\(msg)"
+        case .fileUploadFailed(let msg): return "Transcription file upload failed: \\(msg)"
         }
     }
 }
@@ -87,6 +120,13 @@ private struct GeminiAPIResponse: Codable {
 
 // MARK: – Service ------------------------------------------------------------
 
+// Add String.matches extension
+extension String {
+    func matches(_ regex: String) -> Bool {
+        return self.range(of: regex, options: .regularExpression, range: nil, locale: nil) != nil
+    }
+}
+
 final class GeminiService: GeminiServicing {
     static let shared: GeminiServicing = GeminiService()
     private init() {}
@@ -110,327 +150,115 @@ final class GeminiService: GeminiServicing {
         }
 
         queue.async {
-            var callLogs: [LLMCall] = []
-            var phase = "initial"
-            print("GeminiService.processBatch starting for batch \(batchId)")
-            do {
-                phase = "gather & stitch"
-                // 1. gather & stitch -------------------------------------------------
-                let chunks = StorageManager.shared.chunksForBatch(batchId)
-                guard !chunks.isEmpty else { throw GeminiServiceError.noChunks }
-                let urls = chunks.map { URL(fileURLWithPath: $0.fileUrl) }
-                let stitched = try self.stitch(urls: urls)
-                defer { try? FileManager.default.removeItem(at: stitched) }
+            Task {
+                var accumulatedCallLogs: [LLMCall] = []
+                var currentPhase = "initial"
+                print("GeminiService.processBatch (new flow) starting for batch \(batchId)")
 
-                // 2. upload via Files API -------------------------------------------
-                phase = "upload"
-                let mime = self.mimeType(for: stitched) ?? "video/mp4"
-                let (_, fileURI) = try self.uploadAndAwait(stitched, mimeType: mime, key: key)
+                do {
+                    // 1. Gather & Stitch Video Chunks
+                    currentPhase = "gather & stitch"
+                    let recordingChunks = StorageManager.shared.chunksForBatch(batchId)
+                    guard !recordingChunks.isEmpty else { throw GeminiServiceError.noChunks }
+                    let videoURLs = recordingChunks.map { URL(fileURLWithPath: $0.fileUrl) }
+                    let stitchedVideoURL = try self.stitch(urls: videoURLs)
+                    defer { try? FileManager.default.removeItem(at: stitchedVideoURL) }
+                    let mimeType = self.mimeType(for: stitchedVideoURL) ?? "video/mp4"
 
-                // --- Prepare previous segments ---
-                let todayString = self.getCurrentDayStringFor4AMBoundary()
-                let previousCards = StorageManager.shared.fetchTimelineCards(forDay: todayString)
-                var previousSegmentsJSONString = "No previous segment for today."
-
-                if let lastCard = previousCards.last {
-                    let summary = PreviousSegmentSummary(
-                        category: lastCard.category,
-                        subcategory: lastCard.subcategory,
-                        title: lastCard.title,
-                        summary: lastCard.summary,
-                        detailedSummary: lastCard.detailedSummary
+                    // 2. Transcribe Video to Text Chunks
+                    currentPhase = "transcribe video"
+                    print("Phase: \(currentPhase) for batch \(batchId)")
+                    let (transcriptChunks, transcriptionLog) = try await self.transcribeChunk(
+                        batchId: batchId, // batchId is mainly for context/logging if transcribeChunk needs it
+                        stitchedFileURL: stitchedVideoURL,
+                        mimeType: mimeType,
+                        apiKey: key
                     )
+                    accumulatedCallLogs.append(transcriptionLog)
+                    // Note: Transcripts are not saved here, they are passed in memory.
 
-                    let encoder = JSONEncoder()
-                    encoder.outputFormatting = .prettyPrinted // easier to read in prompt
-                    if let jsonData = try? encoder.encode([summary]) {
-                        if let jsonString = String(data: jsonData, encoding: .utf8) {
-                            previousSegmentsJSONString = jsonString
-                        } else {
-                            print("Error: Could not convert the previous segment JSON to string.")
+                    // 3. Prepare Contextual Information for Activity Card Generation
+                    currentPhase = "prepare context for card generation"
+                    print("Phase: \(currentPhase) for batch \(batchId)")
+                    let todayString = self.getCurrentDayStringFor4AMBoundary()
+                    let previousTimelineCards = StorageManager.shared.fetchTimelineCards(forDay: todayString)
+                    var previousSegmentsJSON = "No previous segment for today."
+                    if let lastCard = previousTimelineCards.last {
+                        let summary = PreviousSegmentSummary(
+                            category: lastCard.category,
+                            subcategory: lastCard.subcategory,
+                            title: lastCard.title,
+                            summary: lastCard.summary,
+                            detailedSummary: lastCard.detailedSummary
+                        )
+                        let encoder = JSONEncoder()
+                        encoder.outputFormatting = .prettyPrinted
+                        if let jsonData = try? encoder.encode([summary]), let jsonStr = String(data: jsonData, encoding: .utf8) {
+                            previousSegmentsJSON = jsonStr
                         }
-                    } else {
-                        print("Error: Could not encode the previous segment summary to JSON data.")
                     }
-                }
-                // --- End prepare previous segments ---
-
-                // 3. generateContent -------------------------------------------------
-                // --- Load and format user-preferred taxonomy from UserDefaults ---
-                var formattedUserTaxonomy = "No custom taxonomy provided by user."
-                var formattedExtractedTaxonomy = "No previous taxonomy found."
-                let taxonomyKey = "userDefinedTaxonomyJSON" // Key for UserDefaults
-
-                // First, parse the user-defined taxonomy
-                var userTaxonomyDict: [String: Set<String>] = [:]
-                if let taxonomyJSONString = self.userDefaults.string(forKey: taxonomyKey), !taxonomyJSONString.isEmpty {
-                    if let jsonData = taxonomyJSONString.data(using: .utf8) {
-                        do {
-                            if let parsedDict = try JSONSerialization.jsonObject(with: jsonData, options: []) as? [String: [String]] {
-                                // Convert arrays to sets for faster lookups
-                                for (category, subcategories) in parsedDict {
-                                    userTaxonomyDict[category] = Set(subcategories)
-                                }
-                                
-                                var tempFormattedTaxonomy = ""
-                                for (category, subcategories) in parsedDict.sorted(by: { $0.key < $1.key }) {
-                                    // Format subcategories as a JSON-style array with quotes
-                                    let subcategoriesFormatted = subcategories.sorted().map { "\"\($0)\"" }.joined(separator: ", ")
-                                    tempFormattedTaxonomy += "\(category): [\(subcategoriesFormatted)]\n"
-                                }
-                                if !tempFormattedTaxonomy.isEmpty {
-                                    formattedUserTaxonomy = tempFormattedTaxonomy.trimmingCharacters(in: .whitespacesAndNewlines)
-                                } else {
-                                    print("Warning: Parsed user taxonomy dictionary was empty.")
-                                }
-                            } else {
-                                print("Error: Could not cast parsed taxonomy JSON to [String: [String]]. JSON: \(taxonomyJSONString)")
+                    var userTaxonomyString = "No custom taxonomy provided by user."
+                    var extractedTaxonomyString = "No previous taxonomy found."
+                    let taxonomyKey = "userDefinedTaxonomyJSON"
+                    var userTaxonomyDict: [String: Set<String>] = [:]
+                    if let taxonomyJSONString = self.userDefaults.string(forKey: taxonomyKey), !taxonomyJSONString.isEmpty,
+                       let jsonData = taxonomyJSONString.data(using: .utf8) {
+                        if let parsedDict = try? JSONSerialization.jsonObject(with: jsonData, options: []) as? [String: [String]] {
+                            for (category, subcategories) in parsedDict { userTaxonomyDict[category] = Set(subcategories) }
+                            var tempFormattedTaxonomy = ""
+                            for (category, subcategories) in parsedDict.sorted(by: { $0.key < $1.key }) {
+                                let subcategoriesFormatted = subcategories.sorted().map { "\"\($0)\"" }.joined(separator: ", ")
+                                tempFormattedTaxonomy += "\(category): [\(subcategoriesFormatted)]\n"
                             }
-                        } catch {
-                            print("Error parsing userDefinedTaxonomyJSON from UserDefaults: \(error.localizedDescription). JSON: \(taxonomyJSONString)")
+                            if !tempFormattedTaxonomy.isEmpty { userTaxonomyString = tempFormattedTaxonomy.trimmingCharacters(in: .whitespacesAndNewlines) }
                         }
-                    } else {
-                         print("Error: Could not convert taxonomyJSONString to data. JSON: \(taxonomyJSONString)")
                     }
-                } else {
-                    print("No userDefinedTaxonomyJSON found in UserDefaults or it is empty.")
-                }
-                
-                // Next, extract taxonomy from previous timeline cards
-                var extractedTaxonomyDict: [String: Set<String>] = [:]
-                if !previousCards.isEmpty {
-                    for card in previousCards {
-                        let category = card.category
-                        let subcategory = card.subcategory
-                        
-                        // Only add if this category/subcategory pair isn't in the user taxonomy
-                        if userTaxonomyDict[category]?.contains(subcategory) != true {
-                            // Initialize the set if needed
-                            if extractedTaxonomyDict[category] == nil {
-                                extractedTaxonomyDict[category] = []
+                    var extractedTaxonomyDict: [String: Set<String>] = [:]
+                    if !previousTimelineCards.isEmpty {
+                        for card in previousTimelineCards {
+                            if userTaxonomyDict[card.category]?.contains(card.subcategory) != true {
+                                extractedTaxonomyDict[card.category, default: []].insert(card.subcategory)
                             }
-                            extractedTaxonomyDict[category]?.insert(subcategory)
+                        }
+                        if !extractedTaxonomyDict.isEmpty {
+                            var tempFormattedTaxonomy = ""
+                            for (category, subcategories) in extractedTaxonomyDict.sorted(by: { $0.key < $1.key }) {
+                                let subcategoriesFormatted = Array(subcategories).sorted().map { "\"\($0)\"" }.joined(separator: ", ")
+                                tempFormattedTaxonomy += "\(category): [\(subcategoriesFormatted)]\n"
+                            }
+                            if !tempFormattedTaxonomy.isEmpty { extractedTaxonomyString = tempFormattedTaxonomy.trimmingCharacters(in: .whitespacesAndNewlines) }
                         }
                     }
+
+                    // 4. Generate ActivityCards from Transcript Chunks
+                    currentPhase = "generate activity cards from transcript"
+                    print("Phase: \(currentPhase) for batch \(batchId)")
+                    let (finalActivityCards, cardGenerationLog) = try await self.generateActivityCardsFromTranscript(
+                        batchId: batchId,
+                        transcripts: transcriptChunks,
+                        apiKey: key,
+                        previousSegmentsJSON: previousSegmentsJSON,
+                        userTaxonomy: userTaxonomyString,
+                        extractedTaxonomy: extractedTaxonomyString
+                    )
+                    accumulatedCallLogs.append(cardGenerationLog)
+
+                    // 5. Save the generated ActivityCards
+                    currentPhase = "save activity cards"
+                    print("Phase: \(currentPhase) for batch \(batchId)")
+
+                    // 6. Update Batch LLM Metadata with all accumulated logs
+                    StorageManager.shared.updateBatchLLMMetadata(batchId: batchId, calls: accumulatedCallLogs)
                     
-                    // Format the extracted taxonomy
-                    if !extractedTaxonomyDict.isEmpty {
-                        var tempFormattedTaxonomy = ""
-                        for (category, subcategories) in extractedTaxonomyDict.sorted(by: { $0.key < $1.key }) {
-                            let subcategoriesFormatted = Array(subcategories).sorted().map { "\"\($0)\"" }.joined(separator: ", ")
-                            tempFormattedTaxonomy += "\(category): [\(subcategoriesFormatted)]\n"
-                        }
-                        if !tempFormattedTaxonomy.isEmpty {
-                            formattedExtractedTaxonomy = tempFormattedTaxonomy.trimmingCharacters(in: .whitespacesAndNewlines)
-                        }
-                    }
+                    print("GeminiService.processBatch (new flow) completed successfully for batch \(batchId).")
+                    DispatchQueue.main.async { completion(.success(finalActivityCards)) }
+
+                } catch {
+                    print("Error during \(currentPhase) for batch \(batchId) in new flow: \(error.localizedDescription)")
+                    // Ensure even on error, any partial logs are saved if possible/desired
+                    StorageManager.shared.updateBatchLLMMetadata(batchId: batchId, calls: accumulatedCallLogs)
+                    DispatchQueue.main.async { completion(.failure(error)) }
                 }
-                
-                print("User Taxonomy: \(formattedUserTaxonomy)")
-                print("System generated Taxonomy: \(formattedExtractedTaxonomy)")
-                // --- End load and format taxonomies ---
-                
-                let prompt = """
-                You are Dayflow, an AI that converts screen recordings into a JSON timeline.
-                –––––  OUTPUT  –––––
-                Return only a JSON array of segments, each with:
-                startTimestamp (video timestamp, like 1:32, NEVER reference the system clock time like 3:23PM)
-                endTimestamp
-                category
-                subcategory
-                title  (max 3 words, should be 1-2 usually. Something like Coding or Twitter so the user has a quick high level understanding, more precise than subcategory)
-                summary (1-2 sentences concise narration of what the user did, think diary entry from the user perspective)
-                detailed summary (longer factual description used only as context for future analysis)
-                distractions (optional array of {startTime, endTime, title, summary})
-                –––––  CORE RULES  –––––
-                Segments should always be 5+ minutes
-                Strongly prioritize keeping all continuous work related to a single project, feature, or overall goal within one segment.
-                Sub‑5 min detours → put in distractions.
-                Segments must not overlap.
-                Always try to adhere and use the user provided categories and subcategories wherever possible. If none fit, try adhering to the previously extracted taxonomy, which will be provided below. However, if the segment doesn't fit any of the provided taxonomy, or no taxonomy is provided, try to go with broad categories/subcategories. Some examples for reference Productive Work: [Coding, Writing, Design, Data Analysis, Project Management] Communication & Collaboration: [Email, Meetings, Slack] Distractions [Twitter, Social Media, Texting] Idle: [Idle]
-                Try not to exceed 4 subcategories.
-                Sometimes, users will be idle, in other words nothing will happen on the screen for 5+ minutes. we should create a new segment and label it Idle - Idle in that case.
-                –––––  SCATTERED‑ACTIVITY RULE  –––––
-                For any 5 + min window of rapid switching:
-                • If one activity recurs most, make it the segment; others → distractions.
-                –––––  DISTRACTION DETAILS  –––––
-                Log any distraction ≥ 30 s and < 5 min. do not log distractions that are shorter than 30s
-                –––––  CONTINUITY  –––––
-                Examine the most recent previous Segment carefully. More likely than not, the first segment of this video analysis is a continuation of the previous segment. In that case, you should do your best to use the same category/subcategory.
-                –––––  USER PREFERRED TAXONOMY  –––––
-                Remember to adhere to these user provided categories/subcategories wherever possible.
-                \(formattedUserTaxonomy)
-                
-                –––––  SYSTEM GENERATED TAXONOMY  –––––
-                If the user taxonomy doesn't fit, try to use these categories/subcategories extracted from previous segments.
-                \(formattedExtractedTaxonomy)
-                
-                ----- PREVIOUS SEGMENT -----
-                \(previousSegmentsJSONString)
-
-                ----- Thinking Instructions/Plan you should always adhere to ------
-                First create a high level description of everything the user did using timestamps. Remember that timestamps are in this format MM:SS. so 0:00 to 5:00 is 5 minutes.
-                Then, using the instructions above try to group the screentime into larger 5+ minute segments.
-                At the end of your thinking each segment should be 5+ minutes long. Do your best to minimize the amount of segments if at all possible. Distractions should be >30s long. At the end of your thinking, reflect rigorously on whether you have met these guidelines and make corrections if you need before outputting the final answer.
-                """
-                
-                // New variables for retry logic
-                var attempts = 0
-                let maxAttempts = 3  // Original attempt + 2 retries
-                var finalDecodedCards: [ActivityCard]? = nil
-                
-                // Start retry loop
-                while attempts < maxAttempts && finalDecodedCards == nil {
-                    attempts += 1
-                    print("📝 Processing batch \(batchId): Attempt \(attempts) of \(maxAttempts)")
-                    
-                    let distractionSchema: [String: Any] = [
-                        "type": "OBJECT",
-                        "properties": [
-                            "startTime": ["type": "STRING"],
-                            "endTime": ["type": "STRING"],
-                            "title": ["type": "STRING"],
-                            "summary": ["type": "STRING"]
-                        ],
-                        "required": ["startTime", "endTime", "title", "summary"],
-                        "propertyOrdering": ["startTime", "endTime", "title", "summary"]
-                    ]
-
-                    let activityCardSchema: [String: Any] = [
-                        "type": "OBJECT",
-                        "properties": [
-                            "startTime": ["type": "STRING"],
-                            "endTime": ["type": "STRING"],
-                            "category": ["type": "STRING"],
-                            "subcategory": ["type": "STRING"],
-                            "title": ["type": "STRING"],
-                            "summary": ["type": "STRING"],
-                            "detailedSummary": ["type": "STRING"],
-                            "distractions": [
-                                "type": "ARRAY",
-                                "items": distractionSchema,
-                                "nullable": true
-                            ]
-                        ],
-                        "required": ["startTime", "endTime", "category", "subcategory", "title", "summary", "detailedSummary"],
-                        "propertyOrdering": ["startTime", "endTime", "category", "subcategory", "title", "summary", "detailedSummary", "distractions"]
-                    ]
-
-                    let responseSchemaForApi: [String: Any] = [
-                        "type": "ARRAY",
-                        "items": activityCardSchema
-                    ]
-
-                    let body: [String: Any] = [
-                        "contents": [[
-                            "parts": [
-                                ["file_data": [
-                                    "mime_type": mime,
-                                    "file_uri": fileURI
-                                ]],
-                                ["text": prompt]
-                            ]
-                        ]],
-                        "generationConfig": [
-                            "temperature": 0.3,
-                            "maxOutputTokens": 65536,
-                            "responseMimeType": "application/json",
-                            "responseSchema": responseSchemaForApi,
-                            "thinkingConfig": [
-                                "thinkingBudget": 24576
-                            ]
-                        ]
-                    ]
-                    let jsonData = try JSONSerialization.data(withJSONObject: body)
-
-                    // curl dump -------------------------------------------------------
-                    self.dumpCurl(batchId: batchId, json: jsonData, key: key)
-
-                    // request --------------------------------------------------------
-                    var comps = URLComponents(string: self.genEndpoint)!; comps.queryItems = [URLQueryItem(name: "key", value: key)]
-                    var req = URLRequest(url: comps.url!);
-                    req.httpMethod = "POST"; req.setValue("application/json", forHTTPHeaderField: "Content-Type"); req.httpBody = jsonData; req.timeoutInterval = 300
-
-                    phase = "generateContent"
-                    let requestString = String(data: jsonData, encoding: .utf8) ?? ""
-                    let startCall = Date()
-                    let (d, r) = try URLSession.shared.syncDataTask(with: req)
-                    let latency = Date().timeIntervalSince(startCall)
-                    guard let http = r as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                        let msg = String(data: d ?? Data(), encoding: .utf8) ?? "<no body>"
-                        throw GeminiServiceError.requestFailed(msg)
-                    }
-                    guard let data = d else { throw GeminiServiceError.invalidResponse }
-                    
-                    // Log the raw response data as a string for debugging
-                    let responseString = String(data: data, encoding: .utf8) ?? ""
-                    if !responseString.isEmpty {
-                        print("📄 Raw Gemini Response Data:")
-                        print(responseString)
-                    } else {
-                        print("📄 Could not decode raw Gemini response data as UTF-8.")
-                    }
-
-                    // 1. Decode the top-level API response
-                    phase = "decode API response"
-                    let apiResponse = try JSONDecoder().decode(GeminiAPIResponse.self, from: data)
-
-                    // 2. Extract the JSON string from the relevant part
-                    guard let firstCandidate = apiResponse.candidates.first,
-                          let firstPart = firstCandidate.content.parts.first,
-                          let jsonDataString = firstPart.text.data(using: .utf8) else {
-                        throw GeminiServiceError.invalidResponse
-                    }
-                    
-                    // 3. Decode the actual [ActivityCard] array from the extracted string data
-                    phase = "decode cards"
-                    let decodedCards = try JSONDecoder().decode([ActivityCard].self, from: jsonDataString)
-                    
-                    // Print the decoded cards for verification
-                    print("✅ Decoded Activity Cards (Attempt \(attempts)):")
-                    print(decodedCards)
-                    callLogs.append(LLMCall(timestamp: startCall,
-                                            latency: latency,
-                                            input: requestString,
-                                            output: responseString))
-                    
-                    // 4. Validate the response with a second Gemini call
-                    if attempts < maxAttempts { // Only validate if we have retries left
-                        // Convert jsonDataString (Data) to a String before passing to validateGeminiOutput
-                        guard let jsonString = String(data: jsonDataString, encoding: .utf8) else {
-                            print("❌ Could not convert JSON data to string for validation")
-                            continue // Try again in the next iteration
-                        }
-                        phase = "validation"
-                        
-                        let (validationResult, valCall) = try self.validateGeminiOutput(prompt: prompt, output: jsonString, key: key)
-                        callLogs.append(valCall)
-                        if validationResult.contains("pass") {
-                            print("✅ Validation PASSED for attempt \(attempts)")
-                            finalDecodedCards = decodedCards
-                        } else {
-                            print("❌ Validation FAILED for attempt \(attempts) - will retry")
-                            // Will retry in the next loop iteration
-                        }
-                    } else {
-                        // On the last attempt, use whatever we got
-                        print("⚠️ Final attempt \(attempts) - using result regardless of validation")
-                        finalDecodedCards = decodedCards
-                    }
-                }
-                
-                // If we exited the loop without valid cards, throw an error
-                guard let finalCards = finalDecodedCards else {
-                    throw GeminiServiceError.processingFailed("Failed to generate valid output after \(maxAttempts) attempts")
-                }
-
-                StorageManager.shared.updateBatchLLMMetadata(batchId: batchId, calls: callLogs)
-                DispatchQueue.main.async { completion(.success(finalCards)) }
-
-            } catch {
-                print("Error during \(phase) for batch \(batchId): \(error)")
-                StorageManager.shared.updateBatchLLMMetadata(batchId: batchId, calls: callLogs)
-                DispatchQueue.main.async { completion(.failure(error)) }
             }
         }
     }
@@ -591,7 +419,7 @@ curl \"\(comps.url!.absoluteString)\" \
         var comps = URLComponents(string: self.genEndpoint)!; comps.queryItems = [URLQueryItem(name: "key", value: key)]
         var req = URLRequest(url: comps.url!);
         req.httpMethod = "POST"; req.setValue("application/json", forHTTPHeaderField: "Content-Type"); req.httpBody = jsonData; req.timeoutInterval = 60
-
+        
         let startCall = Date()
         let (d, r) = try URLSession.shared.syncDataTask(with: req)
         let latency = Date().timeIntervalSince(startCall)
@@ -609,9 +437,237 @@ curl \"\(comps.url!.absoluteString)\" \
         
         let validationResponse = firstPart.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         print("🔍 Validation response: \(validationResponse)")
-
+        
         let call = LLMCall(timestamp: startCall, latency: latency, input: requestString, output: validationResponse)
         return (validationResponse, call)
+    }
+
+    // MARK: - Private Gemini API Call Helper (Updated)
+    private func callGeminiAPI<T: Decodable>(
+        apiKey: String,
+        requestBody: [String: Any],
+        targetType: T.Type,
+        apiEndpoint: String
+    ) async throws -> (decodedObject: T, responseText: String, requestTimestamp: Date, latency: TimeInterval) {
+        var attempts = 0
+        let maxAttempts = 3
+        var lastError: Error = GeminiServiceError.requestFailed("Unknown API error after \(maxAttempts) attempts.")
+        let requestTimestamp = Date() // Timestamp for the start of the first attempt
+
+        while attempts < maxAttempts {
+            attempts += 1
+            let attemptStartTime = Date()
+
+            do {
+                var req = URLRequest(url: URL(string: apiEndpoint + "?key=\(apiKey)")!)
+                req.httpMethod = "POST"
+                req.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+                req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                req.timeoutInterval = 300
+
+                let (data, resp) = try await URLSession.shared.data(for: req)
+                let latency = Date().timeIntervalSince(attemptStartTime)
+
+                guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
+                    let responseBody = String(data: data, encoding: .utf8) ?? "No response body"
+                    print("Gemini API Error: HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0): \(responseBody)")
+                    lastError = GeminiServiceError.requestFailed("HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0): \(responseBody)")
+                    if attempts >= maxAttempts { throw lastError }
+                    await Task.sleep(UInt64(2 * Double(attempts) * 1_000_000_000.0))
+                    continue
+                }
+
+                let apiResp = try JSONDecoder().decode(GeminiAPIResponse.self, from: data)
+                guard let firstCandidate = apiResp.candidates.first,
+                      let textPart = firstCandidate.content.parts.first?.text,
+                      let jsonBytes = textPart.data(using: .utf8) else {
+                    lastError = GeminiServiceError.invalidResponse
+                    if attempts >= maxAttempts { throw lastError }
+                    await Task.sleep(UInt64(2 * Double(attempts) * 1_000_000_000.0))
+                    continue
+                }
+                
+                let decodedObject = try JSONDecoder().decode(T.self, from: jsonBytes)
+                print(decodedObject)
+                let responseText = String(data: jsonBytes, encoding: .utf8) ?? "Could not decode response text from JSON bytes"
+                // Use requestTimestamp for the overall call, latency for this specific successful attempt
+                let overallLatency = Date().timeIntervalSince(requestTimestamp)
+                return (decodedObject, responseText, requestTimestamp, overallLatency)
+
+            } catch let specificError as DecodingError {
+                 print("Gemini API decoding error: \(specificError)")
+                 lastError = specificError
+                 if attempts >= maxAttempts { throw lastError }
+            } catch let specificError as GeminiServiceError {
+                lastError = specificError
+                if attempts >= maxAttempts { throw lastError }
+            } catch {
+                lastError = GeminiServiceError.requestFailed("Attempt \(attempts)/\(maxAttempts) failed: \(error.localizedDescription)")
+                if attempts >= maxAttempts { throw lastError }
+            }
+            
+            if attempts < maxAttempts {
+                print("Gemini API call attempt \(attempts) failed. Retrying in \(2 * attempts) seconds...")
+                await Task.sleep(UInt64(2 * Double(attempts) * 1_000_000_000.0))
+            }
+        }
+        throw lastError
+    }
+
+    // MARK: – Transcription (Updated to return LLMCall)
+    func transcribeChunk(batchId: Int64, stitchedFileURL: URL, mimeType: String, apiKey: String) async throws -> (transcripts: [TranscriptChunk], log: LLMCall) {
+        let callStartTime = Date() // For the LLMCall timestamp
+        let fileURI: String
+        do {
+            (_, fileURI) = try await uploadAndAwait(stitchedFileURL, mimeType: mimeType, key: apiKey)
+        } catch {
+            // ... error handling ...
+            if let geminiError = error as? GeminiServiceError { throw TranscriptionError.fileUploadFailed(geminiError.localizedDescription) }
+            throw TranscriptionError.fileUploadFailed(error.localizedDescription)
+        }
+
+        let finalTranscriptionPrompt = """
+        YYour job is to act as an expert transcriber for someone's computer usage. your descriptions should capture context and intent of the what the user is doing. 
+        for example, if the user is watching a youtube video, what's important is capturing the essence of what the video is about, not necessarily every invidiaul detail about the video. 
+        Each transcription should include a timestamp range of the particular action eg (MM:SS - MM:SS). Each transcription should also be >30seconds long, although exercise your judgement.
+         If you're going to start a separate transcription, it should be because of a big shift in context.
+        """
+
+        let transcriptionSchema: [String:Any] = [
+          "type":"ARRAY",
+          "items": [
+            "type":"OBJECT",
+            "properties":[
+              "startTimestamp":["type":"STRING"],
+              "endTimestamp":  ["type":"STRING"],
+              "description":   ["type":"STRING"]
+            ],
+            "required":["startTimestamp","endTimestamp","description"],
+            "propertyOrdering":["startTimestamp","endTimestamp","description"]
+          ]
+        ]
+        
+        let generationConfig: [String: Any] = [
+            "temperature": 0.3,
+            "maxOutputTokens": 65536,
+            "responseMimeType": "application/json",
+            "responseSchema": transcriptionSchema,
+            "thinkingConfig": [
+                "thinkingBudget": 24576
+            ]
+        ]
+
+        let requestBody: [String: Any] = [
+            "contents": [["parts": [
+                ["file_data": ["mime_type": mimeType, "file_uri": fileURI]],
+                ["text": finalTranscriptionPrompt]
+            ]]],
+            "generationConfig": generationConfig
+        ]
+        
+        let (videoTranscriptChunks, responseText, _, latency) = try await callGeminiAPI(
+            apiKey: apiKey,
+            requestBody: requestBody,
+            targetType: [TranscriptChunk].self,
+            apiEndpoint: self.genEndpoint
+        )
+        
+        let mmssRegex = #"^\d{1,2}:[0-5]\d$"#
+        let badChunk = videoTranscriptChunks.first { !$0.startTimestamp.matches(mmssRegex) || !$0.endTimestamp.matches(mmssRegex) }
+        if badChunk != nil {
+            print("Invalid timestamp found: start='\(badChunk!.startTimestamp)', end='\(badChunk!.endTimestamp)' for batch \(batchId)")
+            throw TranscriptionError.invalidTimestampFormat
+        }
+        
+        let log = LLMCall(timestamp: callStartTime, latency: latency, input: finalTranscriptionPrompt, output: responseText)
+        return (videoTranscriptChunks, log)
+    }
+
+    // MARK: - Generate ActivityCards from Transcript (Updated to return LLMCall and take context)
+    func generateActivityCardsFromTranscript(
+        batchId: Int64,
+        transcripts: [TranscriptChunk],
+        apiKey: String,
+        previousSegmentsJSON: String, // Added parameter
+        userTaxonomy: String,         // Added parameter
+        extractedTaxonomy: String     // Added parameter
+    ) async throws -> (cards: [ActivityCard], log: LLMCall) {
+        let callStartTime = Date()
+        let transcriptText = transcripts.map { "[\($0.startTimestamp) - \($0.endTimestamp)]: \($0.description)" }.joined(separator: "\n")
+
+        let activityGenerationPrompt = """
+        You are Dayflow, an AI that converts screen recordings into a JSON timeline.
+        –––––  OUTPUT  –––––
+        Return only a JSON array of segments, each with:
+        startTimestamp (video timestamp, like 1:32)
+        endTimestamp
+        category
+        subcategory
+        title  (max 3 words, should be 1-2 usually. Something like Coding or Twitter so the user has a quick high level understanding, more precise than subcategory)
+        summary (1-2 sentences concise narration of what the user did, think diary entry from the user perspective)
+        detailed summary (longer factual description used only as context for future analysis)
+        distractions (optional array of {startTime, endTime, title, summary})
+        –––––  CORE RULES  –––––
+        Segments should always be 5+ minutes
+        Strongly prioritize keeping all continuous work related to a single project, feature, or overall goal within one segment.
+        Sub‑5 min detours → put in distractions.
+        Segments must not overlap.
+        Always try to adhere and use the user provided categories and subcategories wherever possible. If none fit, try adhering to the categories and subcategories in previous segments, which will be provided below. However, if the segment doesn't fit any of the provided taxonomy, or no taxonomy is provided, try to go with broad categories/subcategories. Some examples for reference Productive Work: [Coding, Writing, Design, Data Analysis, Project Management] Communication & Collaboration: [Email, Meetings, Slack] Distractions [Twitter, Social Media, Texting] Idle: [Idle]
+        Try not to exceed 4 subcategories.
+        Sometimes, users will be idle, in other words nothing will happen on the screen for 5+ minutes. we should create a new segment and label it Idle - Idle in that case.
+        –––––  SCATTERED‑ACTIVITY RULE  –––––
+        For any 5 + min window of rapid switching:
+        • If one activity recurs most, make it the segment; others → distractions.
+        –––––  DISTRACTION DETAILS  –––––
+        Log any distraction ≥ 30 s and < 5 min. do not log distractions that are shorter than 30s
+        –––––  CONTINUITY  –––––
+        Examine the most recent previous Segment carefully. More likely than not, the first segment of this video analysis is a continuation of the previous segment. In that case, you should do your best to use the same category/subcategory.
+        \(transcriptText)
+        OUTPUT FORMAT: JSON array of ActivityCards. startTime/endTime as MM:SS strings.
+            USER PREFERRED TAXONOMY:
+            \(userTaxonomy)
+            SYSTEM GENERATED TAXONOMY:
+            \(extractedTaxonomy)
+            PREVIOUS SEGMENT:
+            \(previousSegmentsJSON)
+        """
+        print(activityGenerationPrompt)
+        let distractionSchema: [String: Any] = [
+            "type": "OBJECT", "properties": ["startTime": ["type": "STRING"], "endTime": ["type": "STRING"], "title": ["type": "STRING"], "summary": ["type": "STRING"]],
+            "required": ["startTime", "endTime", "title", "summary"], "propertyOrdering": ["startTime", "endTime", "title", "summary"]
+        ]
+        let activityCardSchema: [String: Any] = [
+            "type": "OBJECT", "properties": [
+                "startTime": ["type": "STRING"], "endTime": ["type": "STRING"], "category": ["type": "STRING"], "subcategory": ["type": "STRING"],
+                "title": ["type": "STRING"], "summary": ["type": "STRING"], "detailedSummary": ["type": "STRING"],
+                "distractions": ["type": "ARRAY", "items": distractionSchema, "nullable": true]
+            ],
+            "required": ["startTime", "endTime", "category", "subcategory", "title", "summary", "detailedSummary"],
+            "propertyOrdering": ["startTime", "endTime", "category", "subcategory", "title", "summary", "detailedSummary", "distractions"]
+        ]
+        let responseSchemaForApi: [String: Any] = ["type": "ARRAY", "items": activityCardSchema]
+
+        let generationConfig: [String: Any] = [
+            "temperature": 0.3,
+            "maxOutputTokens": 65536,
+            "responseMimeType": "application/json",
+            "responseSchema": responseSchemaForApi,
+            "thinkingConfig": ["thinkingBudget": 24576]
+        ]
+        let requestBody: [String: Any] = [
+            "contents": [["parts": [["text": activityGenerationPrompt]]]],
+            "generationConfig": generationConfig
+        ]
+
+        let (generatedCards, responseText, _, latency) = try await callGeminiAPI(
+            apiKey: apiKey,
+            requestBody: requestBody,
+            targetType: [ActivityCard].self,
+            apiEndpoint: self.genEndpoint
+        )
+        
+        let log = LLMCall(timestamp: callStartTime, latency: latency, input: activityGenerationPrompt, output: responseText)
+        return (generatedCards, log)
     }
 }
 

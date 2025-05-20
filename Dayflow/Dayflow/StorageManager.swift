@@ -90,6 +90,10 @@ protocol StorageManaging: Sendable {
 
     // Timeline Queries
     func fetchTimelineCards(forDay day: String) -> [TimelineCard]
+
+    // Transcript Storage - Updated for ClockTranscriptChunk
+    func saveTranscript(batchId: Int64, chunks: [ClockTranscriptChunk])
+    func fetchTranscript(batchId: Int64) -> [ClockTranscriptChunk]
 }
 
 // MARK: - Data Structures -----------------------------------------------------
@@ -198,6 +202,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     status         TEXT    NOT NULL DEFAULT 'pending',
                     reason         TEXT,
                     llm_metadata   TEXT,
+                    detailed_transcription TEXT,
                     created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE INDEX IF NOT EXISTS idx_analysis_batches_status ON analysis_batches(status);
@@ -205,6 +210,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
             // Attempt to add the new column if the table pre-dates it
             try? db.execute(sql: "ALTER TABLE analysis_batches ADD COLUMN llm_metadata TEXT")
+            try? db.execute(sql: "ALTER TABLE analysis_batches ADD COLUMN detailed_transcription TEXT")
 
             try db.execute(sql: """
                 CREATE TABLE IF NOT EXISTS batch_chunks (
@@ -462,6 +468,40 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     videoSummaryURL: row["video_summary_url"]
                 )
             }
+        }) ?? []
+    }
+
+    // MARK: - Transcript Storage (Updated) --------------------------------------
+
+    func saveTranscript(batchId: Int64, chunks: [ClockTranscriptChunk]) {
+        guard !chunks.isEmpty else { return }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601 // Encode Dates as ISO8601 strings
+        do {
+            let jsonData = try encoder.encode(chunks)
+            let jsonString = String(data: jsonData, encoding: .utf8)
+            try db.write { db in
+                try db.execute(sql: """
+                    UPDATE analysis_batches
+                    SET detailed_transcription = ?
+                    WHERE id = ?
+                """, arguments: [jsonString, batchId])
+            }
+        } catch {
+            print("Error saving clock-time transcript for batch \(batchId): \(error.localizedDescription)")
+        }
+    }
+
+    func fetchTranscript(batchId: Int64) -> [ClockTranscriptChunk] {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601 // Decode Dates from ISO8601 strings
+        return (try? db.read { db in
+            if let row = try Row.fetchOne(db, sql: "SELECT detailed_transcription FROM analysis_batches WHERE id = ?", arguments: [batchId]),
+               let jsonString: String = row["detailed_transcription"],
+               let jsonData = jsonString.data(using: .utf8) {
+                return try decoder.decode([ClockTranscriptChunk].self, from: jsonData)
+            }
+            return []
         }) ?? []
     }
 
