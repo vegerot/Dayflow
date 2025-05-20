@@ -9,6 +9,7 @@ struct DebugView: View {
     @State private var timelineCards: [TimelineCard] = []
     @State private var llmCalls: [LLMCall] = []
     @State private var composition: AVMutableComposition?
+    @State private var isProcessing = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -32,76 +33,23 @@ struct DebugView: View {
                             .frame(height: 200)
                             .cornerRadius(8)
                         Button("Export Video…") { exportVideo() }
-                            .disabled(composition == nil)
+                            .disabled(composition == nil || isProcessing)
+
+                        Button("Reprocess Batch") { triggerReprocessBatch() }
+                            .disabled(isProcessing)
+                            .padding(.top, 5)
 
                         if !timelineCards.isEmpty {
                             Text("Timeline Cards").font(.headline)
                             ForEach(timelineCards) { card in
-                                DisclosureGroup {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        Text("\(card.startTimestamp) – \(card.endTimestamp)")
-                                            .font(.caption)
-                                        Text(card.category + " / " + card.subcategory)
-                                            .font(.caption2)
-                                        Text(card.summary).font(.caption)
-
-                                        if let path = card.videoSummaryURL,
-                                           !path.isEmpty,
-                                           let url = videoURL(from: path) {
-                                            InlineVideoPlayer(url: url)
-                                                .frame(height: 120)
-                                                .cornerRadius(6)
-                                        }
-
-                                        if let distractions = card.distractions,
-                                           !distractions.isEmpty {
-                                            Text("Distractions").font(.subheadline)
-                                            ForEach(distractions) { d in
-                                                VStack(alignment: .leading, spacing: 4) {
-                                                    Text(d.title).bold().font(.caption)
-                                                    Text("\(d.startTime) – \(d.endTime)")
-                                                        .font(.caption2)
-                                                    Text(d.summary).font(.caption2)
-                                                    if let dPath = d.videoSummaryURL,
-                                                       !dPath.isEmpty,
-                                                       let dUrl = videoURL(from: dPath) {
-                                                        InlineVideoPlayer(url: dUrl)
-                                                            .frame(height: 80)
-                                                            .cornerRadius(4)
-                                                    }
-                                                }
-                                                .padding(.leading, 8)
-                                            }
-                                        }
-                                    }
-                                    .padding(.vertical, 4)
-                                } label: {
-                                    Text(card.title).bold()
-                                }
-                                .padding(.bottom, 4)
+                                TimelineCardRow(card: card)
                             }
                         }
 
                         if !llmCalls.isEmpty {
                             Text("LLM Calls").font(.headline)
                             ForEach(Array(llmCalls.enumerated()), id: \.offset) { index, call in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Call \(index + 1) – " + dateFormatter.string(from: call.timestamp))
-                                        .font(.subheadline)
-                                    Text(String(format: "Latency %.2fs", call.latency))
-                                        .font(.caption2)
-                                    Text("Input:")
-                                        .font(.caption2)
-                                    Text(prettyJSON(call.input))
-                                        .font(.system(size: 12, design: .monospaced))
-                                        .textSelection(.enabled)
-                                    Text("Output:")
-                                        .font(.caption2)
-                                    Text(prettyJSON(call.output))
-                                        .font(.system(size: 12, design: .monospaced))
-                                        .textSelection(.enabled)
-                                }
-                                .padding(.bottom, 6)
+                                LLMCallRow(index: index, call: call, dateFormatter: dateFormatter, prettyJSON: prettyJSON)
                             }
                         }
                     }
@@ -123,6 +71,7 @@ struct DebugView: View {
         player.pause()
         timelineCards = []
         llmCalls = []
+        composition = nil
 
         guard let id else { return }
         let chunks = StorageManager.shared.chunksForBatch(id)
@@ -152,6 +101,29 @@ struct DebugView: View {
         }
         timelineCards = StorageManager.shared.fetchTimelineCards(forBatch: id)
         llmCalls = StorageManager.shared.fetchBatchLLMMetadata(batchId: id)
+    }
+
+    private func triggerReprocessBatch() {
+        guard let batchId = selected, !isProcessing else { return }
+
+        isProcessing = true
+        print("Starting reprocessing for batch \(batchId)...")
+
+        GeminiService.shared.processBatch(batchId) { result in
+            DispatchQueue.main.async {
+                self.isProcessing = false
+                switch result {
+                case .success(let cards):
+                    print("Successfully reprocessed batch \(batchId). Found \(cards.count) cards.")
+                case .failure(let error):
+                    print("Failed to reprocess batch \(batchId): \(error.localizedDescription)")
+                }
+                self.refresh()
+                Task {
+                    await self.loadBatch(batchId)
+                }
+            }
+        }
     }
 
     private func exportVideo() {
@@ -200,14 +172,98 @@ struct DebugView: View {
         return URL(string: "file://" + path)
     }
 
-    private func prettyJSON(_ text: String) -> String {
-        guard let data = text.data(using: .utf8),
+    private func prettyJSON(_ text: String?) -> String {
+        guard let text, !text.isEmpty,
+              let data = text.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data),
               let prettyData = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted]),
               let prettyString = String(data: prettyData, encoding: .utf8) else {
-            return text
+            return text ?? ""
         }
         return prettyString
+    }
+}
+
+struct TimelineCardRow: View {
+    let card: TimelineCard
+
+    var body: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("\(card.startTimestamp) – \(card.endTimestamp)")
+                    .font(.caption)
+                Text(card.category + " / " + card.subcategory)
+                    .font(.caption2)
+                Text(card.summary).font(.caption)
+
+                if let path = card.videoSummaryURL,
+                   !path.isEmpty,
+                   let url = videoURL(from: path) {
+                    InlineVideoPlayer(url: url)
+                        .frame(height: 120)
+                        .cornerRadius(6)
+                }
+
+                if let distractions = card.distractions,
+                   !distractions.isEmpty {
+                    Text("Distractions").font(.subheadline)
+                    ForEach(distractions) { d in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(d.title).bold().font(.caption)
+                            Text("\(d.startTime) – \(d.endTime)")
+                                .font(.caption2)
+                            Text(d.summary).font(.caption2)
+                            if let dPath = d.videoSummaryURL,
+                               !dPath.isEmpty,
+                               let dUrl = videoURL(from: dPath) {
+                                InlineVideoPlayer(url: dUrl)
+                                    .frame(height: 80)
+                                    .cornerRadius(4)
+                            }
+                        }
+                        .padding(.leading, 8)
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+        } label: {
+            Text(card.title).bold()
+        }
+        .padding(.bottom, 4)
+    }
+
+    private func videoURL(from path: String) -> URL? {
+        if path.hasPrefix("file://") {
+            return URL(string: path)
+        }
+        return URL(string: "file://" + path)
+    }
+}
+
+struct LLMCallRow: View {
+    let index: Int
+    let call: LLMCall
+    let dateFormatter: DateFormatter
+    let prettyJSON: (String?) -> String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Call \(index + 1) – " + dateFormatter.string(from: call.timestamp ?? Date()))
+                .font(.subheadline)
+            Text(String(format: "Latency %.2fs", call.latency ?? 0.0))
+                .font(.caption2)
+            Text("Input:")
+                .font(.caption2)
+            Text(prettyJSON(call.input))
+                .font(.system(size: 12, design: .monospaced))
+                .textSelection(.enabled)
+            Text("Output:")
+                .font(.caption2)
+            Text(prettyJSON(call.output))
+                .font(.system(size: 12, design: .monospaced))
+                .textSelection(.enabled)
+        }
+        .padding(.bottom, 6)
     }
 }
 
