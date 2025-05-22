@@ -10,6 +10,7 @@ import SwiftUI
 // MARK: - App View Enum (for top-level navigation)
 enum AppView: String, CaseIterable, Identifiable {
     case timeline = "Timeline"
+    case dashboard = "Dashboard"
     case settings = "Settings"
     case debug = "Debug"
     var id: String { self.rawValue }
@@ -294,6 +295,8 @@ struct AppRootView: View {
             if currentAppView == .timeline {
                 ContentView()
                     .environmentObject(AppState.shared)
+            } else if currentAppView == .dashboard {
+                DashboardView()
             } else if currentAppView == .settings {
                 SettingsView()
             } else {
