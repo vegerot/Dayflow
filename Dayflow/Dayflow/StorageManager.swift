@@ -82,11 +82,9 @@ protocol StorageManaging: Sendable {
     func fetchBatchLLMMetadata(batchId: Int64) -> [LLMCall]
 
     // Timeline‑cards
-    func saveTimelineCards(batchId: Int64, cards: [TimelineCard])
+    func saveTimelineCardShell(batchId: Int64, card: TimelineCardShell) -> Int64?
+    func updateTimelineCardVideoURL(cardId: Int64, videoSummaryURL: String)
     func fetchTimelineCards(forBatch batchId: Int64) -> [TimelineCard]
-
-    // Helper for GeminiService – map file paths → timestamps
-    func getTimestampsForVideoFiles(paths: [String]) -> [String: (startTs: Int, endTs: Int)]
 
     // Timeline Queries
     func fetchTimelineCards(forDay day: String) -> [TimelineCard]
@@ -94,6 +92,12 @@ protocol StorageManaging: Sendable {
     // Transcript Storage - Updated for ClockTranscriptChunk
     func saveTranscript(batchId: Int64, chunks: [ClockTranscriptChunk])
     func fetchTranscript(batchId: Int64) -> [ClockTranscriptChunk]
+
+    // Helper for GeminiService – map file paths → timestamps
+    func getTimestampsForVideoFiles(paths: [String]) -> [String: (startTs: Int, endTs: Int)]
+
+    /// Chunks that belong to one batch, already sorted.
+    func chunksForBatch(_ batchId: Int64) -> [RecordingChunk]
 }
 
 // MARK: - Data Structures -----------------------------------------------------
@@ -147,7 +151,8 @@ struct TimelineCard: Codable, Sendable, Identifiable {
     let detailedSummary: String
     let day: String
     let distractions: [Distraction]?
-    let videoSummaryURL: String? // Optional link to video summary
+    let videoSummaryURL: String? // Optional link to primary video summary
+    let otherVideoSummaryURLs: [String]? // For merged cards, subsequent video URLs
 }
 
 /// Metadata about a single LLM request/response cycle
@@ -156,6 +161,21 @@ struct LLMCall: Codable, Sendable {
     let latency: TimeInterval?
     let input: String?
     let output: String?
+}
+
+// Add TimelineCardShell struct for the new save function
+struct TimelineCardShell: Sendable {
+    let startTimestamp: String
+    let endTimestamp: String
+    let category: String
+    let subcategory: String
+    let title: String
+    let summary: String
+    let detailedSummary: String
+    let day: String
+    let distractions: [Distraction]? // Keep this, it's part of the initial save
+    // No videoSummaryURL here, as it's added later
+    // No batchId here, as it's passed as a separate parameter to the save function
 }
 
 // MARK: - Implementation ------------------------------------------------------
@@ -336,64 +356,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }) ?? []
     }
 
-    func saveTimelineCards(batchId: Int64, cards: [TimelineCard]) {
-        guard !cards.isEmpty else { return }
-        let encoder = JSONEncoder()
-        try? db.write { db in
-            for c in cards {
-                var metadataString: String? = nil
-                if let distractions = c.distractions, !distractions.isEmpty {
-                    if let jsonData = try? encoder.encode(distractions) {
-                        metadataString = String(data: jsonData, encoding: .utf8)
-                    }
-                }
-
-                try db.execute(sql: """
-                    INSERT INTO timeline_cards(
-                        batch_id, start, end, day, title, -- Renamed start_ts, end_ts
-                        summary, category, subcategory, detailed_summary, metadata, video_summary_url
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, arguments: [
-                    batchId, c.startTimestamp, c.endTimestamp, c.day, c.title,
-                    c.summary,
-                    c.category, c.subcategory, c.detailedSummary, metadataString, c.videoSummaryURL
-                ])
-            }
-        }
-    }
-
-    // MARK: – Helper for GeminiService ----------------------------------------
-
-    func getTimestampsForVideoFiles(paths: [String]) -> [String: (startTs: Int, endTs: Int)] {
-            guard !paths.isEmpty else { return [:] }
-            var out: [String: (Int, Int)] = [:]
-            let placeholders = Array(repeating: "?", count: paths.count).joined(separator: ",")
-            let sql = "SELECT file_url, start_ts, end_ts FROM chunks WHERE file_url IN (\(placeholders))"
-            try? db.read { db in
-                let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(paths))
-                for row in rows {
-                    if let path: String = row["file_url"],
-                       let start: Int  = row["start_ts"],
-                       let end:   Int  = row["end_ts"] {
-                        out[path] = (start, end)
-                    }
-                }
-            }
-            return out
-        }
-
-    // All batches, newest first
-    func allBatches() -> [(id: Int64, start: Int, end: Int, status: String)] {
-        (try? db.read { db in
-            try Row.fetchAll(db, sql:
-                "SELECT id, batch_start_ts, batch_end_ts, status FROM analysis_batches ORDER BY id DESC"
-            ).map { row in
-                (row["id"], row["batch_start_ts"], row["batch_end_ts"], row["status"])
-            }
-        }) ?? []
-    }
-
     /// Chunks that belong to one batch, already sorted.
     func chunksForBatch(_ batchId: Int64) -> [RecordingChunk] {
         (try? db.read { db in
@@ -409,6 +371,84 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             }
         }) ?? []
     }
+
+    // MARK: – Timeline‑cards --------------------------------------------------
+
+    func saveTimelineCardShell(batchId: Int64, card: TimelineCardShell) -> Int64? {
+        let encoder = JSONEncoder()
+        var lastId: Int64? = nil
+        try? db.write {
+            db in
+            var distractionsString: String? = nil
+            if let distractions = card.distractions, !distractions.isEmpty {
+                if let jsonData = try? encoder.encode(distractions) {
+                    distractionsString = String(data: jsonData, encoding: .utf8)
+                }
+            }
+
+            try db.execute(sql: """
+                INSERT INTO timeline_cards(
+                    batch_id, start, end, day, title,
+                    summary, category, subcategory, detailed_summary, metadata
+                    -- video_summary_url is omitted here
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, arguments: [
+                batchId, card.startTimestamp, card.endTimestamp, card.day, card.title,
+                card.summary, card.category, card.subcategory, card.detailedSummary, distractionsString
+            ])
+            lastId = db.lastInsertedRowID
+        }
+        return lastId
+    }
+
+    func updateTimelineCardVideoURL(cardId: Int64, videoSummaryURL: String) {
+        try? db.write {
+            db in
+            try db.execute(sql: """
+                UPDATE timeline_cards
+                SET video_summary_url = ?
+                WHERE id = ?
+            """, arguments: [videoSummaryURL, cardId])
+        }
+    }
+
+    func fetchTimelineCards(forBatch batchId: Int64) -> [TimelineCard] {
+        let decoder = JSONDecoder()
+        return (try? db.read { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM timeline_cards WHERE batch_id = ? ORDER BY start ASC", arguments: [batchId]).map { row in
+                var distractions: [Distraction]? = nil
+                if let metadataString: String = row["metadata"],
+                   let jsonData = metadataString.data(using: .utf8) {
+                    distractions = try? decoder.decode([Distraction].self, from: jsonData)
+                }
+                return TimelineCard(
+                    startTimestamp: row["start"] ?? "",
+                    endTimestamp: row["end"] ?? "",
+                    category: row["category"],
+                    subcategory: row["subcategory"],
+                    title: row["title"],
+                    summary: row["summary"],
+                    detailedSummary: row["detailed_summary"],
+                    day: row["day"],
+                    distractions: distractions,
+                    videoSummaryURL: row["video_summary_url"],
+                    otherVideoSummaryURLs: nil
+                )
+            }
+        }) ?? []
+    }
+    
+    // All batches, newest first
+       func allBatches() -> [(id: Int64, start: Int, end: Int, status: String)] {
+            (try? db.read { db in
+                try Row.fetchAll(db, sql:
+                    "SELECT id, batch_start_ts, batch_end_ts, status FROM analysis_batches ORDER BY id DESC"
+                ).map { row in
+                    (row["id"], row["batch_start_ts"], row["batch_end_ts"], row["status"])
+                }
+            }) ?? []
+        }
 
     // MARK: - Timeline Queries -----------------------------------------------
 
@@ -439,36 +479,12 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     detailedSummary: row["detailed_summary"],
                     day: row["day"],
                     distractions: distractions,
-                    videoSummaryURL: row["video_summary_url"]
+                    videoSummaryURL: row["video_summary_url"],
+                    otherVideoSummaryURLs: nil
                 )
             }
         }
         return cards ?? []
-    }
-
-    func fetchTimelineCards(forBatch batchId: Int64) -> [TimelineCard] {
-        let decoder = JSONDecoder()
-        return (try? db.read { db in
-            try Row.fetchAll(db, sql: "SELECT * FROM timeline_cards WHERE batch_id = ? ORDER BY start ASC", arguments: [batchId]).map { row in
-                var distractions: [Distraction]? = nil
-                if let metadataString: String = row["metadata"],
-                   let jsonData = metadataString.data(using: .utf8) {
-                    distractions = try? decoder.decode([Distraction].self, from: jsonData)
-                }
-                return TimelineCard(
-                    startTimestamp: row["start"] ?? "",
-                    endTimestamp: row["end"] ?? "",
-                    category: row["category"],
-                    subcategory: row["subcategory"],
-                    title: row["title"],
-                    summary: row["summary"],
-                    detailedSummary: row["detailed_summary"],
-                    day: row["day"],
-                    distractions: distractions,
-                    videoSummaryURL: row["video_summary_url"]
-                )
-            }
-        }) ?? []
     }
 
     // MARK: - Transcript Storage (Updated) --------------------------------------
@@ -503,6 +519,25 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             }
             return []
         }) ?? []
+    }
+
+    // MARK: - Helper for GeminiService – map file paths → timestamps
+    func getTimestampsForVideoFiles(paths: [String]) -> [String: (startTs: Int, endTs: Int)] {
+        guard !paths.isEmpty else { return [:] }
+        var out: [String: (Int, Int)] = [:]
+        let placeholders = Array(repeating: "?", count: paths.count).joined(separator: ",")
+        let sql = "SELECT file_url, start_ts, end_ts FROM chunks WHERE file_url IN (\(placeholders))"
+        try? db.read { db in
+            let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(paths))
+            for row in rows {
+                if let path: String = row["file_url"],
+                   let start: Int  = row["start_ts"],
+                   let end:   Int  = row["end_ts"] {
+                    out[path] = (start, end)
+                }
+            }
+        }
+        return out
     }
 
     // MARK: – Purging Logic --------------------------------------------------

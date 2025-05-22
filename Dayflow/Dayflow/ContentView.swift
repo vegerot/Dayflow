@@ -63,6 +63,11 @@ private let endMin              = 27 * 60    // 03:00 next day
 private let scrollerH           = NSScroller.scrollerWidth(for: .regular,
                                                            scrollerStyle: .legacy)
 
+// Wrap minutes that fall *before* the 06:00 boundary into “next day”.
+@inline(__always) func adjustedMinute(_ m: Int) -> Int {
+    m < startMin ? m + 24*60 : m
+}
+
 @inline(__always) func minutes(at x: CGFloat, pxPerMin: CGFloat) -> Int {
     Int((x / pxPerMin).rounded())
 }
@@ -321,12 +326,11 @@ struct ContentView: View {
     func loadTimelineData() {
         let dayInfo = Date().getDayInfoFor4AMBoundary()
         currentDayString = dayInfo.dayString
-
-        // --- Use Real Data --- 
-        // print("--- USING MOCK DATA FOR TESTING ---")
-        // let fetchedCards = generateMockTimelineCards(forDay: currentDayString)
-        // --- Switch to real data fetching ---
         let fetchedCards = storageManager.fetchTimelineCards(forDay: currentDayString)
+        print("Fetched \(fetchedCards.count) cards for day \(currentDayString):")
+        for card in fetchedCards {
+            print("  - \(card.title) (\(card.startTimestamp) - \(card.endTimestamp)), Category: \(card.category), Subcategory: \(card.subcategory)")
+        }
         
         // Merge timeline segments with small gaps
         let mergedCards = mergeCardsWithSmallGaps(cards: fetchedCards)
@@ -337,13 +341,12 @@ struct ContentView: View {
         // Convert grouped dictionary to CategoryGroup array (Keep this logic)
         categoryGroups = grouped.map { category, cardsInGroup in
             // Sort cards within the group by start time using the parser
-            let sortedCards = cardsInGroup.sorted { 
-                guard let startMin1 = parseTimeHMMA(timeString: $0.startTimestamp),
-                      let startMin2 = parseTimeHMMA(timeString: $1.startTimestamp) else {
-                    return false // Keep original order if parsing fails for comparison
-                }
-                return startMin1 < startMin2
+            let sortedCards = cardsInGroup.sorted {
+                guard let s1 = parseTimeHMMA(timeString: $0.startTimestamp).map(adjustedMinute),
+                       let s2 = parseTimeHMMA(timeString: $1.startTimestamp).map(adjustedMinute) else { return false }
+                return s1 < s2
             }
+
             return CategoryGroup(category: category, cards: sortedCards)
         }.sorted { $0.category < $1.category } // Sort categories alphabetically
         
@@ -363,16 +366,16 @@ struct ContentView: View {
         }
         
         var result: [TimelineCard] = []
-        var currentCard: TimelineCard? = nil
+        var currentCardAccumulator: TimelineCard? = nil // Renamed for clarity
+        var accumulatedVideoURLs: [String] = [] // To collect video URLs for merging
         
         for card in sortedCards {
-            if let current = currentCard {
-                // Check if cards should be merged (same category/subcategory and small gap)
+            if let current = currentCardAccumulator {
                 guard let currentEndMin = parseTimeHMMA(timeString: current.endTimestamp),
                       let nextStartMin = parseTimeHMMA(timeString: card.startTimestamp) else {
-                    // If we can't parse times, just keep them separate
-                    result.append(current)
-                    currentCard = card
+                    result.append(current) // Add accumulated card
+                    currentCardAccumulator = card // Start new accumulation with current card
+                    accumulatedVideoURLs = [card.videoSummaryURL].compactMap { $0 } + (card.otherVideoSummaryURLs ?? [])
                     continue
                 }
                 
@@ -381,35 +384,48 @@ struct ContentView: View {
                 let sameSubcategory = current.subcategory == card.subcategory
                 
                 if timeDifference <= 5 && sameCategory && sameSubcategory {
-                    // Merge cards
+                    // Merge this card into currentCardAccumulator
                     let mergedDistractions = combineDistractions(current.distractions, card.distractions)
                     
-                    let mergedCard = TimelineCard(
+                    // Collect video URLs
+                    if let videoURL = card.videoSummaryURL, !videoURL.isEmpty {
+                        accumulatedVideoURLs.append(videoURL)
+                    }
+                    if let otherURLs = card.otherVideoSummaryURLs {
+                        accumulatedVideoURLs.append(contentsOf: otherURLs)
+                    }
+                    // Remove duplicates just in case, though ideally source data is clean
+                    accumulatedVideoURLs = Array(Set(accumulatedVideoURLs))
+
+                    currentCardAccumulator = TimelineCard(
                         startTimestamp: current.startTimestamp,
-                        endTimestamp: card.endTimestamp,
+                        endTimestamp: card.endTimestamp, // Extend to the new card's end time
                         category: current.category,
                         subcategory: current.subcategory,
-                        title: current.title, // Keep the first card's title
-                        summary: "\(current.summary) \(card.summary)", // Combine summaries
-                        detailedSummary: "\(current.detailedSummary) Then: \(card.detailedSummary)", // Combined with separator
+                        title: current.title, // Keep the first card's title for the merged entity
+                        summary: "\(current.summary) \(card.summary)",
+                        detailedSummary: "\(current.detailedSummary) Then: \(card.detailedSummary)",
                         day: current.day,
                         distractions: mergedDistractions,
-                        videoSummaryURL: nil
+                        videoSummaryURL: accumulatedVideoURLs.first, // Primary is the first collected URL
+                        otherVideoSummaryURLs: accumulatedVideoURLs.count > 1 ? Array(accumulatedVideoURLs.dropFirst()) : nil
                     )
-                    currentCard = mergedCard
                 } else {
-                    // Don't merge, add current to results and set current to the next card
+                    // Finalize the previous accumulated card and add it to results
                     result.append(current)
-                    currentCard = card
+                    // Start a new accumulation with the current card
+                    currentCardAccumulator = card
+                    accumulatedVideoURLs = [card.videoSummaryURL].compactMap { $0 } + (card.otherVideoSummaryURLs ?? [])
                 }
             } else {
-                // First card
-                currentCard = card
+                // This is the very first card, start accumulation
+                currentCardAccumulator = card
+                accumulatedVideoURLs = [card.videoSummaryURL].compactMap { $0 } + (card.otherVideoSummaryURLs ?? [])
             }
         }
         
-        // Don't forget to add the last card if it exists
-        if let lastCard = currentCard {
+        // Add the last accumulated card if it exists
+        if let lastCard = currentCardAccumulator {
             result.append(lastCard)
         }
         
@@ -609,8 +625,12 @@ struct CategoryLane: View {
                 let cardsInSubcategory = group.cards.filter { $0.subcategory == subcategoryName }
                 let cardRowIndex = subcategoryIndex + 1
                 
-                ForEach(cardsInSubcategory) { card in
+                ForEach(Array(cardsInSubcategory.enumerated()), id: \.element.id) { i, card in
+                    let nextStart = i + 1 < cardsInSubcategory.count
+                    ? parseTimeHMMA(timeString: cardsInSubcategory[i + 1].startTimestamp)
+                    : nil
                     TimelineCardView(card: card,
+                                     nextStartMinute: nextStart,      // new
                                      rowIndex: cardRowIndex,
                                      pxPerMin: pxPerMin)
                 }
@@ -624,14 +644,24 @@ struct CategoryLane: View {
 
 struct TimelineCardView: View {
     let card: TimelineCard
+    let nextStartMinute: Int?
     let rowIndex: Int
     let pxPerMin: CGFloat
     @State private var hover = false
-    @State private var avPlayer: AVPlayer? = nil // Player for video summary
-    @State private var popoverID = UUID() // Forces popover refresh when video loads
+    @State private var avPlayer: AVPlayer? = nil
+    @State private var popoverID = UUID() // Forces popover refresh
 
-    private var startMinute: Int? { parseTimeHMMA(timeString: card.startTimestamp) }
-    private var endMinute: Int? { parseTimeHMMA(timeString: card.endTimestamp) }
+    // State for auto-cycling videos
+    @State private var videoURLsForPlayback: [String] = []
+    @State private var currentPlayerItemIndex: Int = 0
+    @State private var playerObserver: Any? // For .AVPlayerItemDidPlayToEndTime
+
+     private var startMinute: Int? {
+         parseTimeHMMA(timeString: card.startTimestamp).map(adjustedMinute)
+     }
+     private var endMinute: Int?   {
+         parseTimeHMMA(timeString: card.endTimestamp).map(adjustedMinute)
+     }
     
     private var width: CGFloat {
         guard let startM = startMinute, let endM = endMinute, endM > startM else { return 0 }
@@ -662,13 +692,16 @@ struct TimelineCardView: View {
                         )
                         .shadow(color: Color.black.opacity(0.05), radius: 1, x: 0, y: 1)
                         // Title overlay directly on the RoundedRectangle is fine
-                        .overlay(alignment: .leading) { 
+                        .overlay(alignment: .leading) {
+                            let spillLimit = nextStartMinute.map { CGFloat($0 - (startMinute ?? 0)) * pxPerMin - 8 }
                             Text(card.title)
                                 .font(.system(size: 16, weight: .semibold))
                                 .lineLimit(1)
                                 .fixedSize(horizontal: true, vertical: false)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
+                                .frame(maxWidth: spillLimit ?? .infinity, alignment: .leading)
+                                .clipped()
                         }
                         // Hover text for card's start/end time, also fine here
                         .overlay( 
@@ -722,29 +755,10 @@ struct TimelineCardView: View {
                 }
                 .id(popoverID) // Force NSPopover to reload when ID changes
                 .onChange(of: hover) { _, newValue in
-                    if newValue {
-                        if let videoPath = card.videoSummaryURL,
-                           !videoPath.isEmpty,
-                           let videoURL = URL(string: videoPath.hasPrefix("file://") ? videoPath : "file://" + videoPath) {
-                            // print("Attempting to play: \(videoURL.absoluteString)") // Debugging print
-                            let playerItem = AVPlayerItem(url: videoURL)
-                            let player = AVPlayer(playerItem: playerItem)
-                            self.avPlayer = player
-                            self.popoverID = UUID() // Trigger popover refresh
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                               if self.hover {
-                                 self.avPlayer?.play()
-                               }
-                            }
-                        } else {
-                            // print("No valid video path for hover playback.") // Debugging print
-                            self.avPlayer = nil
-                            self.popoverID = UUID()
-                        }
-                    } else {
-                        self.avPlayer?.pause()
-                        self.avPlayer = nil
-                        self.popoverID = UUID()
+                    if newValue { // Hover started
+                        setupVideoPlayback()
+                    } else { // Hover ended
+                        cleanupVideoPlayback()
                     }
                 }
                 .offset(x: self.xOffset, y: self.yOffset) // Offset the entire Group
@@ -780,6 +794,91 @@ struct TimelineCardView: View {
                     print("Warning: Could not render card '\(card.title)' due to invalid time: Start='\(card.startTimestamp)', End='\(card.endTimestamp)'")
                 }
         }
+    }
+
+    private func setupVideoPlayback() {
+        var urls: [String] = []
+        if let primaryURL = card.videoSummaryURL, !primaryURL.isEmpty {
+            urls.append(primaryURL)
+        }
+        if let otherURLs = card.otherVideoSummaryURLs {
+            urls.append(contentsOf: otherURLs.filter { !$0.isEmpty })
+        }
+        
+        self.videoURLsForPlayback = urls.map { $0.hasPrefix("file://") ? $0 : "file://" + $0 }
+        self.currentPlayerItemIndex = 0
+        
+        playVideo(at: self.currentPlayerItemIndex)
+    }
+
+    private func cleanupVideoPlayback() {
+        self.avPlayer?.pause()
+        self.avPlayer = nil
+        if let observer = self.playerObserver {
+            NotificationCenter.default.removeObserver(observer)
+            self.playerObserver = nil
+        }
+        self.videoURLsForPlayback = []
+        self.currentPlayerItemIndex = 0
+        // self.popoverID = UUID() // Refresh popover if needed on close, debatable
+    }
+
+    private func playVideo(at index: Int) {
+        guard index < self.videoURLsForPlayback.count else {
+            print("TimelineCardView: All videos played or no video at index \(index).")
+            // Optionally loop here by setting index to 0 and calling playVideo(at: 0)
+            // For now, it will just stop. Player will be nilled out on hover end.
+            self.avPlayer?.pause() // Pause if it was the last video
+            // To visually clear the player or show "end of playlist":
+            // self.avPlayer = nil // This would clear the VideoPlayer view if it shows "Loading..." for nil player
+            // self.popoverID = UUID() 
+            return
+        }
+
+        let videoPath = self.videoURLsForPlayback[index]
+        guard let videoURL = URL(string: videoPath) else {
+            print("TimelineCardView: Invalid video URL string: \(videoPath) at index \(index).")
+            // Attempt to play next video if current one is invalid
+            playNextVideo()
+            return
+        }
+        
+        print("TimelineCardView: Playing video \(index + 1)/\(self.videoURLsForPlayback.count): \(videoURL.absoluteString) for card '\(card.title)'")
+        
+        let playerItem = AVPlayerItem(url: videoURL)
+        
+        if self.avPlayer == nil {
+            self.avPlayer = AVPlayer(playerItem: playerItem)
+        } else {
+            self.avPlayer?.replaceCurrentItem(with: playerItem)
+        }
+        
+        // Remove previous observer before adding a new one
+        if let observer = self.playerObserver {
+            NotificationCenter.default.removeObserver(observer)
+            self.playerObserver = nil
+        }
+        
+        self.playerObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: playerItem,
+            queue: .main
+        ) { _ in
+            print("TimelineCardView: Video finished, trying next.")
+            self.playNextVideo()
+        }
+        
+        self.popoverID = UUID() // Refresh popover to ensure it picks up new player/item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { // Slight delay for setup
+            if self.hover { // Play only if still hovering
+                 self.avPlayer?.play()
+            }
+        }
+    }
+    
+    private func playNextVideo() {
+        self.currentPlayerItemIndex += 1
+        playVideo(at: self.currentPlayerItemIndex)
     }
 }
 
