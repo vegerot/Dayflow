@@ -149,13 +149,12 @@ final class GeminiAnalysisManager: AnalysisManaging {
                 Task { [weak self] in
                     guard let self else { return }
                     var temporaryFilesToDelete: [URL] = []
-                    var mainEventVideoURL: URL? = nil
-                    var mainEventSummaryURLPath: String? = nil
+                    var mainBatchVideoURL: URL? = nil
                     
-                    // Create a structure to hold processed data including video summary paths
                     struct ProcessedCardInfo {
-                        let activityCard: ActivityCard // Assuming ActivityCard is defined elsewhere (from GeminiService)
-                        var mainEventSummaryPath: String?
+                        let activityCard: ActivityCard
+                        let dbCardId: Int64? // To store the database ID
+                        var activityCardSummaryPath: String?
                         var processedDistractions: [ProcessedDistractionInfo]
                     }
                     struct ProcessedDistractionInfo {
@@ -168,87 +167,144 @@ final class GeminiAnalysisManager: AnalysisManaging {
 
                     do {
                         if !chunkFileURLs.isEmpty {
-                            print("Starting video preparation for batch \\\\(batchId)...")
+                            print("Starting video preparation for batch \(batchId)...")
                             let preparedVideoURL = try await self.videoProcessingService.prepareVideoForProcessing(urls: chunkFileURLs)
                             temporaryFilesToDelete.append(preparedVideoURL)
-                            mainEventVideoURL = preparedVideoURL
-                            print("Main event video prepared for batch \\\\(batchId) at: \\\\(preparedVideoURL.path)")
-
-                            let persistentMainSummaryURL = await self.videoProcessingService.generatePersistentSummaryURL(for: now, originalFileName: "batch_\\\\(batchId)_main_event")
-                            print("Attempting to generate main event summary for batch \\\\(batchId) to: \\\\(persistentMainSummaryURL.path)")
-                            try await self.videoProcessingService.generateVideoSummary(
-                                sourceVideoURL: preparedVideoURL,
-                                outputSummaryFileURL: persistentMainSummaryURL,
-                                inputFramePickIntervalFactorN: self.MAIN_EVENT_SUMMARY_PICK_INTERVAL_N
-                            )
-                            mainEventSummaryURLPath = persistentMainSummaryURL.path
+                            mainBatchVideoURL = preparedVideoURL
+                            print("Main batch video prepared for batch \(batchId) at: \(preparedVideoURL.path)")
                         } else {
-                            print("Warning: No chunk file URLs to process for video summaries for batch \\\\(batchId).")
+                            print("Warning: No chunk file URLs to process for video summaries for batch \(batchId).")
                         }
 
-                        // Process distractions for each activity card
                         for activityCard in activityCards {
+                            var activitySpecificSummaryPath: String? = nil
                             var processedDistractionInfos: [ProcessedDistractionInfo] = []
-                            if let mainVideoURL = mainEventVideoURL, let originalDistractions = activityCard.distractions {
+                            var currentDbCardId: Int64? = nil
+
+                            // Calculate actual start and end timestamps first
+                            guard let videoStartInterval = self.parseVideoTimestamp(activityCard.startTime),
+                                  let videoEndInterval = self.parseVideoTimestamp(activityCard.endTime) else {
+                                print("Error: Could not parse video timestamps (shell creation): start=\(activityCard.startTime), end=\(activityCard.endTime) for card '\(activityCard.title)'. Skipping card.")
+                                // If we can't determine timestamps, we can't reliably save or process the card.
+                                continue
+                            }
+                            let actualStartDate = firstChunkStartDate.addingTimeInterval(videoStartInterval)
+                            let actualEndDate = firstChunkStartDate.addingTimeInterval(videoEndInterval)
+                            let finalStartTimestamp = self.formatAsClockTime(actualStartDate)
+                            let finalEndTimestamp = self.formatAsClockTime(actualEndDate)
+
+                            // 1. Create and save TimelineCardShell to get its DB ID
+                            let cardShell = TimelineCardShell(
+                                startTimestamp: finalStartTimestamp, // Use calculated timestamp
+                                endTimestamp: finalEndTimestamp,   // Use calculated timestamp
+                                category: activityCard.category,
+                                subcategory: activityCard.subcategory,
+                                title: activityCard.title,
+                                summary: activityCard.summary,
+                                detailedSummary: activityCard.detailedSummary,
+                                day: currentLogicalDayString,
+                                distractions: activityCard.distractions
+                            )
+                            
+                            currentDbCardId = self.store.saveTimelineCardShell(batchId: batchId, card: cardShell)
+
+                            if let dbId = currentDbCardId {
+                                print("Saved TimelineCard shell for '\(activityCard.title)' with DB ID: \(dbId) (Timestamps: \(finalStartTimestamp) - \(finalEndTimestamp))")
+                                
+                                // Video processing (cardStartInterval and cardEndInterval are already parsed above)
+                                if let fullBatchVideo = mainBatchVideoURL {
+                                    let cardDuration = videoEndInterval - videoStartInterval // Use already parsed intervals
+                                    if cardDuration > 0 {
+                                        print("Processing summary for ActivityCard DB ID: \(dbId) ('\(activityCard.title)')")
+                                        let cardSegmentURL = try await self.videoProcessingService.extractSegment(
+                                            from: fullBatchVideo,
+                                            startTime: videoStartInterval,
+                                            duration: cardDuration
+                                        )
+                                        temporaryFilesToDelete.append(cardSegmentURL)
+
+                                        // Use dbId for the filename
+                                        let cardOriginalFileName = String(dbId)
+                                        let persistentCardSummaryURL = await self.videoProcessingService.generatePersistentSummaryURL(for: now, originalFileName: cardOriginalFileName)
+                                        
+                                        try await self.videoProcessingService.generateVideoSummary(
+                                            sourceVideoURL: cardSegmentURL,
+                                            outputSummaryFileURL: persistentCardSummaryURL,
+                                            inputFramePickIntervalFactorN: self.MAIN_EVENT_SUMMARY_PICK_INTERVAL_N
+                                        )
+                                        activitySpecificSummaryPath = persistentCardSummaryURL.path
+                                        print("Summary generated for ActivityCard DB ID: \(dbId) at: \(activitySpecificSummaryPath ?? "nil")")
+                                        
+                                        // 3. Update the TimelineCard record with the video summary URL
+                                        self.store.updateTimelineCardVideoURL(cardId: dbId, videoSummaryURL: activitySpecificSummaryPath!)
+                                        print("Updated TimelineCard DB ID: \(dbId) with video path.")
+                                    } else {
+                                        print("Warning: ActivityCard '\(activityCard.title)' (DB ID: \(dbId)) has non-positive duration based on parsed intervals. Skipping summary generation.")
+                                        activitySpecificSummaryPath = nil
+                                    }
+                                } else {
+                                    print("Warning: No main batch video. Cannot generate summary for ActivityCard '\(activityCard.title)' (DB ID: \(dbId))")
+                                    activitySpecificSummaryPath = nil
+                                }
+                            } else {
+                                print("Error: Failed to save TimelineCard shell for '\(activityCard.title)'. Cannot generate video summary or save full card.")
+                                // Skip this card if shell couldn't be saved, as we need the ID
+                                continue
+                            }
+
+                            // 4. Process distractions for this activity card (using the full batch video as source)
+                            if let fullBatchVideo = mainBatchVideoURL, let originalDistractions = activityCard.distractions {
                                 for dist in originalDistractions {
+                                    // ... (distraction processing remains largely the same, using fullBatchVideo)
+                                    // It generates names like batch_X_dist_Y_summary.mp4 - this is acceptable for now.
+                                    // Ensure PDistractionInfo is populated correctly for later TimelineCard construction
                                     guard let distStartInterval = self.parseVideoTimestamp(dist.startTime),
                                           let distEndInterval = self.parseVideoTimestamp(dist.endTime) else {
                                         print("Error: Could not parse distraction video timestamps for summary: start=\(dist.startTime), end=\(dist.endTime)")
-                                        // Add with nil summary path. Provide 0 or a sensible default for interval if parsing fails.
-                                         let clockStart = self.formatAsClockTime(firstChunkStartDate.addingTimeInterval(self.parseVideoTimestamp(dist.startTime) ?? 0.0))
-                                         let clockEnd = self.formatAsClockTime(firstChunkStartDate.addingTimeInterval(self.parseVideoTimestamp(dist.endTime) ?? 0.0))
-                                        processedDistractionInfos.append(ProcessedDistractionInfo(originalDistraction: dist, clockStartTime: clockStart, clockEndTime: clockEnd, videoSummaryPath: nil))
+                                        let distClockStart = self.formatAsClockTime(firstChunkStartDate.addingTimeInterval(self.parseVideoTimestamp(dist.startTime) ?? 0.0))
+                                        let distClockEnd = self.formatAsClockTime(firstChunkStartDate.addingTimeInterval(self.parseVideoTimestamp(dist.endTime) ?? 0.0))
+                                        processedDistractionInfos.append(ProcessedDistractionInfo(originalDistraction: dist, clockStartTime: distClockStart, clockEndTime: distClockEnd, videoSummaryPath: nil))
                                         continue
                                     }
                                     let distractionDuration = distEndInterval - distStartInterval
                                     if distractionDuration <= 0 {
-                                        print("Warning: Distraction has non-positive duration. Skipping summary generation. Start: \(dist.startTime), End: \(dist.endTime)")
+                                        print("Warning: Distraction '\(dist.title)' has non-positive duration. Skipping summary generation.")
                                         let distClockStart = self.formatAsClockTime(firstChunkStartDate.addingTimeInterval(distStartInterval))
                                         let distClockEnd = self.formatAsClockTime(firstChunkStartDate.addingTimeInterval(distEndInterval))
                                         processedDistractionInfos.append(ProcessedDistractionInfo(originalDistraction: dist, clockStartTime: distClockStart, clockEndTime: distClockEnd, videoSummaryPath: nil))
                                         continue
                                     }
-
-                                    print("Processing distraction '\(dist.title)' for summary. Video Time: \(dist.startTime) - \(dist.endTime)")
+                                    // ... (rest of distraction video generation, path assigned to distractionSummaryPath)
                                     let distractionSegmentURL = try await self.videoProcessingService.extractSegment(
-                                        from: mainVideoURL,
+                                        from: fullBatchVideo,
                                         startTime: distStartInterval,
                                         duration: distractionDuration
                                     )
                                     temporaryFilesToDelete.append(distractionSegmentURL)
-                                    print("Distraction segment extracted to: \(distractionSegmentURL.path)")
-
-                                    let persistentDistractionSummaryURL = await self.videoProcessingService.generatePersistentSummaryURL(for: now, originalFileName: "batch_\(batchId)_dist_\(dist.title.replacingOccurrences(of: "[^a-zA-Z0-9]", with: "_", options: .regularExpression))")
+                                    let distractionOriginalFileName = "batch_\(batchId)_dist_\(dist.title.replacingOccurrences(of: "[^a-zA-Z0-9]", with: "_", options: .regularExpression))"
+                                    let persistentDistractionSummaryURL = await self.videoProcessingService.generatePersistentSummaryURL(for: now, originalFileName: distractionOriginalFileName)
                                     try await self.videoProcessingService.generateVideoSummary(
                                         sourceVideoURL: distractionSegmentURL,
                                         outputSummaryFileURL: persistentDistractionSummaryURL,
                                         inputFramePickIntervalFactorN: self.DISTRACTION_SUMMARY_PICK_INTERVAL_N
                                     )
                                     let distractionSummaryPath = persistentDistractionSummaryURL.path
-                                    print("Distraction summary generated: \(distractionSummaryPath)")
-                                    
                                     let distClockStart = self.formatAsClockTime(firstChunkStartDate.addingTimeInterval(distStartInterval))
                                     let distClockEnd = self.formatAsClockTime(firstChunkStartDate.addingTimeInterval(distEndInterval))
                                     processedDistractionInfos.append(ProcessedDistractionInfo(originalDistraction: dist, clockStartTime: distClockStart, clockEndTime: distClockEnd, videoSummaryPath: distractionSummaryPath))
                                 }
-                            } else if let originalDistractions = activityCard.distractions { // Case: No main video, but distractions exist
+                            } else if let originalDistractions = activityCard.distractions {
                                 for dist in originalDistractions {
-                                    guard let distStartInterval = self.parseVideoTimestamp(dist.startTime),
-                                          let distEndInterval = self.parseVideoTimestamp(dist.endTime) else {
-                                        print("Error: Could not parse distraction video timestamps (no main video): start=\(dist.startTime), end=\(dist.endTime)")
-                                        continue
-                                    }
-                                    let distClockStart = self.formatAsClockTime(firstChunkStartDate.addingTimeInterval(distStartInterval))
-                                    let distClockEnd = self.formatAsClockTime(firstChunkStartDate.addingTimeInterval(distEndInterval))
+                                    let distClockStart = self.formatAsClockTime(firstChunkStartDate.addingTimeInterval(self.parseVideoTimestamp(dist.startTime) ?? 0.0))
+                                    let distClockEnd = self.formatAsClockTime(firstChunkStartDate.addingTimeInterval(self.parseVideoTimestamp(dist.endTime) ?? 0.0))
                                     processedDistractionInfos.append(ProcessedDistractionInfo(originalDistraction: dist, clockStartTime: distClockStart, clockEndTime: distClockEnd, videoSummaryPath: nil))
                                 }
                             }
-                            allProcessedCardInfo.append(ProcessedCardInfo(activityCard: activityCard, mainEventSummaryPath: mainEventSummaryURLPath, processedDistractions: processedDistractionInfos))
-                        }
+                            allProcessedCardInfo.append(ProcessedCardInfo(activityCard: activityCard, dbCardId: currentDbCardId, activityCardSummaryPath: activitySpecificSummaryPath, processedDistractions: processedDistractionInfos))
+                        } // End of for activityCard in activityCards
 
                     } catch {
-                        print("Error during video processing for batch \\\\(batchId): \\\\(error.localizedDescription). Some summaries may be missing.")
-                        // Fallback: populate allProcessedCardInfo with nil summary paths if not already done due to error
+                        print("Error during video processing for batch \(batchId): \(error.localizedDescription). Some summaries may be missing.")
                         if allProcessedCardInfo.isEmpty && !activityCards.isEmpty {
                              for activityCard in activityCards {
                                 var processedDistractionInfos: [ProcessedDistractionInfo] = []
@@ -261,7 +317,7 @@ final class GeminiAnalysisManager: AnalysisManaging {
                                         processedDistractionInfos.append(ProcessedDistractionInfo(originalDistraction: dist, clockStartTime: distClockStart, clockEndTime: distClockEnd, videoSummaryPath: nil))
                                     }
                                 }
-                                allProcessedCardInfo.append(ProcessedCardInfo(activityCard: activityCard, mainEventSummaryPath: nil, processedDistractions: processedDistractionInfos))
+                                allProcessedCardInfo.append(ProcessedCardInfo(activityCard: activityCard, dbCardId: nil, activityCardSummaryPath: nil, processedDistractions: processedDistractionInfos))
                             }
                         }
                     }
@@ -272,61 +328,11 @@ final class GeminiAnalysisManager: AnalysisManaging {
                     }
                     print("Temporary video files cleaned up for batch \\\\(batchId).")
 
-                    // --- Now build TimelineCards with the summary URLs ---
-                    var timelineCardsToSave: [TimelineCard] = []
-                    for processedInfo in allProcessedCardInfo {
-                        let activityCard = processedInfo.activityCard
-                        
-                        guard let videoStartInterval = self.parseVideoTimestamp(activityCard.startTime),
-                              let videoEndInterval = self.parseVideoTimestamp(activityCard.endTime) else {
-                            print("Error: Could not parse video timestamps (final pass): start=\(activityCard.startTime), end=\(activityCard.endTime)")
-                            continue
-                        }
-                        let actualStartDate = firstChunkStartDate.addingTimeInterval(videoStartInterval)
-                        let actualEndDate = firstChunkStartDate.addingTimeInterval(videoEndInterval)
-                        let startTimestamp = self.formatAsClockTime(actualStartDate)
-                        let endTimestamp = self.formatAsClockTime(actualEndDate)
-
-                        let finalDistractions: [Distraction]? = processedInfo.processedDistractions.map { pDist in
-                            Distraction(
-                                startTime: pDist.clockStartTime,
-                                endTime: pDist.clockEndTime,
-                                title: pDist.originalDistraction.title,
-                                summary: pDist.originalDistraction.summary,
-                                videoSummaryURL: pDist.videoSummaryPath // This is the new field
-                            )
-                        }
-
-                        let timelineCard = TimelineCard(
-                            startTimestamp: startTimestamp,
-                            endTimestamp: endTimestamp,
-                            category: activityCard.category,
-                            subcategory: activityCard.subcategory,
-                            title: activityCard.title,
-                            summary: activityCard.summary,
-                            detailedSummary: activityCard.detailedSummary,
-                            day: currentLogicalDayString,
-                            distractions: finalDistractions,
-                            videoSummaryURL: processedInfo.mainEventSummaryPath // This is the new field
-                        )
-                        timelineCardsToSave.append(timelineCard)
-                    }
-                    
-                    // --- Save the new timeline cards (moved inside Task to use processed data) ---
-                    DispatchQueue.main.async { [weak self] in // Ensure DB operations are on the correct queue if needed
-                        guard let self else { return }
-                        if !timelineCardsToSave.isEmpty {
-                            print("Saving \(timelineCardsToSave.count) new timeline cards for batch \(batchId) (Day: \(currentLogicalDayString)) with video summaries.")
-                            self.store.saveTimelineCards(batchId: batchId, cards: timelineCardsToSave)
-                            self.updateBatchStatus(batchId: batchId, status: "completed")
-                        } else if activityCards.isEmpty { // No activity cards from Gemini
-                             print("No activity cards received from Gemini for batch \(batchId). Marking as completed.")
-                             self.updateBatchStatus(batchId: batchId, status: "completed")
-                        }
-                        else { // Activity cards existed, but none converted to timeline cards (e.g. all parsing errors)
-                            print("No new timeline cards to save for batch \(batchId) after video processing for day \(currentLogicalDayString). Marking as completed.")
-                            self.updateBatchStatus(batchId: batchId, status: "completed") // Still mark batch as completed
-                        }
+                    // Update batch status to completed if all went well (or with errors if some failed)
+                    // This needs to be robust to partial failures.
+                    // For now, let's assume if we reached here, we can mark it completed.
+                    DispatchQueue.main.async { [weak self] in
+                        self?.updateBatchStatus(batchId: batchId, status: "completed")
                     }
                 } // End of Task for video processing
 

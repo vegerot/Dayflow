@@ -47,7 +47,7 @@ actor VideoProcessingService {
     }
 
     func generatePersistentSummaryURL(for date: Date,
-                                      originalFileName: String? = nil) -> URL {
+                                      originalFileName: String) -> URL {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
         let dateString = dateFormatter.string(from: date)
@@ -62,11 +62,11 @@ actor VideoProcessingService {
         } catch {
             print("Error creating date-specific summary directory: \(dateSpecificDir.path). Error: \(error)")
             return persistentSummariesRootURL
-                .appendingPathComponent((originalFileName ?? UUID().uuidString) + "_summary.mp4")
+                .appendingPathComponent(originalFileName + "_summary.mp4")
         }
 
         return dateSpecificDir
-            .appendingPathComponent((originalFileName ?? UUID().uuidString) + "_summary.mp4")
+            .appendingPathComponent(originalFileName + "_summary.mp4")
     }
 
     /// If multiple URLs, stitches them; if one, copies it to a temp location.
@@ -164,7 +164,7 @@ actor VideoProcessingService {
         return tempOutputURL
     }
 
-    /// Pick every N‑th frame and re‑encode at `outputFPS`.
+    /// Pick every N‑th frame and re‑encode at `outputFPS`.
     func generateVideoSummary(sourceVideoURL: URL,
                               outputSummaryFileURL: URL,
                               inputFramePickIntervalFactorN: Int,

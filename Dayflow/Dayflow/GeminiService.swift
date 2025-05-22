@@ -527,7 +527,7 @@ curl \"\(comps.url!.absoluteString)\" \
         }
 
         let finalTranscriptionPrompt = """
-        YYour job is to act as an expert transcriber for someone's computer usage. your descriptions should capture context and intent of the what the user is doing. 
+        Your job is to act as an expert transcriber for someone's computer usage. your descriptions should capture context and intent of the what the user is doing. 
         for example, if the user is watching a youtube video, what's important is capturing the essence of what the video is about, not necessarily every invidiaul detail about the video. 
         Each transcription should include a timestamp range of the particular action eg (MM:SS - MM:SS). Each transcription should also be >30seconds long, although exercise your judgement.
          If you're going to start a separate transcription, it should be because of a big shift in context.
