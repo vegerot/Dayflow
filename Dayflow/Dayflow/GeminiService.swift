@@ -604,7 +604,7 @@ curl \"\(comps.url!.absoluteString)\" \
         category
         subcategory
         title  (max 3 words, should be 1-2 usually. Something like Coding or Twitter so the user has a quick high level understanding, more precise than subcategory)
-        summary (1-2 sentences concise narration of what the user did, think diary entry from the user perspective)
+        summary (1-2 casual sentences, **no “I”/first-person pronouns**; start with a verb and focus on what was accomplished)
         detailed summary (longer factual description used only as context for future analysis)
         distractions (optional array of {startTime, endTime, title, summary})
         –––––  CORE RULES  –––––

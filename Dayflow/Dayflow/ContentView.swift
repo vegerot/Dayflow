@@ -4,6 +4,7 @@
 //
 //  Drop-in file: only `TimelineCard` changed so long labels
 //  spill past the right edge without stretching the card.
+// Never touch the scrollsync logic without explicit instructions to do so. 
 //
 
 import SwiftUI
@@ -625,12 +626,8 @@ struct CategoryLane: View {
                 let cardsInSubcategory = group.cards.filter { $0.subcategory == subcategoryName }
                 let cardRowIndex = subcategoryIndex + 1
                 
-                ForEach(Array(cardsInSubcategory.enumerated()), id: \.element.id) { i, card in
-                    let nextStart = i + 1 < cardsInSubcategory.count
-                    ? parseTimeHMMA(timeString: cardsInSubcategory[i + 1].startTimestamp)
-                    : nil
+                ForEach(cardsInSubcategory) { card in
                     TimelineCardView(card: card,
-                                     nextStartMinute: nextStart,      // new
                                      rowIndex: cardRowIndex,
                                      pxPerMin: pxPerMin)
                 }
@@ -644,7 +641,6 @@ struct CategoryLane: View {
 
 struct TimelineCardView: View {
     let card: TimelineCard
-    let nextStartMinute: Int?
     let rowIndex: Int
     let pxPerMin: CGFloat
     @State private var hover = false
@@ -692,16 +688,13 @@ struct TimelineCardView: View {
                         )
                         .shadow(color: Color.black.opacity(0.05), radius: 1, x: 0, y: 1)
                         // Title overlay directly on the RoundedRectangle is fine
-                        .overlay(alignment: .leading) {
-                            let spillLimit = nextStartMinute.map { CGFloat($0 - (startMinute ?? 0)) * pxPerMin - 8 }
+                        .overlay(alignment: .leading) { 
                             Text(card.title)
                                 .font(.system(size: 16, weight: .semibold))
                                 .lineLimit(1)
                                 .fixedSize(horizontal: true, vertical: false)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .frame(maxWidth: spillLimit ?? .infinity, alignment: .leading)
-                                .clipped()
                         }
                         // Hover text for card's start/end time, also fine here
                         .overlay( 
