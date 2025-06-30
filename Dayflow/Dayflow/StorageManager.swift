@@ -192,6 +192,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     private init() {
         root = fileMgr.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Dayflow/recordings", isDirectory: true)
+        
+        // Ensure directory exists
         try? fileMgr.createDirectory(at: root, withIntermediateDirectories: true)
 
         db = try! DatabaseQueue(path: root.appendingPathComponent("chunks.sqlite").path)
@@ -545,6 +547,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     private let purgeQ = DispatchQueue(label: "com.dayflow.storage.purge", qos: .background)
 
     private func purgeIfNeeded() {
+        return // Temporarily disabled
+        /*
         purgeQ.async {
             guard let size = try? self.fileMgr.allocatedSizeOfDirectory(at: self.root), size > self.quota else { return }
             try? self.db.write { db in
@@ -556,6 +560,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 }
             }
         }
+        */
     }
 }
 
