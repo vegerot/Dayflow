@@ -27,7 +27,7 @@ private enum C {
     static let width  = 1280
     static let height = 800
     static let chunk  : TimeInterval = 15        // seconds per file
-    static let fps    : Int32        = 1         // keep @ 1 fps
+    static let fps    : Int32        = 1         // keep @ 1 fps - NOTE: This is intentionally low!
 }
 
 #if DEBUG
@@ -75,6 +75,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private var sub    : AnyCancellable?
     private var frames : Int = 0
     private var isStarting = false            // guards concurrent starts
+    private var isFinishing = false           // guards concurrent finishes
     private var resumeAfterPause = false      // remember intent across interruptions
 
     // MARK: public control ----------------------------------------------
@@ -182,7 +183,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 
     // MARK: segment rotation --------------------------------------------
     private func beginSegment() {
-        guard writer == nil else { finishSegment(); return }
+        guard writer == nil else { return }
         let url = StorageManager.shared.nextFileURL(); fileURL = url; frames = 0
 
         StorageManager.shared.registerChunk(url: url)
@@ -192,7 +193,12 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                                          outputSettings: [
                                              AVVideoCodecKey  : AVVideoCodecType.h264,
                                              AVVideoWidthKey  : C.width,
-                                             AVVideoHeightKey : C.height
+                                             AVVideoHeightKey : C.height,
+                                             AVVideoCompressionPropertiesKey: [
+                                                 AVVideoAverageBitRateKey: 1000000, // 1 Mbps
+                                                 AVVideoProfileLevelKey: AVVideoProfileLevelH264BaselineAutoLevel,
+                                                 AVVideoMaxKeyFrameIntervalKey: 30
+                                             ]
                                          ])
             inp.expectsMediaDataInRealTime = true
             guard w.canAdd(inp) else { throw RecorderError.badInput }
@@ -210,12 +216,17 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     private func finishSegment(restart: Bool = true) {
+        // Guard against concurrent calls
+        guard !isFinishing else { return }
+        isFinishing = true
+        
         // 1. stop the timer that would have closed the file
         timer?.cancel()
         timer = nil
 
         // 2. make sure we even have something to finish
         guard let w = writer, let inp = input, let url = fileURL else {
+            isFinishing = false
             return reset()
         }
 
@@ -223,6 +234,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         guard frames > 0 else {
             w.cancelWriting()
             StorageManager.shared.markChunkFailed(url: url)
+            isFinishing = false
             return reset()
         }
         // ─────────────────────────────────────────────────────────────────
@@ -230,25 +242,28 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         guard w.status == .writing else {
             w.cancelWriting()
             StorageManager.shared.markChunkFailed(url: url)
+            isFinishing = false
             return reset()
         }
 
         // 4. normal shutdown path
         inp.markAsFinished()
         w.finishWriting { [weak self] in
+            guard let self = self else { return }
             if w.status == .completed {
                 StorageManager.shared.markChunkCompleted(url: url)
             } else {
                 StorageManager.shared.markChunkFailed(url: url)
             }
-            self?.reset()
+            self.reset()
+            self.isFinishing = false  // Clear the flag after completion
 
             guard restart else { return }
 
             // Hop back to the main actor to read the flag safely.
             Task { @MainActor in
                 if AppState.shared.isRecording {
-                    self?.beginSegment()
+                    self.beginSegment()
                 }
             }
         }
@@ -260,20 +275,28 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 
     // MARK: sample-buffer handling ---------------------------------------
     func stream(_ s: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .screen, CMSampleBufferDataIsReady(sb), isComplete(sb) else { return }
+        guard type == .screen else { return }
+        guard CMSampleBufferDataIsReady(sb) else { return }
+        guard isComplete(sb) else { return }
         if let pb = CMSampleBufferGetImageBuffer(sb) {
-            overlayClock(on: pb)          // ← inject the clock into this frame
+            // TEMPORARILY DISABLED to test if this causes corruption
+            // overlayClock(on: pb)          // ← inject the clock into this frame
         }
         if writer == nil { beginSegment() }
         guard let w = writer, let inp = input else { return }
 
         if firstPTS == nil {
             firstPTS = sb.presentationTimeStamp
-            w.startWriting(); w.startSession(atSourceTime: firstPTS!)
+            let started = w.startWriting()
+            w.startSession(atSourceTime: firstPTS!)
         }
 
         if inp.isReadyForMoreMediaData, w.status == .writing {
-            if inp.append(sb) { frames += 1 } else { finishSegment() }
+            if inp.append(sb) { 
+                frames += 1
+            } else { 
+                finishSegment() 
+            }
         }
     }
 
@@ -381,9 +404,10 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         return status == .complete
     }
 
+    
     private func overlayClock(on pb: CVPixelBuffer) {
-        CVPixelBufferLockBaseAddress(pb, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
+        CVPixelBufferLockBaseAddress(pb, [])  // Lock for read/write access
+        defer { CVPixelBufferUnlockBaseAddress(pb, []) }
 
         guard let base = CVPixelBufferGetBaseAddress(pb) else { return }
 
