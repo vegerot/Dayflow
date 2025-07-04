@@ -10,6 +10,7 @@ import SwiftUI
 // MARK: - App View Enum (for top-level navigation)
 enum AppView: String, CaseIterable, Identifiable {
     case timeline = "Timeline"
+    case newTimeline = "New Timeline"
     case dashboard = "Dashboard"
     case settings = "Settings"
     case debug = "Debug"
@@ -274,6 +275,7 @@ struct AddSubcategorySheetView: View {
     }
 }
 
+
 // MARK: - New Root View with Toggle
 struct AppRootView: View {
     @State private var currentAppView: AppView = .timeline
@@ -295,6 +297,8 @@ struct AppRootView: View {
             if currentAppView == .timeline {
                 ContentView()
                     .environmentObject(AppState.shared)
+            } else if currentAppView == .newTimeline {
+                TimelineView()
             } else if currentAppView == .dashboard {
                 DashboardView()
             } else if currentAppView == .settings {
