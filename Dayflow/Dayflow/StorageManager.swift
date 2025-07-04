@@ -92,15 +92,35 @@ protocol StorageManaging: Sendable {
     // Transcript Storage - Updated for ClockTranscriptChunk
     func saveTranscript(batchId: Int64, chunks: [ClockTranscriptChunk])
     func fetchTranscript(batchId: Int64) -> [ClockTranscriptChunk]
+    
+    // NEW: Observations Storage
+    func saveObservations(batchId: Int64, observations: [Observation])
+    func fetchObservations(batchId: Int64) -> [Observation]
+    func fetchObservations(startTs: Int, endTs: Int) -> [Observation]
 
     // Helper for GeminiService – map file paths → timestamps
     func getTimestampsForVideoFiles(paths: [String]) -> [String: (startTs: Int, endTs: Int)]
 
     /// Chunks that belong to one batch, already sorted.
     func chunksForBatch(_ batchId: Int64) -> [RecordingChunk]
+    
+    /// All batches, newest first
+    func allBatches() -> [(id: Int64, start: Int, end: Int, status: String)]
 }
 
 // MARK: - Data Structures -----------------------------------------------------
+
+// NEW: Observation struct for first-class transcript storage
+struct Observation: Codable, Sendable {
+    let id: Int64?
+    let batchId: Int64
+    let startTs: Int
+    let endTs: Int
+    let observation: String
+    let metadata: String?
+    let llmModel: String?
+    let createdAt: Date?
+}
 
 // Re-add Distraction struct, as it's used by TimelineCard
 struct Distraction: Codable, Sendable, Identifiable {
@@ -259,6 +279,23 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                  CREATE INDEX IF NOT EXISTS idx_timeline_cards_day ON timeline_cards(day);
+            """)
+            
+            // NEW: Observations table
+            try db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS observations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_id INTEGER NOT NULL REFERENCES analysis_batches(id) ON DELETE CASCADE,
+                    start_ts INTEGER NOT NULL,
+                    end_ts INTEGER NOT NULL,
+                    observation TEXT NOT NULL,
+                    metadata TEXT,
+                    llm_model TEXT,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_observations_batch_id ON observations(batch_id);
+                CREATE INDEX IF NOT EXISTS idx_observations_start_ts ON observations(start_ts);
+                CREATE INDEX IF NOT EXISTS idx_observations_time_range ON observations(start_ts, end_ts);
             """)
         }
     }
@@ -520,6 +557,67 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 return try decoder.decode([ClockTranscriptChunk].self, from: jsonData)
             }
             return []
+        }) ?? []
+    }
+    
+    // MARK: - Observations Storage (NEW) --------------------------------------
+    
+    func saveObservations(batchId: Int64, observations: [Observation]) {
+        guard !observations.isEmpty else { return }
+        try? db.write { db in
+            for obs in observations {
+                try db.execute(sql: """
+                    INSERT INTO observations(
+                        batch_id, start_ts, end_ts, observation, metadata, llm_model
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    batchId, obs.startTs, obs.endTs, obs.observation, 
+                    obs.metadata, obs.llmModel
+                ])
+            }
+        }
+    }
+    
+    func fetchObservations(batchId: Int64) -> [Observation] {
+        (try? db.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT * FROM observations 
+                WHERE batch_id = ? 
+                ORDER BY start_ts ASC
+            """, arguments: [batchId]).map { row in
+                Observation(
+                    id: row["id"],
+                    batchId: row["batch_id"],
+                    startTs: row["start_ts"],
+                    endTs: row["end_ts"],
+                    observation: row["observation"],
+                    metadata: row["metadata"],
+                    llmModel: row["llm_model"],
+                    createdAt: row["created_at"]
+                )
+            }
+        }) ?? []
+    }
+    
+    func fetchObservations(startTs: Int, endTs: Int) -> [Observation] {
+        (try? db.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT * FROM observations 
+                WHERE start_ts >= ? AND end_ts <= ?
+                ORDER BY start_ts ASC
+            """, arguments: [startTs, endTs]).map { row in
+                Observation(
+                    id: row["id"],
+                    batchId: row["batch_id"],
+                    startTs: row["start_ts"],
+                    endTs: row["end_ts"],
+                    observation: row["observation"],
+                    metadata: row["metadata"],
+                    llmModel: row["llm_model"],
+                    createdAt: row["created_at"]
+                )
+            }
         }) ?? []
     }
 
