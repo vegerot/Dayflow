@@ -75,7 +75,6 @@ final class LLMService: GeminiServicing {
                 }
                 
                 // Combine all video files
-                var allTranscripts: [TranscriptChunk] = []
                 
                 // Create a combined video for transcription
                 let composition = AVMutableComposition()
@@ -120,14 +119,19 @@ final class LLMService: GeminiServicing {
                     try? FileManager.default.removeItem(at: tempURL)
                 }
                 
+                // Get batch start time for timestamp conversion
+                let batchStartDate = Date(timeIntervalSince1970: TimeInterval(batchStartTs))
+                
                 // Transcribe video
-                let (transcripts, transcribeLog) = try await provider.transcribeVideo(
+                let (observations, transcribeLog) = try await provider.transcribeVideo(
                     videoData: videoData,
                     mimeType: mimeType,
-                    prompt: "Transcribe this video" // Provider will use its own prompt
+                    prompt: "Transcribe this video", // Provider will use its own prompt
+                    batchStartTime: batchStartDate
                 )
                 
-                allTranscripts = transcripts
+                // Save observations to database
+                StorageManager.shared.saveObservations(batchId: batchId, observations: observations)
                 
                 // Save transcription log as batch metadata
                 if let logData = try? JSONEncoder().encode(transcribeLog),
@@ -135,8 +139,8 @@ final class LLMService: GeminiServicing {
                     StorageManager.shared.updateBatchMetadata(batchId, metadata: logString)
                 }
                 
-                // If no transcripts, mark batch as complete with no activities
-                guard !allTranscripts.isEmpty else {
+                // If no observations, mark batch as complete with no activities
+                guard !observations.isEmpty else {
                     StorageManager.shared.updateBatch(batchId, status: "analyzed")
                     completion(.success([]))
                     return
@@ -161,7 +165,7 @@ final class LLMService: GeminiServicing {
                 
                 // Generate activity cards
                 let (cards, cardsLog) = try await provider.generateActivityCards(
-                    transcripts: allTranscripts,
+                    observations: observations,
                     context: context
                 )
                 
@@ -179,7 +183,7 @@ final class LLMService: GeminiServicing {
                         distractions: card.distractions
                     )
                     
-                    StorageManager.shared.saveTimelineCardsSync(batchId: batchId, cards: [timelineCard])
+                    _ = StorageManager.shared.saveTimelineCardShell(batchId: batchId, card: timelineCard)
                 }
                 
                 // Mark batch as complete
@@ -216,55 +220,3 @@ final class LLMService: GeminiServicing {
     }
 }
 
-// Extension to add necessary helper to StorageManager
-extension StorageManager {
-    var dateFormatter: DateFormatter {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }
-    
-    func getChunkFilesForBatch(batchId: Int64) -> [String] {
-        // Get chunk file paths for a batch
-        // This is a simplified version - you may need to implement the actual SQL query
-        return db.read { db in
-            let sql = """
-                SELECT c.file_url
-                FROM chunks c
-                JOIN batch_chunks bc ON c.id = bc.chunk_id
-                WHERE bc.batch_id = ?
-                ORDER BY c.start_ts
-            """
-            
-            do {
-                let rows = try Row.fetchAll(db, sql: sql, arguments: [batchId])
-                return rows.compactMap { $0["file_url"] as? String }
-            } catch {
-                print("Error fetching chunk files: \(error)")
-                return []
-            }
-        } ?? []
-    }
-    
-    func updateBatch(_ batchId: Int64, status: String, reason: String? = nil) {
-        _ = db.write { db in
-            let sql = """
-                UPDATE analysis_batches
-                SET status = ?, reason = ?
-                WHERE id = ?
-            """
-            try db.execute(sql: sql, arguments: [status, reason, batchId])
-        }
-    }
-    
-    func updateBatchMetadata(_ batchId: Int64, metadata: String) {
-        _ = db.write { db in
-            let sql = """
-                UPDATE analysis_batches
-                SET llm_metadata = ?
-                WHERE id = ?
-            """
-            try db.execute(sql: sql, arguments: [metadata, batchId])
-        }
-    }
-}

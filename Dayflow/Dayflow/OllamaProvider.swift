@@ -12,11 +12,11 @@ final class OllamaProvider: LLMProvider {
         self.endpoint = endpoint
     }
     
-    func transcribeVideo(videoData: Data, mimeType: String, prompt: String) async throws -> (transcripts: [TranscriptChunk], log: LLMCall) {
+    func transcribeVideo(videoData: Data, mimeType: String, prompt: String, batchStartTime: Date) async throws -> (observations: [Observation], log: LLMCall) {
         fatalError("OllamaProvider not implemented yet")
     }
     
-    func generateActivityCards(transcripts: [TranscriptChunk], context: ActivityGenerationContext) async throws -> (cards: [ActivityCard], log: LLMCall) {
+    func generateActivityCards(observations: [Observation], context: ActivityGenerationContext) async throws -> (cards: [ActivityCard], log: LLMCall) {
         fatalError("OllamaProvider not implemented yet")
     }
 }
