@@ -109,7 +109,7 @@ struct DebugView: View {
         isProcessing = true
         print("Starting reprocessing for batch \(batchId)...")
 
-        GeminiService.shared.processBatch(batchId) { result in
+        LLMService.shared.processBatch(batchId) { result in
             DispatchQueue.main.async {
                 self.isProcessing = false
                 switch result {

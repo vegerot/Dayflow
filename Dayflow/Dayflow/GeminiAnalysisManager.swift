@@ -27,7 +27,7 @@ final class GeminiAnalysisManager: AnalysisManaging {
     
     private init() {
         store = StorageManager.shared
-        geminiService = GeminiService.shared
+        geminiService = LLMService.shared
         videoProcessingService = VideoProcessingService()
         print("GeminiAnalysisManager: Initialized")
     }
@@ -125,7 +125,7 @@ final class GeminiAnalysisManager: AnalysisManaging {
             URL(fileURLWithPath: chunk.fileUrl)
         }
 
-        geminiService.processBatch(batchId) { [weak self] result in
+        geminiService.processBatch(batchId) { [weak self] (result: Result<[ActivityCard], Error>) in
             guard let self else { return }
 
             let now = Date()
