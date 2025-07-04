@@ -89,9 +89,7 @@ protocol StorageManaging: Sendable {
     // Timeline Queries
     func fetchTimelineCards(forDay day: String) -> [TimelineCard]
 
-    // Transcript Storage - Updated for ClockTranscriptChunk
-    func saveTranscript(batchId: Int64, chunks: [ClockTranscriptChunk])
-    func fetchTranscript(batchId: Int64) -> [ClockTranscriptChunk]
+    // Note: Transcript storage methods removed in favor of Observations
     
     // NEW: Observations Storage
     func saveObservations(batchId: Int64, observations: [Observation])
@@ -526,39 +524,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         return cards ?? []
     }
 
-    // MARK: - Transcript Storage (Updated) --------------------------------------
-
-    func saveTranscript(batchId: Int64, chunks: [ClockTranscriptChunk]) {
-        guard !chunks.isEmpty else { return }
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601 // Encode Dates as ISO8601 strings
-        do {
-            let jsonData = try encoder.encode(chunks)
-            let jsonString = String(data: jsonData, encoding: .utf8)
-            try db.write { db in
-                try db.execute(sql: """
-                    UPDATE analysis_batches
-                    SET detailed_transcription = ?
-                    WHERE id = ?
-                """, arguments: [jsonString, batchId])
-            }
-        } catch {
-            print("Error saving clock-time transcript for batch \(batchId): \(error.localizedDescription)")
-        }
-    }
-
-    func fetchTranscript(batchId: Int64) -> [ClockTranscriptChunk] {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601 // Decode Dates from ISO8601 strings
-        return (try? db.read { db in
-            if let row = try Row.fetchOne(db, sql: "SELECT detailed_transcription FROM analysis_batches WHERE id = ?", arguments: [batchId]),
-               let jsonString: String = row["detailed_transcription"],
-               let jsonData = jsonString.data(using: .utf8) {
-                return try decoder.decode([ClockTranscriptChunk].self, from: jsonData)
-            }
-            return []
-        }) ?? []
-    }
+    // Note: Transcript storage methods removed in favor of Observations table
     
     // MARK: - Observations Storage (NEW) --------------------------------------
     
@@ -598,6 +564,51 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 )
             }
         }) ?? []
+    }
+    
+    // MARK: - LLM Service Support Methods
+    
+    func getChunkFilesForBatch(batchId: Int64) -> [String] {
+        return (try? db.read { db in
+            let sql = """
+                SELECT c.file_url
+                FROM chunks c
+                JOIN batch_chunks bc ON c.id = bc.chunk_id
+                WHERE bc.batch_id = ?
+                ORDER BY c.start_ts
+            """
+            
+            let rows = try Row.fetchAll(db, sql: sql, arguments: [batchId])
+            return rows.compactMap { $0["file_url"] as? String }
+        }) ?? []
+    }
+    
+    func updateBatch(_ batchId: Int64, status: String, reason: String? = nil) {
+        try? db.write { db in
+            let sql = """
+                UPDATE analysis_batches
+                SET status = ?, reason = ?
+                WHERE id = ?
+            """
+            try db.execute(sql: sql, arguments: [status, reason, batchId])
+        }
+    }
+    
+    func updateBatchMetadata(_ batchId: Int64, metadata: String) {
+        try? db.write { db in
+            let sql = """
+                UPDATE analysis_batches
+                SET llm_metadata = ?
+                WHERE id = ?
+            """
+            try db.execute(sql: sql, arguments: [metadata, batchId])
+        }
+    }
+    
+    var dateFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
     }
     
     func fetchObservations(startTs: Int, endTs: Int) -> [Observation] {

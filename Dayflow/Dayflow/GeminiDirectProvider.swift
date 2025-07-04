@@ -14,7 +14,7 @@ final class GeminiDirectProvider: LLMProvider {
         self.apiKey = apiKey
     }
     
-    func transcribeVideo(videoData: Data, mimeType: String, prompt: String) async throws -> (transcripts: [TranscriptChunk], log: LLMCall) {
+    func transcribeVideo(videoData: Data, mimeType: String, prompt: String, batchStartTime: Date) async throws -> (observations: [Observation], log: LLMCall) {
         let callStart = Date()
         
         // First, save video data to a temporary file
@@ -37,7 +37,26 @@ final class GeminiDirectProvider: LLMProvider {
             prompt: finalTranscriptionPrompt
         )
         
-        let transcripts = try parseTranscripts(response)
+        let videoTranscripts = try parseTranscripts(response)
+        
+        // Convert video transcripts to observations with proper Unix timestamps
+        let observations = videoTranscripts.map { chunk in
+            let startSeconds = parseVideoTimestamp(chunk.startTimestamp)
+            let endSeconds = parseVideoTimestamp(chunk.endTimestamp)
+            let startDate = batchStartTime.addingTimeInterval(TimeInterval(startSeconds))
+            let endDate = batchStartTime.addingTimeInterval(TimeInterval(endSeconds))
+            
+            return Observation(
+                id: nil,
+                batchId: 0, // Will be set when saved
+                startTs: Int(startDate.timeIntervalSince1970),
+                endTs: Int(endDate.timeIntervalSince1970),
+                observation: chunk.description,
+                metadata: nil,
+                llmModel: "gemini-2.5-flash-preview-04-17",
+                createdAt: Date()
+            )
+        }
         
         let log = LLMCall(
             timestamp: callStart,
@@ -46,13 +65,18 @@ final class GeminiDirectProvider: LLMProvider {
             output: response
         )
         
-        return (transcripts, log)
+        return (observations, log)
     }
     
-    func generateActivityCards(transcripts: [TranscriptChunk], context: ActivityGenerationContext) async throws -> (cards: [ActivityCard], log: LLMCall) {
+    func generateActivityCards(observations: [Observation], context: ActivityGenerationContext) async throws -> (cards: [ActivityCard], log: LLMCall) {
         let callStart = Date()
         
-        let transcriptText = transcripts.map { "[\($0.startTimestamp) - \($0.endTimestamp)]: \($0.description)" }.joined(separator: "\n")
+        // Convert observations to human-readable format for the prompt
+        let transcriptText = observations.map { obs in
+            let startTime = formatTimestampForPrompt(obs.startTs)
+            let endTime = formatTimestampForPrompt(obs.endTs)
+            return "[\(startTime) - \(endTime)]: \(obs.observation)"
+        }.joined(separator: "\n")
         
         let activityGenerationPrompt = """
         You are Dayflow, an AI that converts screen recordings into a JSON timeline.
@@ -265,12 +289,19 @@ final class GeminiDirectProvider: LLMProvider {
         return text
     }
     
-    private func parseTranscripts(_ response: String) throws -> [TranscriptChunk] {
+    // Temporary struct for parsing Gemini response
+    private struct VideoTranscriptChunk: Codable {
+        let startTimestamp: String   // MM:SS
+        let endTimestamp: String     // MM:SS
+        let description: String
+    }
+    
+    private func parseTranscripts(_ response: String) throws -> [VideoTranscriptChunk] {
         guard let data = response.data(using: .utf8) else {
             throw NSError(domain: "GeminiError", code: 8, userInfo: [NSLocalizedDescriptionKey: "Invalid response encoding"])
         }
         
-        let transcripts = try JSONDecoder().decode([TranscriptChunk].self, from: data)
+        let transcripts = try JSONDecoder().decode([VideoTranscriptChunk].self, from: data)
         return transcripts
     }
     
