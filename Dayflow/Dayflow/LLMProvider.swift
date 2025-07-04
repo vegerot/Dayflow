@@ -6,8 +6,8 @@
 import Foundation
 
 protocol LLMProvider {
-    func transcribeVideo(videoData: Data, mimeType: String, prompt: String) async throws -> (transcripts: [TranscriptChunk], log: LLMCall)
-    func generateActivityCards(transcripts: [TranscriptChunk], context: ActivityGenerationContext) async throws -> (cards: [ActivityCard], log: LLMCall)
+    func transcribeVideo(videoData: Data, mimeType: String, prompt: String, batchStartTime: Date) async throws -> (observations: [Observation], log: LLMCall)
+    func generateActivityCards(observations: [Observation], context: ActivityGenerationContext) async throws -> (cards: [ActivityCard], log: LLMCall)
 }
 
 struct ActivityGenerationContext {
@@ -24,12 +24,6 @@ enum LLMProviderType: Codable {
 
 // MARK: - Data Models
 
-struct TranscriptChunk: Codable, Sendable {
-    let startTimestamp: String   // MM:SS
-    let endTimestamp: String     // MM:SS
-    let description: String
-}
-
 struct ActivityCard: Codable {
     let startTime: String
     let endTime: String
@@ -41,13 +35,29 @@ struct ActivityCard: Codable {
     let distractions: [Distraction]?
 }
 
-struct Distraction: Codable, Sendable, Identifiable {
-    let id = UUID()
-    let startTime: String
-    let endTime: String
-    let title: String
-    let summary: String
-    let videoSummaryURL: String? = nil
-}
-
+// Distraction is defined in StorageManager.swift
 // LLMCall is defined in StorageManager.swift
+
+// MARK: - Helper Extensions for Timestamp Conversion
+
+extension LLMProvider {
+    // Convert "MM:SS" to seconds from video start
+    func parseVideoTimestamp(_ timestamp: String) -> Int {
+        let components = timestamp.components(separatedBy: ":")
+        guard components.count == 2,
+              let minutes = Int(components[0]),
+              let seconds = Int(components[1]) else {
+            return 0
+        }
+        return minutes * 60 + seconds
+    }
+    
+    // Convert Unix timestamp to "h:mm a" for prompts
+    func formatTimestampForPrompt(_ unixTime: Int) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(unixTime))
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        formatter.timeZone = TimeZone.current
+        return formatter.string(from: date)
+    }
+}
