@@ -17,20 +17,25 @@ protocol GeminiServicing {
 final class LLMService: GeminiServicing {
     static let shared: GeminiServicing = LLMService()
     
-    @AppStorage("llmProviderType") private var savedProviderData: Data = Data()
-    
     private var providerType: LLMProviderType {
-        get {
-            if let decoded = try? JSONDecoder().decode(LLMProviderType.self, from: savedProviderData) {
-                return decoded
-            }
+        // Read directly from UserDefaults each time
+        guard let savedData = UserDefaults.standard.data(forKey: "llmProviderType") else {
+            print("[LLMService] DEBUG: No saved data found in UserDefaults for key 'llmProviderType'")
             // Default to Gemini with empty API key
             return .geminiDirect(apiKey: "")
         }
-        set {
-            if let encoded = try? JSONEncoder().encode(newValue) {
-                savedProviderData = encoded
-            }
+        
+        print("[LLMService] DEBUG: Found saved data of size: \(savedData.count) bytes")
+        
+        do {
+            let decoded = try JSONDecoder().decode(LLMProviderType.self, from: savedData)
+            print("[LLMService] DEBUG: Successfully decoded provider type: \(decoded)")
+            return decoded
+        } catch {
+            print("[LLMService] DEBUG: Failed to decode provider type: \(error)")
+            print("[LLMService] DEBUG: Raw data as string: \(String(data: savedData, encoding: .utf8) ?? "unable to convert to string")")
+            // Default to Gemini with empty API key
+            return .geminiDirect(apiKey: "")
         }
     }
     
@@ -80,19 +85,31 @@ final class LLMService: GeminiServicing {
                 let composition = AVMutableComposition()
                 var currentTime = CMTime.zero
                 
-                for filePath in chunkFiles {
-                    guard let url = URL(string: filePath) else { continue }
+                print("[DEBUG] Combining \(chunkFiles.count) video chunks")
+                
+                // Create a single video track for all chunks
+                guard let compositionTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                    throw NSError(domain: "LLMService", code: 6, userInfo: [NSLocalizedDescriptionKey: "Failed to create composition track"])
+                }
+                
+                for (index, filePath) in chunkFiles.enumerated() {
+                    let url = URL(fileURLWithPath: filePath)
                     
                     let asset = AVAsset(url: url)
                     let duration = try await asset.load(.duration)
+                    let durationSeconds = CMTimeGetSeconds(duration)
+                    
+                    print("[DEBUG] Chunk \(index): duration=\(durationSeconds)s, insertAt=\(CMTimeGetSeconds(currentTime))s")
                     
                     if let track = try await asset.loadTracks(withMediaType: .video).first {
-                        let compositionTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
-                        try compositionTrack?.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: track, at: currentTime)
+                        try compositionTrack.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: track, at: currentTime)
                     }
                     
                     currentTime = CMTimeAdd(currentTime, duration)
                 }
+                
+                let totalDuration = CMTimeGetSeconds(currentTime)
+                print("[DEBUG] Total composition duration: \(totalDuration) seconds (\(totalDuration/60) minutes)")
                 
                 // Export combined video to temporary file
                 let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).mp4")
@@ -113,6 +130,7 @@ final class LLMService: GeminiServicing {
                 // Load video data
                 let videoData = try Data(contentsOf: tempURL)
                 let mimeType = "video/mp4"
+                print("[DEBUG] Exported video size: \(videoData.count / 1024 / 1024) MB")
                 
                 // Clean up temp file
                 defer {

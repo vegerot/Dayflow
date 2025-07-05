@@ -1,6 +1,9 @@
 import SwiftUI
 import AVKit
 import AppKit
+import CoreImage
+import ImageIO
+import UniformTypeIdentifiers
 
 struct DebugView: View {
     @State private var batches = StorageManager.shared.allBatches()
@@ -37,6 +40,10 @@ struct DebugView: View {
 
                         Button("Reprocess Batch") { triggerReprocessBatch() }
                             .disabled(isProcessing)
+                            .padding(.top, 5)
+                        
+                        Button("Export Screenshots") { exportScreenshots() }
+                            .disabled(composition == nil || isProcessing)
                             .padding(.top, 5)
 
                         if !timelineCards.isEmpty {
@@ -152,6 +159,104 @@ struct DebugView: View {
         } catch {
             print("Export failed: \(error)")
         }
+    }
+    
+    private func exportScreenshots() {
+        guard let comp = composition else { return }
+        
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose directory to export screenshots"
+        
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task {
+                await extractScreenshots(from: comp, to: url)
+            }
+        }
+    }
+    
+    private func extractScreenshots(from composition: AVMutableComposition, to directory: URL) async {
+        isProcessing = true
+        defer { isProcessing = false }
+        
+        let duration = CMTimeGetSeconds(composition.duration)
+        let frameInterval: TimeInterval = 60.0 // Extract frame every 60 seconds
+        
+        print("[Export] Starting screenshot extraction...")
+        print("[Export] Video duration: \(String(format: "%.2f", duration))s (\(String(format: "%.2f", duration/60)) minutes)")
+        
+        let generator = AVAssetImageGenerator(asset: composition)
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        generator.appliesPreferredTrackTransform = true
+        
+        var currentTime: TimeInterval = 0
+        var frameCount = 0
+        
+        // Create batch folder
+        let batchFolder = directory.appendingPathComponent("Batch_\(selected ?? 0)_Screenshots")
+        try? FileManager.default.createDirectory(at: batchFolder, withIntermediateDirectories: true)
+        
+        while currentTime < duration {
+            let cmTime = CMTime(seconds: currentTime, preferredTimescale: 600)
+            
+            do {
+                let cgImage = try generator.copyCGImage(at: cmTime, actualTime: nil)
+                
+                // Downscale by 2/3 for consistency with Ollama
+                if let scaledImage = downscaleImage(cgImage: cgImage, scale: 2.0/3.0) {
+                    frameCount += 1
+                    
+                    // Save as JPEG
+                    let filename = String(format: "frame_%03d_%02dm%02ds.jpg", frameCount, Int(currentTime/60), Int(currentTime.truncatingRemainder(dividingBy: 60)))
+                    let jpegURL = batchFolder.appendingPathComponent(filename)
+                    
+                    if let dest = CGImageDestinationCreateWithURL(jpegURL as CFURL, UTType.jpeg.identifier as CFString, 1, nil) {
+                        let props = [kCGImageDestinationLossyCompressionQuality: 0.95] as CFDictionary
+                        CGImageDestinationAddImage(dest, scaledImage, props)
+                        CGImageDestinationFinalize(dest)
+                    }
+                    
+                    print("[Export] Saved frame \(frameCount) at \(String(format: "%.2f", currentTime))s")
+                }
+            } catch {
+                print("[Export] Failed to extract frame at \(currentTime)s: \(error)")
+            }
+            
+            currentTime += frameInterval
+        }
+        
+        print("[Export] Completed! Exported \(frameCount) screenshots to \(batchFolder.path)")
+        
+        // Open folder in Finder
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: batchFolder.path)
+    }
+    
+    private func downscaleImage(cgImage: CGImage, scale: CGFloat) -> CGImage? {
+        let targetWidth = Int(CGFloat(cgImage.width) * scale)
+        let targetHeight = Int(CGFloat(cgImage.height) * scale)
+        
+        let ciImage = CIImage(cgImage: cgImage)
+        
+        guard let filter = CIFilter(name: "CILanczosScaleTransform") else { return nil }
+        filter.setValue(ciImage, forKey: kCIInputImageKey)
+        filter.setValue(scale, forKey: kCIInputScaleKey)
+        filter.setValue(1.0, forKey: kCIInputAspectRatioKey)
+        
+        guard var outputImage = filter.outputImage else { return nil }
+        
+        // Apply slight sharpening for text clarity
+        if let sharpen = CIFilter(name: "CISharpenLuminance") {
+            sharpen.setValue(outputImage, forKey: kCIInputImageKey)
+            sharpen.setValue(0.3, forKey: "inputSharpness")
+            outputImage = sharpen.outputImage ?? outputImage
+        }
+        
+        let context = CIContext(options: [.highQualityDownsample: true])
+        return context.createCGImage(outputImage, from: outputImage.extent)
     }
 
     private func tsString(_ ts: Int) -> String {
