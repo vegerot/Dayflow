@@ -39,17 +39,32 @@ struct SettingsView: View {
     @State private var showingDeleteCategoryConfirm: CategorySetting? = nil // Store category to delete
 
     private let taxonomyKey = "userDefinedTaxonomyJSON"
+    
+    // LLM Provider settings
+    @State private var selectedProvider: LLMProviderTypeSelection = .geminiDirect
+    @State private var geminiApiKey: String = ""
+    @State private var dayflowToken: String = ""
+    @State private var dayflowEndpoint: String = "https://api.dayflow.app"
+    @State private var ollamaEndpoint: String = "http://localhost:11434"
+    @AppStorage("llmProviderType") private var savedProviderData: Data = Data()
+    
+    enum LLMProviderTypeSelection: String, CaseIterable {
+        case geminiDirect = "Gemini Direct"
+        case dayflowBackend = "Dayflow Backend"
+        case ollamaLocal = "Ollama Local"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header area
             HStack {
-                Text("Configure Taxonomy")
+                Text("Settings")
                     .font(.largeTitle)
                     .padding([.top, .leading])
                 Spacer()
                 Button("Save Changes") {
                     saveTaxonomy()
+                    saveLLMProvider()
                 }
                 .padding([.top, .trailing])
             }
@@ -59,6 +74,61 @@ struct SettingsView: View {
 
             // Main content area
             List {
+                // LLM Provider Section
+                Section {
+                    Picker("LLM Provider", selection: $selectedProvider) {
+                        ForEach(LLMProviderTypeSelection.allCases, id: \.self) { provider in
+                            Text(provider.rawValue).tag(provider)
+                        }
+                    }
+                    .pickerStyle(DefaultPickerStyle())
+                    
+                    switch selectedProvider {
+                    case .geminiDirect:
+                        HStack {
+                            Text("API Key:")
+                                .frame(width: 100, alignment: .trailing)
+                            SecureField("Enter Gemini API Key", text: $geminiApiKey)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                        }
+                        
+                    case .dayflowBackend:
+                        HStack {
+                            Text("Token:")
+                                .frame(width: 100, alignment: .trailing)
+                            SecureField("Enter Dayflow Token", text: $dayflowToken)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                        }
+                        HStack {
+                            Text("Endpoint:")
+                                .frame(width: 100, alignment: .trailing)
+                            TextField("Enter Endpoint URL", text: $dayflowEndpoint)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                        }
+                        
+                    case .ollamaLocal:
+                        HStack {
+                            Text("Endpoint:")
+                                .frame(width: 100, alignment: .trailing)
+                            TextField("Enter Ollama URL", text: $ollamaEndpoint)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                        }
+                        Text("Make sure Ollama is running and you have pulled qwen2-vl:7b")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                } header: {
+                    Text("LLM Provider Configuration")
+                        .font(.title2)
+                }
+                
+                Divider()
+                    .padding(.vertical)
+                
+                // Taxonomy Section Header
+                Text("Taxonomy Configuration")
+                    .font(.title2)
+                    .padding(.top)
                 ForEach($managedCategories) { $category in
                     Section {
                         // Category Header with Delete Button
@@ -117,7 +187,10 @@ struct SettingsView: View {
         }
         .background(Color.white) // Ensure the whole view has a white background
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear(perform: loadTaxonomy)
+        .onAppear {
+            loadTaxonomy()
+            loadLLMProvider()
+        }
         .sheet(isPresented: $showingAddCategorySheet) {
             AddCategorySheetView(nameInput: $nameInput) {
                 if !nameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -218,6 +291,42 @@ struct SettingsView: View {
     func removeSubcategory(at offsets: IndexSet, from category: CategorySetting) {
         if let categoryIndex = managedCategories.firstIndex(where: { $0.id == category.id }) {
             managedCategories[categoryIndex].subcategories.remove(atOffsets: offsets)
+        }
+    }
+    
+    // MARK: - LLM Provider Management
+    
+    func loadLLMProvider() {
+        if let decoded = try? JSONDecoder().decode(LLMProviderType.self, from: savedProviderData) {
+            switch decoded {
+            case .geminiDirect(let apiKey):
+                selectedProvider = .geminiDirect
+                geminiApiKey = apiKey
+            case .dayflowBackend(let token, let endpoint):
+                selectedProvider = .dayflowBackend
+                dayflowToken = token
+                dayflowEndpoint = endpoint
+            case .ollamaLocal(let endpoint):
+                selectedProvider = .ollamaLocal
+                ollamaEndpoint = endpoint
+            }
+        }
+    }
+    
+    func saveLLMProvider() {
+        let providerType: LLMProviderType
+        
+        switch selectedProvider {
+        case .geminiDirect:
+            providerType = .geminiDirect(apiKey: geminiApiKey)
+        case .dayflowBackend:
+            providerType = .dayflowBackend(token: dayflowToken, endpoint: dayflowEndpoint)
+        case .ollamaLocal:
+            providerType = .ollamaLocal(endpoint: ollamaEndpoint)
+        }
+        
+        if let encoded = try? JSONEncoder().encode(providerType) {
+            savedProviderData = encoded
         }
     }
 }
