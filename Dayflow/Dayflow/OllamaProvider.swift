@@ -336,10 +336,8 @@ final class OllamaProvider: LLMProvider {
     }
     
     private struct FrameAnalysis: Codable {
-        let timestamp: String
-        let activity: String
-        let application: String?
-        let details: String
+        let analysis: String
+        let observation: String
     }
     
     private func analyzeFrame(_ frame: FrameData, batchStartTime: Date) async throws -> Observation {
@@ -350,15 +348,31 @@ final class OllamaProvider: LLMProvider {
         
         // Create prompt for Qwen 2.5 VL
         let prompt = """
-        Analyze this screenshot and provide a JSON response describing what the user is doing.
-        
-        Return JSON in this exact format:
+        Analyze this screenshot and describe what the user is doing. Focus on their intent and task, not just what's visible.
+
+        Provide a 1-3 sentence summary covering:
+        - What they're trying to accomplish
+        - The main app/website they're using
+        - Any relevant context from other visible elements
+
+        Return your response in this exact JSON format:
         {
-            "timestamp": "\(formatTimestampForPrompt(startTs))",
-            "activity": "what the user is doing",
-            "application": "visible application name or null",
-            "details": "relevant details about the activity"
+          "analysis": "<your reasoning about what you see and what the user might be doing>",
+          "observation": "<your final 1-3 sentence description of the user's activity>"
         }
+
+        Examples:
+        {
+          "analysis": "Xcode is open with Swift code visible and there's an error or debugging interface. Another window shows documentation which suggests they're trying to solve a specific issue.",
+          "observation": "User is debugging a Swift app in Xcode, focusing on fixing a freeze issue in the GeminiService class. Has documentation open in another window for reference."
+        }
+
+        {
+          "analysis": "Gmail compose window is open and there's a spreadsheet visible with what looks like financial data. This combination suggests business communication about project metrics.",
+          "observation": "User is writing a project status email in Gmail while referencing budget data from an Excel spreadsheet in another window."
+        }
+
+        Keep it brief and direct. Don't list UI elements in the observation.
         """
         
         // Convert base64 data back to string
@@ -386,8 +400,8 @@ final class OllamaProvider: LLMProvider {
             batchId: 0,  // Will be set when saved
             startTs: startTs,
             endTs: endTs,
-            observation: "\(analysis.activity). \(analysis.details)",
-            metadata: analysis.application,
+            observation: analysis.observation,
+            metadata: nil,  // No longer extracting application name separately
             llmModel: "qwen2.5vl:3b",
             createdAt: Date()
         )
