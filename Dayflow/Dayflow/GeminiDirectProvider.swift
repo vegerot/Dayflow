@@ -140,9 +140,13 @@ final class GeminiDirectProvider: LLMProvider {
         let fileSize = fileData.count
         var uploadedFileURI: String? = nil
         
+        print("[DEBUG] Uploading file of size: \(fileSize / 1024 / 1024) MB")
+        
         if fileSize <= 20 * 1024 * 1024 {
+            print("[DEBUG] Using simple upload")
             uploadedFileURI = try await uploadSimple(data: fileData, mimeType: mimeType)
         } else {
+            print("[DEBUG] Using resumable upload")
             uploadedFileURI = try await uploadResumable(data: fileData, mimeType: mimeType)
         }
         
@@ -191,17 +195,26 @@ final class GeminiDirectProvider: LLMProvider {
         
         var request = URLRequest(url: URL(string: fileEndpoint + "?key=\(apiKey)")!)
         request.httpMethod = "POST"
-        request.setValue("multipart/related; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue("resumable", forHTTPHeaderField: "X-Goog-Upload-Protocol")
         request.setValue("start", forHTTPHeaderField: "X-Goog-Upload-Command")
         request.setValue("\(data.count)", forHTTPHeaderField: "X-Goog-Upload-Raw-Size")
         request.setValue(mimeType, forHTTPHeaderField: "X-Goog-Upload-Header-Content-Type")
-        request.httpBody = body
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(metadata)
         
         let (responseData, response) = try await URLSession.shared.data(for: request)
         
+        print("[DEBUG] Resumable upload init response status: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+        if let httpResponse = response as? HTTPURLResponse {
+            print("[DEBUG] Response headers: \(httpResponse.allHeaderFields)")
+        }
+        if let responseString = String(data: responseData, encoding: .utf8) {
+            print("[DEBUG] Response body: \(responseString)")
+        }
+        
         guard let httpResponse = response as? HTTPURLResponse,
               let uploadURL = httpResponse.value(forHTTPHeaderField: "X-Goog-Upload-URL") else {
-            throw NSError(domain: "GeminiError", code: 4, userInfo: [NSLocalizedDescriptionKey: "No upload URL in response"])
+            throw NSError(domain: "GeminiError", code: 4, userInfo:  [NSLocalizedDescriptionKey: "No upload URL in response"])
         }
         
         var uploadRequest = URLRequest(url: URL(string: uploadURL)!)
@@ -415,4 +428,8 @@ private struct GeminiFileMetadata: Codable {
 
 private struct GeminiFileInfo: Codable {
     let displayName: String
+    
+    enum CodingKeys: String, CodingKey {
+        case displayName = "display_name"
+    }
 }
