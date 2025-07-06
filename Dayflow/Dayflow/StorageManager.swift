@@ -88,6 +88,8 @@ protocol StorageManaging: Sendable {
 
     // Timeline Queries
     func fetchTimelineCards(forDay day: String) -> [TimelineCard]
+    func fetchTimelineCardsByTimeRange(from: Date, to: Date) -> [TimelineCard]
+    func replaceTimelineCardsInRange(from: Date, to: Date, with: [TimelineCardShell], batchId: Int64)
 
     // Note: Transcript storage methods removed in favor of Observations
     
@@ -95,6 +97,7 @@ protocol StorageManaging: Sendable {
     func saveObservations(batchId: Int64, observations: [Observation])
     func fetchObservations(batchId: Int64) -> [Observation]
     func fetchObservations(startTs: Int, endTs: Int) -> [Observation]
+    func fetchObservationsByTimeRange(from: Date, to: Date) -> [Observation]
 
     // Helper for GeminiService – map file paths → timestamps
     func getTimestampsForVideoFiles(paths: [String]) -> [String: (startTs: Int, endTs: Int)]
@@ -329,7 +332,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         try? fileMgr.removeItem(at: url)
     }
 
-    // MARK: – Queries used by GeminiAnalysisManager ---------------------------
+    // MARK: – Queries used by AnalysisManager ---------------------------
 
     func fetchUnprocessedChunks(olderThan oldestAllowed: Int) -> [RecordingChunk] {
         (try? db.read { db in
@@ -523,6 +526,88 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }
         return cards ?? []
     }
+    
+    func fetchTimelineCardsByTimeRange(from: Date, to: Date) -> [TimelineCard] {
+        let decoder = JSONDecoder()
+        let iso8601Formatter = ISO8601DateFormatter()
+        iso8601Formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        
+        let fromString = iso8601Formatter.string(from: from)
+        let toString = iso8601Formatter.string(from: to)
+        
+        let cards: [TimelineCard]? = try? db.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT * FROM timeline_cards
+                WHERE (start < ? AND end > ?)
+                   OR (start >= ? AND start < ?)
+                ORDER BY start ASC
+            """, arguments: [toString, fromString, fromString, toString])
+            .map { row in
+                // Decode distractions from metadata JSON
+                var distractions: [Distraction]? = nil
+                if let metadataString: String = row["metadata"],
+                   let jsonData = metadataString.data(using: .utf8) {
+                    distractions = try? decoder.decode([Distraction].self, from: jsonData)
+                }
+
+                // Create TimelineCard instance using renamed columns
+                return TimelineCard(
+                    startTimestamp: row["start"] ?? "",
+                    endTimestamp: row["end"] ?? "",
+                    category: row["category"],
+                    subcategory: row["subcategory"],
+                    title: row["title"],
+                    summary: row["summary"],
+                    detailedSummary: row["detailed_summary"],
+                    day: row["day"],
+                    distractions: distractions,
+                    videoSummaryURL: row["video_summary_url"],
+                    otherVideoSummaryURLs: nil
+                )
+            }
+        }
+        return cards ?? []
+    }
+    
+    func replaceTimelineCardsInRange(from: Date, to: Date, with newCards: [TimelineCardShell], batchId: Int64) {
+        let iso8601Formatter = ISO8601DateFormatter()
+        iso8601Formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        
+        let fromString = iso8601Formatter.string(from: from)
+        let toString = iso8601Formatter.string(from: to)
+        
+        let encoder = JSONEncoder()
+        
+        try? db.write { db in
+            // Delete existing cards in the range
+            try db.execute(sql: """
+                DELETE FROM timeline_cards
+                WHERE (start < ? AND end > ?)
+                   OR (start >= ? AND start < ?)
+            """, arguments: [toString, fromString, fromString, toString])
+            
+            // Insert new cards
+            for card in newCards {
+                var distractionsString: String? = nil
+                if let distractions = card.distractions, !distractions.isEmpty {
+                    if let jsonData = try? encoder.encode(distractions) {
+                        distractionsString = String(data: jsonData, encoding: .utf8)
+                    }
+                }
+                
+                try db.execute(sql: """
+                    INSERT INTO timeline_cards(
+                        batch_id, start, end, day, title,
+                        summary, category, subcategory, detailed_summary, metadata
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    batchId, card.startTimestamp, card.endTimestamp, card.day, card.title,
+                    card.summary, card.category, card.subcategory, card.detailedSummary, distractionsString
+                ])
+            }
+        }
+    }
 
     // Note: Transcript storage methods removed in favor of Observations table
     
@@ -552,6 +637,31 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 WHERE batch_id = ? 
                 ORDER BY start_ts ASC
             """, arguments: [batchId]).map { row in
+                Observation(
+                    id: row["id"],
+                    batchId: row["batch_id"],
+                    startTs: row["start_ts"],
+                    endTs: row["end_ts"],
+                    observation: row["observation"],
+                    metadata: row["metadata"],
+                    llmModel: row["llm_model"],
+                    createdAt: row["created_at"]
+                )
+            }
+        }) ?? []
+    }
+    
+    func fetchObservationsByTimeRange(from: Date, to: Date) -> [Observation] {
+        let fromTs = Int(from.timeIntervalSince1970)
+        let toTs = Int(to.timeIntervalSince1970)
+        
+        return (try? db.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT * FROM observations 
+                WHERE (start_ts < ? AND end_ts > ?) 
+                   OR (start_ts >= ? AND start_ts < ?)
+                ORDER BY start_ts ASC
+            """, arguments: [toTs, fromTs, fromTs, toTs]).map { row in
                 Observation(
                     id: row["id"],
                     batchId: row["batch_id"],
