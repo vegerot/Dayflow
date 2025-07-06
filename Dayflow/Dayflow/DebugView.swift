@@ -13,6 +13,8 @@ struct DebugView: View {
     @State private var llmCalls: [LLMCall] = []
     @State private var composition: AVMutableComposition?
     @State private var isProcessing = false
+    @State private var todayObservations: [Observation] = []
+    @State private var showTodayObservations = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -29,42 +31,76 @@ struct DebugView: View {
 
             Divider()
 
-            if let _ = selected {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        VideoPlayer(player: player)
-                            .frame(height: 200)
-                            .cornerRadius(8)
-                        Button("Export Video…") { exportVideo() }
-                            .disabled(composition == nil || isProcessing)
+            VStack(alignment: .leading, spacing: 12) {
+                Button("View Today's Observations") { 
+                    showTodayObservations.toggle()
+                    if showTodayObservations {
+                        loadTodayObservations()
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top, 10)
 
-                        Button("Reprocess Batch") { triggerReprocessBatch() }
-                            .disabled(isProcessing)
-                            .padding(.top, 5)
-                        
-                        Button("Export Screenshots") { exportScreenshots() }
-                            .disabled(composition == nil || isProcessing)
-                            .padding(.top, 5)
-
-                        if !timelineCards.isEmpty {
-                            Text("Timeline Cards").font(.headline)
-                            ForEach(timelineCards) { card in
-                                TimelineCardRow(card: card)
+                if showTodayObservations {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Today's Observations").font(.headline)
+                            .padding(.horizontal)
+                        if todayObservations.isEmpty {
+                            Text("No observations found for today")
+                                .foregroundColor(.secondary)
+                                .padding()
+                        } else {
+                            ScrollView {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    ForEach(Array(todayObservations.enumerated()), id: \.offset) { index, observation in
+                                        ObservationRow(index: index, observation: observation, dateFormatter: dateFormatter)
+                                    }
+                                }
                             }
-                        }
-
-                        if !llmCalls.isEmpty {
-                            Text("LLM Calls").font(.headline)
-                            ForEach(Array(llmCalls.enumerated()), id: \.offset) { index, call in
-                                LLMCallRow(index: index, call: call, dateFormatter: dateFormatter, prettyJSON: prettyJSON)
-                            }
+                            .frame(maxHeight: 400)
                         }
                     }
-                    .padding()
+                    .padding(.bottom, 12)
+                    Divider()
                 }
-            } else {
-                VStack { Spacer(); Text("Select a batch").foregroundColor(.secondary); Spacer() }
-                    .frame(maxWidth: .infinity)
+                
+                if let _ = selected {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 12) {
+                            VideoPlayer(player: player)
+                                .frame(height: 200)
+                                .cornerRadius(8)
+                            Button("Export Video…") { exportVideo() }
+                                .disabled(composition == nil || isProcessing)
+
+                            Button("Reprocess Batch") { triggerReprocessBatch() }
+                                .disabled(isProcessing)
+                                .padding(.top, 5)
+                            
+                            Button("Export Screenshots") { exportScreenshots() }
+                                .disabled(composition == nil || isProcessing)
+                                .padding(.top, 5)
+
+                            if !timelineCards.isEmpty {
+                                Text("Timeline Cards").font(.headline)
+                                ForEach(timelineCards) { card in
+                                    TimelineCardRow(card: card)
+                                }
+                            }
+
+                            if !llmCalls.isEmpty {
+                                Text("LLM Calls").font(.headline)
+                                ForEach(Array(llmCalls.enumerated()), id: \.offset) { index, call in
+                                    LLMCallRow(index: index, call: call, dateFormatter: dateFormatter, prettyJSON: prettyJSON)
+                                }
+                            }
+                        }
+                        .padding()
+                    }
+                } else {
+                    VStack { Spacer(); Text("Select a batch").foregroundColor(.secondary); Spacer() }
+                        .frame(maxWidth: .infinity)
+                }
             }
         }
         .frame(minWidth: 760, minHeight: 480)
@@ -73,6 +109,17 @@ struct DebugView: View {
     }
 
     private func refresh() { batches = StorageManager.shared.allBatches() }
+    
+    private func loadTodayObservations() {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: Date())
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        
+        let startTs = Int(startOfDay.timeIntervalSince1970)
+        let endTs = Int(endOfDay.timeIntervalSince1970)
+        
+        todayObservations = StorageManager.shared.fetchObservations(startTs: startTs, endTs: endTs)
+    }
 
     private func loadBatch(_ id: Int64?) async {
         player.pause()
@@ -380,5 +427,81 @@ private struct InlineVideoPlayer: View {
         VideoPlayer(player: player)
             .onAppear { player.replaceCurrentItem(with: AVPlayerItem(url: url)) }
             .onDisappear { player.pause() }
+    }
+}
+
+struct ObservationRow: View {
+    let index: Int
+    let observation: Observation
+    let dateFormatter: DateFormatter
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Observation \(index + 1)")
+                    .font(.subheadline)
+                    .bold()
+                Spacer()
+                if let createdAt = observation.createdAt {
+                    Text(dateFormatter.string(from: createdAt))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            HStack {
+                Text("Time Range:")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text("\(formatTimestamp(observation.startTs)) - \(formatTimestamp(observation.endTs))")
+                    .font(.caption)
+            }
+            
+            if let model = observation.llmModel {
+                HStack {
+                    Text("Model:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(model)
+                        .font(.caption)
+                }
+            }
+            
+            Text(observation.observation)
+                .font(.body)
+                .textSelection(.enabled)
+                .padding(.vertical, 4)
+            
+            if let metadata = observation.metadata, !metadata.isEmpty {
+                DisclosureGroup("Metadata") {
+                    Text(prettyJSON(metadata))
+                        .font(.system(size: 11, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(.top, 4)
+                }
+                .font(.caption)
+            }
+            
+            Divider()
+        }
+        .padding(.horizontal)
+    }
+    
+    private func formatTimestamp(_ ts: Int) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(ts))
+        let formatter = DateFormatter()
+        formatter.timeStyle = .medium
+        return formatter.string(from: date)
+    }
+    
+    private func prettyJSON(_ text: String?) -> String {
+        guard let text, !text.isEmpty,
+              let data = text.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data),
+              let prettyData = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted]),
+              let prettyString = String(data: prettyData, encoding: .utf8) else {
+            return text ?? ""
+        }
+        return prettyString
     }
 }

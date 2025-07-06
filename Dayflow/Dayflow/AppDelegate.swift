@@ -26,7 +26,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupGeminiAnalysis() {
         // Perform after a short delay to ensure other initialization completes
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            GeminiAnalysisManager.shared.startAnalysisJob()
+            AnalysisManager.shared.startAnalysisJob()
             print("AppDelegate: Gemini analysis job started")
         }
     }
