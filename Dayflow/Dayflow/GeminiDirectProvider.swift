@@ -7,7 +7,7 @@ import Foundation
 
 final class GeminiDirectProvider: LLMProvider {
     private let apiKey: String
-    private let genEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent"
+    private let genEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
     private let fileEndpoint = "https://generativelanguage.googleapis.com/upload/v1beta/files"
     
     init(apiKey: String) {
@@ -25,10 +25,119 @@ final class GeminiDirectProvider: LLMProvider {
         let fileURI = try await uploadAndAwait(tempURL, mimeType: mimeType, key: apiKey).1
         
         let finalTranscriptionPrompt = """
-        Your job is to act as an expert transcriber for someone's computer usage. your descriptions should capture context and intent of the what the user is doing. 
-        for example, if the user is watching a youtube video, what's important is capturing the essence of what the video is about, not necessarily every invidiaul detail about the video. 
-        Each transcription should include a timestamp range of the particular action eg (MM:SS - MM:SS). Each transcription should also be >30seconds long, although exercise your judgement.
-         If you're going to start a separate transcription, it should be because of a big shift in context.
+        # Video Transcription Prompt
+
+        Your job is to transcribe someone's computer usage into a small number of meaningful activity segments.
+
+        ## Golden Rule: Aim for 3-5 segments per 15-minute video (fewer is better than more)
+
+        ## Core Principles:
+        1. **Group by purpose, not by platform** - If someone is planning a trip across 5 websites, that's ONE segment
+        2. **Include interruptions in the description** - Don't create segments for brief distractions
+        3. **Only split when context changes for 2-3+ minutes** - Quick checks don't count as context switches
+        4. **Combine related activities** - Multiple videos on the same topic = one segment
+        5. **Think in terms of "sessions"** - What would you tell a friend you spent time doing?
+
+        ## When to create a new segment:
+        Only when the user switches to a COMPLETELY different purpose for MORE than 2-3 minutes:
+        - Entertainment → Work
+        - Learning → Shopping  
+        - Project A → Project B
+        - Topic X → Unrelated Topic Y
+
+        ## Format:
+        ```json
+        [
+          {
+            "startTimestamp": "MM:SS",
+            "endTimestamp": "MM:SS", 
+            "description": "1-3 sentences describing what the user accomplished"
+          }
+        ]
+        ```
+
+        ## Examples:
+
+        **GOOD - Properly condensed:**
+        ```json
+        [
+          {
+            "startTimestamp": "00:00",
+            "endTimestamp": "06:45",
+            "description": "User plans a trip to Japan, researching flights on multiple booking sites, reading hotel reviews, and watching YouTube videos about Tokyo neighborhoods. They briefly check email twice and respond to a text message during their research."
+          },
+          {
+            "startTimestamp": "06:45", 
+            "endTimestamp": "10:30",
+            "description": "User takes an online Spanish course, completing lesson exercises and watching grammar explanation videos. They use Google Translate to verify some phrases and briefly check Reddit when they get stuck on a difficult concept."
+          },
+          {
+            "startTimestamp": "10:30",
+            "endTimestamp": "14:58",
+            "description": "User shops for home gym equipment, comparing prices across Amazon, fitness retailer sites, and watching product review videos. They check their banking app to verify their budget midway through."
+          }
+        ]
+        ```
+
+        **BAD - Too many segments:**
+        ```json
+        [
+          {
+            "startTimestamp": "00:00",
+            "endTimestamp": "02:00",
+            "description": "User searches for flights to Tokyo"
+          },
+          {
+            "startTimestamp": "02:00",
+            "endTimestamp": "02:30", 
+            "description": "User checks email"
+          },
+          {
+            "startTimestamp": "02:30",
+            "endTimestamp": "04:00",
+            "description": "User looks at hotels in Tokyo"
+          },
+          {
+            "startTimestamp": "04:00",
+            "endTimestamp": "05:00",
+            "description": "User watches a Tokyo travel video"
+          }
+        ]
+        ```
+
+        **ALSO BAD - Splitting brief interruptions:**
+        ```json
+        [
+          {
+            "startTimestamp": "00:00",
+            "endTimestamp": "05:00",
+            "description": "User shops for gym equipment"
+          },
+          {
+            "startTimestamp": "05:00",
+            "endTimestamp": "05:45",
+            "description": "User checks their bank balance"
+          },
+          {
+            "startTimestamp": "05:45",
+            "endTimestamp": "10:00",
+            "description": "User continues shopping for gym equipment"
+          }
+        ]
+        ```
+
+        **CORRECT way to handle the above:**
+        ```json
+        [
+          {
+            "startTimestamp": "00:00",
+            "endTimestamp": "10:00",
+            "description": "User shops for home gym equipment across multiple retailers, comparing dumbbells, benches, and resistance bands. They briefly check their bank balance around the 5-minute mark to confirm their budget before continuing."
+          }
+        ]
+        ```
+
+        Remember: The goal is to tell the story of what someone accomplished, not log every click. Group aggressively and only split when they truly change what they're doing for an extended period. If an activity is less than 2-3 minutes, it almost never deserves its own segment.
         """
         
         let response = try await geminiTranscribeRequest(
@@ -53,7 +162,7 @@ final class GeminiDirectProvider: LLMProvider {
                 endTs: Int(endDate.timeIntervalSince1970),
                 observation: chunk.description,
                 metadata: nil,
-                llmModel: "gemini-2.5-flash-preview-04-17",
+                llmModel: "gemini-2.5-flash",
                 createdAt: Date()
             )
         }
@@ -75,8 +184,19 @@ final class GeminiDirectProvider: LLMProvider {
         let transcriptText = observations.map { obs in
             let startTime = formatTimestampForPrompt(obs.startTs)
             let endTime = formatTimestampForPrompt(obs.endTs)
-            return "[\(startTime) - \(endTime)]: \(obs.observation)"
+            print("[\(startTime) - \(endTime)]: \(obs.observation)")
+            return "[" + startTime + " - " + endTime + "]: " + obs.observation
         }.joined(separator: "\n")
+        
+        print("[DEBUG-GEMINI] Building transcript text from \(observations.count) observations")
+        print("[DEBUG-GEMINI] First 3 observations in prompt format:")
+        for (index, obs) in observations.prefix(3).enumerated() {
+            let startTime = formatTimestampForPrompt(obs.startTs)
+            let endTime = formatTimestampForPrompt(obs.endTs)
+            print("[DEBUG-GEMINI] Observation \(index): [\(startTime) - \(endTime)]: \(obs.observation.prefix(100))...")
+        }
+        
+        print("transcript_text: \(transcriptText)")
         
         // Convert existing cards to JSON string
         let existingCardsJSON = try JSONEncoder().encode(context.existingCards)
@@ -90,81 +210,34 @@ final class GeminiDirectProvider: LLMProvider {
         let lastCardTitle = context.existingCards.last?.title ?? "None"
         
         let activityGenerationPrompt = """
-        You are Dayflow, an AI that analyzes screen recordings to create timeline cards. You are seeing a 1-hour window of activity that may be part of a longer session.
-
-        **CONTEXT PROVIDED:**
-        1. Observations from the last hour:
-        \(transcriptText)
-        
-        2. Existing timeline cards that overlap with this window:
-        \(existingCardsString)
-        
-        3. Current time: \(currentTimeStr)
-
-        **YOUR TASK:**
-        Generate timeline cards for the full window shown in the observations. You may:
-        - Continue existing cards if the activity is ongoing
-        - Modify existing cards if better organization is warranted
-        - Create new cards for new activities
-
-        **CRITICAL RULES:**
-        1. **Continuity**: The last card shown was "\(lastCardTitle)". If observations show this activity continuing, extend it rather than creating a new card.
-        2. **15+ minute rule**: Main activity segments must be at least 15 minutes
-        3. **Distractions**: Track activities between 30 seconds and 15 minutes as distractions within larger segments
-        4. **No time travel**: Cards cannot extend beyond \(currentTimeStr)
-        5. **Observation alignment**: Card times should align with observation timestamps (±5 minutes max deviation)
-        6. **No overlaps**: Cards must not overlap in time
-        7. **Complete coverage**: Your cards must cover the ENTIRE observation window with no gaps
-
-        **OUTPUT FORMAT:**
-        Return ONLY a JSON array with this EXACT structure:
-
-        [
-          {
-            "startTime": "0:00",
-            "endTime": "45:30",
-            "category": "Productive Work",
-            "subcategory": "Coding",
-            "title": "Bug Fix",
-            "summary": "Fixed authentication bug in the login flow and added error handling",
-            "detailedSummary": "Debugged issue where users were getting logged out unexpectedly. Traced problem to JWT token expiration handling. Added proper error boundaries and user-friendly error messages. Tested with multiple user accounts.",
-            "distractions": [
-              {
-                "startTime": "10:15",
-                "endTime": "11:45",
-                "title": "Twitter",
-                "summary": "Checked notifications and scrolled feed"
-              }
-            ]
-          }
-        ]
-
-        **FIELD REQUIREMENTS:**
-        - startTime/endTime: "MM:SS" format (e.g., "5:30", "65:00" for times over an hour)
-        - category: Broad category from taxonomy
-        - subcategory: Specific subcategory from taxonomy  
-        - title: 1-3 words, specific enough to understand at a glance
-        - summary: 1-2 sentences, NO first-person, start with verb, focus on what was accomplished
-        - detailedSummary: Longer factual description for future analysis
-        - distractions: Array (can be empty), only include activities 30 seconds to 15 minutes
-
-        **ORGANIZATION PRINCIPLES:**
-        - Strongly prefer keeping related work in single segments (e.g., one "Coding" card vs multiple)
-        - If someone has been doing the same activity for hours, that's ONE card, not many
-        - Brief interruptions (<15 min) should be distractions, not new segments
-        - If you see fragmentation from previous analysis, feel free to consolidate
-
-        **TAXONOMY:**
-        USER PREFERRED TAXONOMY:
-        \(context.userTaxonomy)
-        
-        SYSTEM GENERATED TAXONOMY:
-        \(context.extractedTaxonomy)
-        
-        PREVIOUS SEGMENT:
-        \(context.previousSegmentsJSON)
-
-        Remember: You're seeing a rolling window. Activities often continue beyond what you can see. Bias toward continuity while maintaining accuracy.
+        You are a digital anthropologist, observing a user's raw activity log. Your goal is to synthesize this log into a high-level, human-readable story of their session, presented as a series of timeline cards.
+        THE GOLDEN RULE:
+        Your primary objective is to create long, meaningful cards that represent a cohesive session of activity, ideally 30-60 minutes or longer. Avoid creating cards shorter than 15-20 minutes unless a major context switch forces it.
+        CRITICAL DATA INTEGRITY RULE:
+        When you decide to extend a card, its original startTime is IMMUTABLE. You MUST carry over the startTime from the previous_card you are extending.
+        YOUR THINKING PROCESS:
+        Before providing your final JSON output, you must follow this internal monologue process:
+        Step 1: Identify Key Narrative Chapters.
+        First, scan all the observations. Identify the primary "chapters" of the user's session. For this specific log, the major chapters are:
+        Initial Car Research (approx. 5:00-6:05)
+        Software Development Work (approx. 6:05-6:37)
+        Financial Car Research (approx. 6:37-6:58)
+        Form a plan to group the activities into these three main narrative arcs.
+        Step 2: Generate a Draft Timeline.
+        Create a draft timeline based on your plan. As you process the log, apply the following logic:
+        Extend by Default: Your first instinct should be to extend the current card if the new observations are part of the same chapter you identified in Step 1.
+        Split on Chapter Boundaries: Create a new card only when the user clearly transitions from one of the major chapters to the next (e.g., from Initial Car Research to Software Development Work).
+        Handle Distractions: A brief, unrelated pivot (<10 min) where the user quickly returns to the chapter's main theme is a distraction, not a reason to split.
+        Step 3: Final Review and Self-Correction.
+        Before finalizing, review your generated draft against the rules and your plan from Step 1. Ask yourself:
+        Narrative Check: Does this timeline tell a clear story with three distinct chapters?
+        Boundary Check: Are the boundaries between the chapters clean? Have I accidentally merged the work session with car research?
+        Golden Rule Check: Are the cards a meaningful length? Have I avoided creating tiny, fragmented cards?
+        Integrity Check: Does the timeline start at 5:00 AM and cover the full duration?
+        If your draft fails any of these checks, revise it until it is a high-quality, A-Grade summary. Only then, provide the final JSON output.
+        INPUTS:
+        Previous cards: \(existingCardsString)
+        New observations: \(transcriptText)
         """
         
         print(activityGenerationPrompt)
