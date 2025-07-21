@@ -89,7 +89,7 @@ protocol StorageManaging: Sendable {
     // Timeline Queries
     func fetchTimelineCards(forDay day: String) -> [TimelineCard]
     func fetchTimelineCardsByTimeRange(from: Date, to: Date) -> [TimelineCard]
-    func replaceTimelineCardsInRange(from: Date, to: Date, with: [TimelineCardShell], batchId: Int64)
+    func replaceTimelineCardsInRange(from: Date, to: Date, with: [TimelineCardShell], batchId: Int64) -> [Int64]
 
     // Note: Transcript storage methods removed in favor of Observations
     
@@ -257,9 +257,22 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 CREATE INDEX IF NOT EXISTS idx_analysis_batches_status ON analysis_batches(status);
             """)
 
-            // Attempt to add the new column if the table pre-dates it
-            try? db.execute(sql: "ALTER TABLE analysis_batches ADD COLUMN llm_metadata TEXT")
-            try? db.execute(sql: "ALTER TABLE analysis_batches ADD COLUMN detailed_transcription TEXT")
+            // Attempt to add the new columns if the table pre-dates them
+            let llmMetadataExists = try Bool.fetchOne(db, sql: """
+                SELECT COUNT(*) > 0 FROM pragma_table_info('analysis_batches') WHERE name = 'llm_metadata'
+            """) ?? false
+            
+            if !llmMetadataExists {
+                try db.execute(sql: "ALTER TABLE analysis_batches ADD COLUMN llm_metadata TEXT")
+            }
+            
+            let detailedTranscriptionExists = try Bool.fetchOne(db, sql: """
+                SELECT COUNT(*) > 0 FROM pragma_table_info('analysis_batches') WHERE name = 'detailed_transcription'
+            """) ?? false
+            
+            if !detailedTranscriptionExists {
+                try db.execute(sql: "ALTER TABLE analysis_batches ADD COLUMN detailed_transcription TEXT")
+            }
 
             try db.execute(sql: """
                 CREATE TABLE IF NOT EXISTS batch_chunks (
@@ -304,6 +317,73 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 CREATE INDEX IF NOT EXISTS idx_observations_start_ts ON observations(start_ts);
                 CREATE INDEX IF NOT EXISTS idx_observations_time_range ON observations(start_ts, end_ts);
             """)
+            
+            // Migration: Add timestamp columns to timeline_cards
+            let columnExists = try Bool.fetchOne(db, sql: """
+                SELECT COUNT(*) > 0 FROM pragma_table_info('timeline_cards') WHERE name = 'start_ts'
+            """) ?? false
+            
+            if !columnExists {
+                // Add the new columns
+                try db.execute(sql: "ALTER TABLE timeline_cards ADD COLUMN start_ts INTEGER")
+                try db.execute(sql: "ALTER TABLE timeline_cards ADD COLUMN end_ts INTEGER")
+                
+                // Create indexes on the new columns
+                try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_timeline_cards_start_ts ON timeline_cards(start_ts)")
+                try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_timeline_cards_time_range ON timeline_cards(start_ts, end_ts)")
+                
+                // Migrate existing data
+                let rows = try Row.fetchAll(db, sql: "SELECT id, day, start, end FROM timeline_cards")
+                
+                // Use class-level dateFormatter property
+                
+                let timeFormatter = DateFormatter()
+                timeFormatter.dateFormat = "h:mm a"
+                timeFormatter.locale = Locale(identifier: "en_US_POSIX")
+                
+                for row in rows {
+                    guard let id: Int64 = row["id"],
+                          let dayString: String = row["day"],
+                          let startString: String = row["start"],
+                          let endString: String = row["end"],
+                          let baseDate = self.dateFormatter.date(from: dayString) else { continue }
+                    
+                    // Parse start time
+                    if let startTime = timeFormatter.date(from: startString) {
+                        let calendar = Calendar.current
+                        let components = calendar.dateComponents([.hour, .minute], from: startTime)
+                        if let hour = components.hour, let minute = components.minute {
+                            var startDate = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: baseDate) ?? baseDate
+                            
+                            // Handle day boundary for times after midnight
+                            if hour < 4 {
+                                startDate = calendar.date(byAdding: .day, value: 1, to: startDate) ?? startDate
+                            }
+                            
+                            let startTs = Int(startDate.timeIntervalSince1970)
+                            
+                            // Parse end time
+                            if let endTime = timeFormatter.date(from: endString) {
+                                let endComponents = calendar.dateComponents([.hour, .minute], from: endTime)
+                                if let endHour = endComponents.hour, let endMinute = endComponents.minute {
+                                    var endDate = calendar.date(bySettingHour: endHour, minute: endMinute, second: 0, of: baseDate) ?? baseDate
+                                    
+                                    // Handle day boundary
+                                    if endHour < 4 || endDate < startDate {
+                                        endDate = calendar.date(byAdding: .day, value: 1, to: endDate) ?? endDate
+                                    }
+                                    
+                                    let endTs = Int(endDate.timeIntervalSince1970)
+                                    
+                                    // Update the row with timestamps
+                                    try db.execute(sql: "UPDATE timeline_cards SET start_ts = ?, end_ts = ? WHERE id = ?",
+                                                   arguments: [startTs, endTs, id])
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -423,6 +503,47 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     func saveTimelineCardShell(batchId: Int64, card: TimelineCardShell) -> Int64? {
         let encoder = JSONEncoder()
         var lastId: Int64? = nil
+        
+        // Parse clock times to Unix timestamps
+        
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "h:mm a"
+        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
+        
+        guard let baseDate = self.dateFormatter.date(from: card.day),
+              let startTime = timeFormatter.date(from: card.startTimestamp),
+              let endTime = timeFormatter.date(from: card.endTimestamp) else {
+            return nil
+        }
+        
+        let calendar = Calendar.current
+        
+        // Parse start timestamp
+        let startComponents = calendar.dateComponents([.hour, .minute], from: startTime)
+        guard let startHour = startComponents.hour, let startMinute = startComponents.minute else { return nil }
+        
+        var startDate = calendar.date(bySettingHour: startHour, minute: startMinute, second: 0, of: baseDate) ?? baseDate
+        
+        // Handle day boundary for times after midnight
+        if startHour < 4 {
+            startDate = calendar.date(byAdding: .day, value: 1, to: startDate) ?? startDate
+        }
+        
+        let startTs = Int(startDate.timeIntervalSince1970)
+        
+        // Parse end timestamp
+        let endComponents = calendar.dateComponents([.hour, .minute], from: endTime)
+        guard let endHour = endComponents.hour, let endMinute = endComponents.minute else { return nil }
+        
+        var endDate = calendar.date(bySettingHour: endHour, minute: endMinute, second: 0, of: baseDate) ?? baseDate
+        
+        // Handle day boundary
+        if endHour < 4 || endDate < startDate {
+            endDate = calendar.date(byAdding: .day, value: 1, to: endDate) ?? endDate
+        }
+        
+        let endTs = Int(endDate.timeIntervalSince1970)
+        
         try? db.write {
             db in
             var distractionsString: String? = nil
@@ -432,18 +553,21 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 }
             }
 
+            print("🔍 DEBUG: About to INSERT timeline card: '\(card.title)' [\(card.startTimestamp) - \(card.endTimestamp)] with timestamps [\(startTs) - \(endTs)]")
+            
             try db.execute(sql: """
                 INSERT INTO timeline_cards(
-                    batch_id, start, end, day, title,
+                    batch_id, start, end, start_ts, end_ts, day, title,
                     summary, category, subcategory, detailed_summary, metadata
                     -- video_summary_url is omitted here
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
-                batchId, card.startTimestamp, card.endTimestamp, card.day, card.title,
+                batchId, card.startTimestamp, card.endTimestamp, startTs, endTs, card.day, card.title,
                 card.summary, card.category, card.subcategory, card.detailedSummary, distractionsString
             ])
             lastId = db.lastInsertedRowID
+            print("✅ DEBUG: INSERT successful, got ID: \(lastId ?? -1)")
         }
         return lastId
     }
@@ -504,7 +628,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             try Row.fetchAll(db, sql: """
                 SELECT * FROM timeline_cards
                 WHERE day = ?
-                ORDER BY start ASC -- Order by renamed column 'start'
+                ORDER BY COALESCE(start_ts, 0) ASC, start ASC -- Order by timestamp first, then clock time as fallback
             """, arguments: [day])
             .map { row in
                 // Decode distractions from metadata JSON
@@ -535,19 +659,20 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     
     func fetchTimelineCardsByTimeRange(from: Date, to: Date) -> [TimelineCard] {
         let decoder = JSONDecoder()
-        let iso8601Formatter = ISO8601DateFormatter()
-        iso8601Formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fromTs = Int(from.timeIntervalSince1970)
+        let toTs = Int(to.timeIntervalSince1970)
         
-        let fromString = iso8601Formatter.string(from: from)
-        let toString = iso8601Formatter.string(from: to)
+        print("\n📊 DEBUG: fetchTimelineCardsByTimeRange called")
+        print("  From: \(from) (ts: \(fromTs))")
+        print("  To: \(to) (ts: \(toTs))")
         
         let cards: [TimelineCard]? = try? db.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT * FROM timeline_cards
-                WHERE (start < ? AND end > ?)
-                   OR (start >= ? AND start < ?)
-                ORDER BY start ASC
-            """, arguments: [toString, fromString, fromString, toString])
+                WHERE (start_ts < ? AND end_ts > ?)
+                   OR (start_ts >= ? AND start_ts < ?)
+                ORDER BY start_ts ASC
+            """, arguments: [toTs, fromTs, fromTs, toTs])
             .map { row in
                 // Decode distractions from metadata JSON
                 var distractions: [Distraction]? = nil
@@ -572,25 +697,67 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 )
             }
         }
-        return cards ?? []
+        let result = cards ?? []
+        print("  📋 DEBUG: Fetched \(result.count) cards")
+        for (i, card) in result.enumerated() {
+            print("    Card \(i+1): '\(card.title)' [\(card.startTimestamp) - \(card.endTimestamp)]")
+        }
+        return result
     }
     
-    func replaceTimelineCardsInRange(from: Date, to: Date, with newCards: [TimelineCardShell], batchId: Int64) {
-        let iso8601Formatter = ISO8601DateFormatter()
-        iso8601Formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    func replaceTimelineCardsInRange(from: Date, to: Date, with newCards: [TimelineCardShell], batchId: Int64) -> [Int64] {
+        let fromTs = Int(from.timeIntervalSince1970)
+        let toTs = Int(to.timeIntervalSince1970)
         
-        let fromString = iso8601Formatter.string(from: from)
-        let toString = iso8601Formatter.string(from: to)
+        print("\n🔄 DEBUG: replaceTimelineCardsInRange called")
+        print("  From: \(from) (ts: \(fromTs))")
+        print("  To: \(to) (ts: \(toTs))")
+        print("  New cards count: \(newCards.count)")
         
         let encoder = JSONEncoder()
+        var insertedIds: [Int64] = []
+        
+        // Setup date formatter for parsing clock times
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "h:mm a"
+        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
         
         try? db.write { db in
-            // Delete existing cards in the range
+            // First, fetch the cards that will be deleted for debugging
+            let cardsToDelete = try Row.fetchAll(db, sql: """
+                SELECT id, start, end, title FROM timeline_cards
+                WHERE (start_ts < ? AND end_ts > ?)
+                   OR (start_ts >= ? AND start_ts < ?)
+            """, arguments: [toTs, fromTs, fromTs, toTs])
+            
+            print("  🗑️ DEBUG: Will delete \(cardsToDelete.count) existing cards:")
+            for card in cardsToDelete {
+                let id: Int64 = card["id"]
+                let start: String = card["start"]
+                let end: String = card["end"]
+                let title: String = card["title"]
+                print("    - Card ID \(id): '\(title)' [\(start) - \(end)]")
+            }
+            
+            // Delete existing cards in the range using timestamp columns
             try db.execute(sql: """
                 DELETE FROM timeline_cards
-                WHERE (start < ? AND end > ?)
-                   OR (start >= ? AND start < ?)
-            """, arguments: [toString, fromString, fromString, toString])
+                WHERE (start_ts < ? AND end_ts > ?)
+                   OR (start_ts >= ? AND start_ts < ?)
+            """, arguments: [toTs, fromTs, fromTs, toTs])
+            
+            // Verify deletion
+            let remainingCount = try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM timeline_cards
+                WHERE (start_ts < ? AND end_ts > ?)
+                   OR (start_ts >= ? AND start_ts < ?)
+            """, arguments: [toTs, fromTs, fromTs, toTs]) ?? 0
+            
+            if remainingCount > 0 {
+                print("  ⚠️ WARNING: \(remainingCount) cards still remain after DELETE!")
+            } else {
+                print("  ✅ DEBUG: DELETE successful, all cards removed")
+            }
             
             // Insert new cards
             for card in newCards {
@@ -601,18 +768,61 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     }
                 }
                 
+                // Parse clock times to Unix timestamps
+                guard let baseDate = self.dateFormatter.date(from: card.day),
+                      let startTime = timeFormatter.date(from: card.startTimestamp),
+                      let endTime = timeFormatter.date(from: card.endTimestamp) else {
+                    continue
+                }
+                
+                let calendar = Calendar.current
+                
+                // Parse start timestamp
+                let startComponents = calendar.dateComponents([.hour, .minute], from: startTime)
+                guard let startHour = startComponents.hour, let startMinute = startComponents.minute else { continue }
+                
+                var startDate = calendar.date(bySettingHour: startHour, minute: startMinute, second: 0, of: baseDate) ?? baseDate
+                
+                // Handle day boundary for times after midnight
+                if startHour < 4 {
+                    startDate = calendar.date(byAdding: .day, value: 1, to: startDate) ?? startDate
+                }
+                
+                let startTs = Int(startDate.timeIntervalSince1970)
+                
+                // Parse end timestamp
+                let endComponents = calendar.dateComponents([.hour, .minute], from: endTime)
+                guard let endHour = endComponents.hour, let endMinute = endComponents.minute else { continue }
+                
+                var endDate = calendar.date(bySettingHour: endHour, minute: endMinute, second: 0, of: baseDate) ?? baseDate
+                
+                // Handle day boundary
+                if endHour < 4 || endDate < startDate {
+                    endDate = calendar.date(byAdding: .day, value: 1, to: endDate) ?? endDate
+                }
+                
+                let endTs = Int(endDate.timeIntervalSince1970)
+                
                 try db.execute(sql: """
                     INSERT INTO timeline_cards(
-                        batch_id, start, end, day, title,
+                        batch_id, start, end, start_ts, end_ts, day, title,
                         summary, category, subcategory, detailed_summary, metadata
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [
-                    batchId, card.startTimestamp, card.endTimestamp, card.day, card.title,
+                    batchId, card.startTimestamp, card.endTimestamp, startTs, endTs, card.day, card.title,
                     card.summary, card.category, card.subcategory, card.detailedSummary, distractionsString
                 ])
+                
+                // Capture the ID of the inserted card
+                let insertedId = db.lastInsertedRowID
+                insertedIds.append(insertedId)
+                print("  ✅ DEBUG: Inserted card with ID: \(insertedId)")
             }
         }
+        
+        print("  📋 DEBUG: Returning \(insertedIds.count) inserted card IDs")
+        return insertedIds
     }
 
     // Note: Transcript storage methods removed in favor of Observations table
@@ -867,6 +1077,19 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 )
             }
         }) ?? []
+    }
+    
+    func resetSpecificBatchStatuses(batchIds: [Int64]) {
+        guard !batchIds.isEmpty else { return }
+        
+        try? db.write { db in
+            let placeholders = Array(repeating: "?", count: batchIds.count).joined(separator: ",")
+            try db.execute(sql: """
+                UPDATE analysis_batches
+                SET status = 'pending', reason = NULL, llm_metadata = NULL
+                WHERE id IN (\(placeholders))
+            """, arguments: StatementArguments(batchIds))
+        }
     }
 
     // MARK: – Purging Logic --------------------------------------------------
