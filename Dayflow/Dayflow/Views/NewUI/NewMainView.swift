@@ -15,6 +15,15 @@ struct NewMainView: View {
     @State private var showDatePicker = false
     @State private var selectedActivity: TimelineActivity? = nil
     
+    // Animation states for orchestrated entrance - Emil Kowalski principles
+    @State private var logoScale: CGFloat = 0.8
+    @State private var logoOpacity: Double = 0
+    @State private var timelineOffset: CGFloat = -20
+    @State private var timelineOpacity: Double = 0
+    @State private var sidebarOffset: CGFloat = -30
+    @State private var sidebarOpacity: Double = 0
+    @State private var contentOpacity: Double = 0
+    
     var body: some View {
         VStack(spacing: 0) {
             // Top row of 2x2 grid
@@ -25,12 +34,16 @@ struct NewMainView: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 60, height: 60)
                     .frame(maxWidth: 100, maxHeight: .infinity)
+                    .scaleEffect(logoScale)
+                    .opacity(logoOpacity)
                 
                 // Top right: Timeline text + Date navigation
                 HStack {
                     Text("Timeline")
                         .font(.custom("InstrumentSerif-Regular", size: 42))
                         .foregroundColor(.primary)
+                        .offset(x: timelineOffset)
+                        .opacity(timelineOpacity)
                     
                     Spacer()
                     
@@ -77,6 +90,8 @@ struct NewMainView: View {
                     Spacer()
                     VStack {
                         SidebarView(selectedIcon: $selectedIcon)
+                            .offset(y: sidebarOffset)
+                            .opacity(sidebarOpacity)
                         Spacer()
                     }
                     Spacer()
@@ -85,22 +100,31 @@ struct NewMainView: View {
                 
                 // Bottom right: Main content area
                 ZStack {
-                    VStack(alignment: .leading, spacing: 20) {
-                        // Tab filters
-                        TabFilterBar()
-                        
-                        // Content area with timeline and activity card
-                        HStack(spacing: 20) {
-                            // Timeline area
-                            NewTimelineView(selectedDate: $selectedDate, selectedActivity: $selectedActivity)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if selectedIcon == .settings {
+                        // Settings view
+                        NewSettingsView()
+                    } else {
+                        // Default timeline view
+                        VStack(alignment: .leading, spacing: 20) {
+                            // Tab filters
+                            TabFilterBar()
+                                .opacity(contentOpacity)
                             
-                            // Activity detail card
-                            NewActivityCard(activity: selectedActivity)
-                                .frame(width: 400)
+                            // Content area with timeline and activity card
+                            HStack(spacing: 20) {
+                                // Timeline area
+                                NewTimelineView(selectedDate: $selectedDate, selectedActivity: $selectedActivity)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .opacity(contentOpacity)
+                                
+                                // Activity detail card
+                                NewActivityCard(activity: selectedActivity)
+                                    .frame(width: 400)
+                                    .opacity(contentOpacity)
+                            }
                         }
+                        .padding(30)
                     }
-                    .padding(30)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(.white.opacity(0.3))
@@ -119,6 +143,33 @@ struct NewMainView: View {
         .frame(minWidth: 800, minHeight: 600)
         .sheet(isPresented: $showDatePicker) {
             DatePickerSheet(selectedDate: $selectedDate, isPresented: $showDatePicker)
+        }
+        .onAppear {
+            // Orchestrated entrance animations following Emil Kowalski principles
+            // Fast, under 300ms, natural spring motion
+            
+            // Logo appears first with scale and fade
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0)) {
+                logoScale = 1.0
+                logoOpacity = 1
+            }
+            
+            // Timeline text slides in from left
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0).delay(0.1)) {
+                timelineOffset = 0
+                timelineOpacity = 1
+            }
+            
+            // Sidebar slides up
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0).delay(0.15)) {
+                sidebarOffset = 0
+                sidebarOpacity = 1
+            }
+            
+            // Main content fades in last
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0).delay(0.2)) {
+                contentOpacity = 1
+            }
         }
     }
     
