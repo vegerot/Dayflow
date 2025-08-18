@@ -332,13 +332,17 @@ struct SettingsView: View {
     func loadLLMProvider() {
         if let decoded = try? JSONDecoder().decode(LLMProviderType.self, from: savedProviderData) {
             switch decoded {
-            case .geminiDirect(let apiKey):
+            case .geminiDirect:
                 selectedProvider = .geminiDirect
-                geminiApiKey = apiKey
-            case .dayflowBackend(let token, let endpoint):
+                // Load API key from Keychain
+                geminiApiKey = KeychainManager.shared.retrieve(for: "gemini") ?? ""
+                
+            case .dayflowBackend(let endpoint):
                 selectedProvider = .dayflowBackend
-                dayflowToken = token
+                // Load token from Keychain
+                dayflowToken = KeychainManager.shared.retrieve(for: "dayflow") ?? ""
                 dayflowEndpoint = endpoint
+                
             case .ollamaLocal(let endpoint):
                 selectedProvider = .ollamaLocal
                 ollamaEndpoint = endpoint
@@ -351,9 +355,19 @@ struct SettingsView: View {
         
         switch selectedProvider {
         case .geminiDirect:
-            providerType = .geminiDirect(apiKey: geminiApiKey)
+            // Store API key in Keychain
+            if !geminiApiKey.isEmpty {
+                KeychainManager.shared.store(geminiApiKey, for: "gemini")
+            }
+            providerType = .geminiDirect
+            
         case .dayflowBackend:
-            providerType = .dayflowBackend(token: dayflowToken, endpoint: dayflowEndpoint)
+            // Store token in Keychain
+            if !dayflowToken.isEmpty {
+                KeychainManager.shared.store(dayflowToken, for: "dayflow")
+            }
+            providerType = .dayflowBackend(endpoint: dayflowEndpoint)
+            
         case .ollamaLocal:
             providerType = .ollamaLocal(endpoint: ollamaEndpoint)
         }
