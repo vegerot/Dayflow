@@ -102,18 +102,47 @@ struct NewSettingsView: View {
         .frame(maxWidth: 800)
         .onAppear {
             if sys.model.isEmpty { sys = SystemSnapshot.capture() }
+            loadSettings()
         }
     }
 
     // MARK: - Actions
+    
+    private func loadSettings() {
+        // Load provider type from UserDefaults
+        if let data = UserDefaults.standard.data(forKey: "llmProviderType"),
+           let providerType = try? JSONDecoder().decode(LLMProviderType.self, from: data) {
+            switch providerType {
+            case .geminiDirect:
+                selectedProvider = .gemini
+                // Load API key from Keychain
+                geminiAPIKey = KeychainManager.shared.retrieve(for: "gemini") ?? ""
+            case .dayflowBackend:
+                selectedProvider = .dayflow
+                // Load token from Keychain
+                dayflowToken = KeychainManager.shared.retrieve(for: "dayflow") ?? ""
+            case .ollamaLocal(let endpoint):
+                selectedProvider = .ollama
+                ollamaEndpoint = endpoint
+            }
+        }
+    }
 
     private func saveSettings() {
         let provider: LLMProviderType
         switch selectedProvider {
         case .gemini:
-            provider = .geminiDirect(apiKey: geminiAPIKey)
+            // Store API key in Keychain
+            if !geminiAPIKey.isEmpty {
+                KeychainManager.shared.store(geminiAPIKey, for: "gemini")
+            }
+            provider = .geminiDirect
         case .dayflow:
-            provider = .dayflowBackend(token: dayflowToken)
+            // Store token in Keychain
+            if !dayflowToken.isEmpty {
+                KeychainManager.shared.store(dayflowToken, for: "dayflow")
+            }
+            provider = .dayflowBackend(endpoint: "https://api.dayflow.app")
         case .ollama:
             provider = .ollamaLocal(endpoint: ollamaEndpoint)
         }
