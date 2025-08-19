@@ -212,7 +212,7 @@ final class GeminiDirectProvider: LLMProvider {
         return (observations, log)
     }
     
-    func generateActivityCards(observations: [Observation], context: ActivityGenerationContext) async throws -> (cards: [ActivityCard], log: LLMCall) {
+    func generateActivityCards(observations: [Observation], context: ActivityGenerationContext) async throws -> (cards: [ActivityCardData], log: LLMCall) {
         let callStart = Date()
         
         // Convert observations to human-readable format for the prompt
@@ -727,7 +727,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         throw lastError ?? NSError(domain: "GeminiError", code: 10, userInfo: [NSLocalizedDescriptionKey: "Request failed after \(maxRetries) attempts"])
     }
     
-    private func parseActivityCards(_ response: String) throws -> [ActivityCard] {
+    private func parseActivityCards(_ response: String) throws -> [ActivityCardData] {
         guard let data = response.data(using: .utf8) else {
             throw NSError(domain: "GeminiError", code: 10, userInfo: [NSLocalizedDescriptionKey: "Invalid response encoding"])
         }
@@ -755,7 +755,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         
         // Convert to our ActivityCard format
         return geminiCards.map { geminiCard in
-            ActivityCard(
+            ActivityCardData(
                    startTime: geminiCard.startTimestamp,
                    endTime: geminiCard.endTimestamp,
                 category: geminiCard.category,
@@ -824,7 +824,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         return merged
     }
     
-    private func validateTimeCoverage(existingCards: [ActivityCard], newCards: [ActivityCard]) -> (isValid: Bool, error: String?) {
+    private func validateTimeCoverage(existingCards: [ActivityCardData], newCards: [ActivityCardData]) -> (isValid: Bool, error: String?) {
         guard !existingCards.isEmpty else {
             return (true, nil)
         }
@@ -942,7 +942,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         return (true, nil)
     }
     
-    private func validateTimeline(_ cards: [ActivityCard]) -> (isValid: Bool, error: String?) {
+    private func validateTimeline(_ cards: [ActivityCardData]) -> (isValid: Bool, error: String?) {
         for (index, card) in cards.enumerated() {
             let startTime = card.startTime
             let endTime = card.endTime
