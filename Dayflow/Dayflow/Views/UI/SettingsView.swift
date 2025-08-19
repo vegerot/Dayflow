@@ -1,5 +1,5 @@
 //
-//  NewSettingsView.swift
+//  SettingsView.swift
 //  Dayflow
 //
 //  Refactored: split into small subviews to avoid type-check timeouts,
@@ -62,7 +62,7 @@ struct SystemSnapshot {
 
 // MARK: - View
 
-struct NewSettingsView: View {
+struct SettingsView: View {
     // Selection & inputs
     @State private var selectedProvider: Provider = .ollama
     @State private var geminiAPIKey: String = ""
@@ -451,9 +451,9 @@ private struct FieldLabel: View {
 
 // MARK: - Preview
 
-struct NewSettingsView_Previews: PreviewProvider {
+struct SettingsView_Previews: PreviewProvider {
     static var previews: some View {
-        NewSettingsView()
+        SettingsView()
             .frame(width: 1200, height: 800)
             .background(Color.gray.opacity(0.1))
     }
