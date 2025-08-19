@@ -18,7 +18,7 @@ final class DayflowBackendProvider: LLMProvider {
         fatalError("DayflowBackendProvider not implemented yet")
     }
     
-    func generateActivityCards(observations: [Observation], context: ActivityGenerationContext) async throws -> (cards: [ActivityCard], log: LLMCall) {
+    func generateActivityCards(observations: [Observation], context: ActivityGenerationContext) async throws -> (cards: [ActivityCardData], log: LLMCall) {
         fatalError("DayflowBackendProvider not implemented yet")
     }
 }

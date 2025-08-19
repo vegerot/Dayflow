@@ -11,7 +11,7 @@ import SwiftUI
 import GRDB
 
 struct ProcessedBatchResult {
-    let cards: [ActivityCard]
+    let cards: [ActivityCardData]
     let cardIds: [Int64]
 }
 
@@ -185,9 +185,9 @@ final class LLMService: LLMServicing {
                     to: currentTime
                 )
                 
-                // Convert TimelineCards to ActivityCards for context
+                // Convert TimelineCards to ActivityCardData for context
                 let existingActivityCards = existingTimelineCards.map { card in
-                    ActivityCard(
+                    ActivityCardData(
                         startTime: card.startTimestamp,
                         endTime: card.endTimestamp,
                         category: card.category,

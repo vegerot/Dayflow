@@ -62,7 +62,7 @@ final class OllamaProvider: LLMProvider {
         return (observations, log)
     }
     
-    func generateActivityCards(observations: [Observation], context: ActivityGenerationContext) async throws -> (cards: [ActivityCard], log: LLMCall) {
+    func generateActivityCards(observations: [Observation], context: ActivityGenerationContext) async throws -> (cards: [ActivityCardData], log: LLMCall) {
         let callStart = Date()
         var logs: [String] = []
         
@@ -73,7 +73,7 @@ final class OllamaProvider: LLMProvider {
         let (titleSummary, firstLog) = try await generateTitleAndSummary(observations: sortedObservations)
         logs.append(firstLog)
         
-        let initialCard = ActivityCard(
+        let initialCard = ActivityCardData(
             startTime: formatTimestampForPrompt(sortedObservations.first!.startTs),
             endTime: formatTimestampForPrompt(sortedObservations.last!.endTs),
             category: titleSummary.category,
@@ -136,7 +136,7 @@ final class OllamaProvider: LLMProvider {
         return (allCards, combinedLog)
     }
     
-    private func parseActivityCards(from data: Data) throws -> [ActivityCard] {
+    private func parseActivityCards(from data: Data) throws -> [ActivityCardData] {
         // Define response structure
         struct ResponseCard: Codable {
             let startTime: String
@@ -156,9 +156,9 @@ final class OllamaProvider: LLMProvider {
             let summary: String
         }
         
-        // Helper function to convert ResponseCard to ActivityCard
-        func convertCard(_ card: ResponseCard) -> ActivityCard {
-            return ActivityCard(
+        // Helper function to convert ResponseCard to ActivityCardData
+        func convertCard(_ card: ResponseCard) -> ActivityCardData {
+            return ActivityCardData(
                 startTime: card.startTime,
                 endTime: card.endTime,
                 category: card.category,
@@ -571,7 +571,7 @@ final class OllamaProvider: LLMProvider {
         return (result, response)
     }
     
-    private func checkShouldMerge(previousCard: ActivityCard, newCard: ActivityCard) async throws -> (Bool, String) {
+    private func checkShouldMerge(previousCard: ActivityCardData, newCard: ActivityCardData) async throws -> (Bool, String) {
         let prompt = """
         Look at these two consecutive activity periods and decide if they should be combined into one card.
         
@@ -664,7 +664,7 @@ final class OllamaProvider: LLMProvider {
         return (shouldMerge, response)
     }
     
-    private func mergeTwoCards(previousCard: ActivityCard, newCard: ActivityCard) async throws -> (ActivityCard, String) {
+    private func mergeTwoCards(previousCard: ActivityCardData, newCard: ActivityCardData) async throws -> (ActivityCardData, String) {
         let prompt = """
         Create a single activity card that covers both time periods.
         
@@ -728,7 +728,7 @@ final class OllamaProvider: LLMProvider {
         let mergedStartTime = prevStart < newStart ? previousCard.startTime : newCard.startTime
         let mergedEndTime = prevEnd > newEnd ? previousCard.endTime : newCard.endTime
         
-        let mergedCard = ActivityCard(
+        let mergedCard = ActivityCardData(
             startTime: mergedStartTime,
             endTime: mergedEndTime,
             category: previousCard.category,
