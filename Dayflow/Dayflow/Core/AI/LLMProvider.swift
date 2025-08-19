@@ -7,14 +7,14 @@ import Foundation
 
 protocol LLMProvider {
     func transcribeVideo(videoData: Data, mimeType: String, prompt: String, batchStartTime: Date, videoDuration: TimeInterval) async throws -> (observations: [Observation], log: LLMCall)
-    func generateActivityCards(observations: [Observation], context: ActivityGenerationContext) async throws -> (cards: [ActivityCard], log: LLMCall)
+    func generateActivityCards(observations: [Observation], context: ActivityGenerationContext) async throws -> (cards: [ActivityCardData], log: LLMCall)
 }
 
 struct ActivityGenerationContext {
     let userTaxonomy: String
     let extractedTaxonomy: String
     let batchObservations: [Observation]
-    let existingCards: [ActivityCard]  // Cards that overlap with current analysis window
+    let existingCards: [ActivityCardData]  // Cards that overlap with current analysis window
     let currentTime: Date  // Current time to prevent future timestamps
 }
 
@@ -26,7 +26,7 @@ enum LLMProviderType: Codable {
 
 // MARK: - Data Models
 
-struct ActivityCard: Codable {
+struct ActivityCardData: Codable {
     let startTime: String
     let endTime: String
     let category: String

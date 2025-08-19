@@ -21,7 +21,7 @@ struct DayflowApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @AppStorage("didOnboard") private var didOnboard = false
     @AppStorage("useBlankUI") private var useBlankUI = false
-    @State private var showVideoLaunch = true
+    @State private var showVideoLaunch = false // TEMPORARILY DISABLED
     
     init() {
         // Comment out for production - only use for testing onboarding
