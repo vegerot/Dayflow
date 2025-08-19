@@ -126,9 +126,9 @@ struct OnboardingLLMSelectionView: View {
         case "ollama":
             providerType = .ollamaLocal()
         case "gemini":
-            providerType = .geminiDirect(apiKey: "")
+            providerType = .geminiDirect
         case "dayflow":
-            providerType = .dayflowBackend(token: "")
+            providerType = .dayflowBackend()
         default:
             providerType = .ollamaLocal()
         }
