@@ -1,15 +1,15 @@
 //
-//  NewMainView.swift
+//  MainView.swift
 //  Dayflow
 //
-//  New Timeline UI with transparent design
+//  Timeline UI with transparent design
 //
 
 import SwiftUI
 import AVKit
 import AVFoundation
 
-struct NewMainView: View {
+struct MainView: View {
     @State private var selectedIcon: SidebarIcon = .analytics
     @State private var selectedDate = Date()
     @State private var showDatePicker = false
@@ -102,7 +102,7 @@ struct NewMainView: View {
                 ZStack {
                     if selectedIcon == .settings {
                         // Settings view
-                        NewSettingsView()
+                        SettingsView()
                     } else {
                         // Default timeline view
                         VStack(alignment: .leading, spacing: 20) {
@@ -113,12 +113,12 @@ struct NewMainView: View {
                             // Content area with timeline and activity card
                             HStack(spacing: 20) {
                                 // Timeline area
-                                NewTimelineView(selectedDate: $selectedDate, selectedActivity: $selectedActivity)
+                                TimelineView(selectedDate: $selectedDate, selectedActivity: $selectedActivity)
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                                     .opacity(contentOpacity)
                                 
                                 // Activity detail card
-                                NewActivityCard(activity: selectedActivity)
+                                ActivityCard(activity: selectedActivity)
                                     .frame(width: 400)
                                     .opacity(contentOpacity)
                             }
@@ -403,8 +403,8 @@ extension View {
     }
 }
 
-// MARK: - New Activity Card
-struct NewActivityCard: View {
+// MARK: - Activity Card
+struct ActivityCard: View {
     let activity: TimelineActivity?
     
     private let timeFormatter: DateFormatter = {

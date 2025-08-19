@@ -8,10 +8,10 @@
 import SwiftUI
 import Sparkle
 
-// MARK: - New Root View with Transparent UI
+// MARK: - Root View with Transparent UI
 struct AppRootView: View {
     var body: some View {
-        NewMainView()
+        MainView()
             .environmentObject(AppState.shared)
     }
 }
@@ -36,7 +36,7 @@ struct DayflowApp: App {
             ZStack {
                 // Always render the next view underneath
                 if didOnboard {
-                    // Show new UI after onboarding
+                    // Show UI after onboarding
                     AppRootView()
                 } else {
                     OnboardingFlow()
