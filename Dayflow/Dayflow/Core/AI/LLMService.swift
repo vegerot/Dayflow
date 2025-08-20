@@ -58,20 +58,21 @@ final class LLMService: LLMServicing {
     
     // Keep the existing processBatch implementation for backward compatibility
     func processBatch(_ batchId: Int64, completion: @escaping (Result<ProcessedBatchResult, Error>) -> Void) {
-        guard let provider = provider else {
-            completion(.failure(NSError(domain: "LLMService", code: 1, userInfo: [NSLocalizedDescriptionKey: "No LLM provider configured. Please configure in settings."])))
-            return
-        }
-        
         Task {
+            // Get batch info first (outside do-catch so it's available in catch block)
+            let batches = StorageManager.shared.allBatches()
+            guard let batchInfo = batches.first(where: { $0.0 == batchId }) else {
+                completion(.failure(NSError(domain: "LLMService", code: 2, userInfo: [NSLocalizedDescriptionKey: "Batch not found"])))
+                return
+            }
+            
+            let (_, batchStartTs, batchEndTs, _) = batchInfo
+            
             do {
-                // Get batch info from StorageManager
-                let batches = StorageManager.shared.allBatches()
-                guard let batchInfo = batches.first(where: { $0.0 == batchId }) else {
-                    throw NSError(domain: "LLMService", code: 2, userInfo: [NSLocalizedDescriptionKey: "Batch not found"])
+                // Check provider inside the do block so errors go through catch
+                guard let provider = provider else {
+                    throw NSError(domain: "LLMService", code: 1, userInfo: [NSLocalizedDescriptionKey: "No LLM provider configured. Please configure in settings."])
                 }
-                
-                let (_, batchStartTs, batchEndTs, _) = batchInfo
                 
                 // Mark batch as processing
                 StorageManager.shared.updateBatch(batchId, status: "processing")
@@ -275,8 +276,168 @@ final class LLMService: LLMServicing {
                 // Mark batch as failed
                 StorageManager.shared.updateBatch(batchId, status: "failed", reason: error.localizedDescription)
                 
+                // Create an error card for the failed time period
+                let batchStartDate = Date(timeIntervalSince1970: TimeInterval(batchStartTs))
+                let batchEndDate = Date(timeIntervalSince1970: TimeInterval(batchEndTs))
+                
+                let errorCard = createErrorCard(
+                    batchId: batchId,
+                    batchStartTime: batchStartDate,
+                    batchEndTime: batchEndDate,
+                    error: error
+                )
+                
+                // Replace any existing cards in this time range with the error card
+                // This matches the happy path behavior and prevents duplicates
+                let (insertedCardIds, deletedVideoPaths) = StorageManager.shared.replaceTimelineCardsInRange(
+                    from: batchStartDate,
+                    to: batchEndDate,
+                    with: [errorCard],
+                    batchId: batchId
+                )
+                
+                // Clean up any deleted video files (if there were existing cards)
+                for path in deletedVideoPaths {
+                    let url = URL(fileURLWithPath: path)
+                    do {
+                        try FileManager.default.removeItem(at: url)
+                        print("🗑️ Deleted timelapse for replaced card: \(path)")
+                    } catch {
+                        print("❌ Failed to delete timelapse: \(path) - \(error)")
+                    }
+                }
+                
+                if !insertedCardIds.isEmpty {
+                    print("✅ Created error card (ID: \(insertedCardIds.first ?? -1)) for failed batch \(batchId), replacing \(deletedVideoPaths.count) existing cards")
+                }
+                
+                // Still return failure but with the error card created
                 completion(.failure(error))
             }
+        }
+    }
+    
+    // MARK: - Error Card Generation
+    
+    private func createErrorCard(batchId: Int64, batchStartTime: Date, batchEndTime: Date, error: Error) -> TimelineCardShell {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        formatter.timeZone = TimeZone.current
+        
+        let startTimeStr = formatter.string(from: batchStartTime)
+        let endTimeStr = formatter.string(from: batchEndTime)
+        
+        // Calculate duration in minutes
+        let duration = Int(batchEndTime.timeIntervalSince(batchStartTime) / 60)
+        
+        // Get human-readable error message
+        let humanError = getHumanReadableError(error)
+        
+        // Create the error card
+        return TimelineCardShell(
+            startTimestamp: startTimeStr,
+            endTimestamp: endTimeStr,
+            category: "System",
+            subcategory: "Error",
+            title: "Processing failed",
+            summary: "Failed to process \(duration) minutes of recording from \(startTimeStr) to \(endTimeStr). \(humanError) Your recording is safe and can be reprocessed.",
+            detailedSummary: "Error details: \(error.localizedDescription)\n\nThis recording batch (ID: \(batchId)) failed during AI processing. The original video files are preserved and can be reprocessed by retrying from Settings. Common causes include network issues, API rate limits, or temporary service outages.",
+            distractions: nil
+        )
+    }
+    
+    private func getHumanReadableError(_ error: Error) -> String {
+        // First check if it's an NSError with a domain and code we recognize
+        if let nsError = error as NSError? {
+            // Check specific error domains and codes
+            switch nsError.domain {
+            case "LLMService":
+                switch nsError.code {
+                case 1: return "No AI provider is configured. Please set one up in Settings."
+                case 2: return "The recording batch couldn't be found."
+                case 3: return "No video recordings found in this time period."
+                case 4: return "Failed to create the video for processing."
+                case 5: return "Failed to combine video chunks."
+                case 6: return "Failed to prepare video for processing."
+                default: break
+                }
+                
+            case "GeminiError", "GeminiProvider":
+                switch nsError.code {
+                case 1: return "Failed to upload the video to Gemini."
+                case 2: return "Gemini took too long to process the video."
+                case 3, 5: return "Failed to parse Gemini's response."
+                case 4: return "Failed to start video upload to Gemini."
+                case 6: return "Invalid video file."
+                case 7, 9: return "Gemini returned an unexpected response format."
+                case 8, 10: return "Failed to connect to Gemini after multiple attempts."
+                case 100: return "The AI generated timestamps beyond the video duration."
+                case 101: return "The AI couldn't identify any activities in the video."
+                default: break
+                }
+                
+            case "OllamaProvider":
+                switch nsError.code {
+                case 1: return "Invalid video duration."
+                case 2: return "Failed to process video frame."
+                case 4: return "Failed to connect to local AI model."
+                case 8, 9, 10: return "The local AI returned an unexpected response."
+                case 11: return "The local AI couldn't identify any activities."
+                case 12: return "The local AI didn't analyze enough of the video."
+                case 13: return "The local AI generated too many segments."
+                default: break
+                }
+                
+            case "AnalysisManager":
+                switch nsError.code {
+                case 1: return "The analysis system was interrupted."
+                case 2: return "Failed to reprocess some recordings."
+                case 3: return "Couldn't find the recording information."
+                default: break
+                }
+                
+            default:
+                break
+            }
+        }
+        
+        // Fallback to checking the error description for common patterns
+        let errorDescription = error.localizedDescription.lowercased()
+        
+        switch true {
+        case errorDescription.contains("rate limit") || errorDescription.contains("429"):
+            return "The AI service is temporarily overwhelmed. This usually resolves itself in a few minutes."
+            
+        case errorDescription.contains("network") || errorDescription.contains("connection"):
+            return "Couldn't connect to the AI service. Check your internet connection."
+            
+        case errorDescription.contains("api key") || errorDescription.contains("unauthorized") || errorDescription.contains("401"):
+            return "There's an issue with your API key. Please check your settings."
+            
+        case errorDescription.contains("timeout"):
+            return "The AI took too long to respond. This might be due to a long recording or slow connection."
+            
+        case errorDescription.contains("no observations"):
+            return "The AI couldn't understand what was happening in this recording."
+            
+        case errorDescription.contains("exceed") || errorDescription.contains("duration"):
+            return "The AI got confused about the video timing."
+            
+        case errorDescription.contains("no llm provider") || errorDescription.contains("not configured"):
+            return "No AI provider is configured. Please set one up in Settings."
+            
+        case errorDescription.contains("failed to upload"):
+            return "Failed to upload the video for processing."
+            
+        case errorDescription.contains("invalid response") || errorDescription.contains("json"):
+            return "The AI returned an unexpected response format."
+            
+        case errorDescription.contains("failed after") && errorDescription.contains("attempts"):
+            return "Couldn't connect to the AI service after multiple attempts."
+            
+        default:
+            // For unknown errors, keep it simple
+            return "An unexpected error occurred."
         }
     }
 }
