@@ -35,7 +35,7 @@ struct OnboardingLLMSelectionView: View {
                     
                     VStack(spacing: 48) {
                         // MARK: - Title
-                        Text("Choose a way to run dayflow")
+                        Text("Choose a way to run Dayflow")
                             .font(.custom("InstrumentSerif-Regular", size: 48))
                             .multilineTextAlignment(.center)
                             .foregroundColor(.black.opacity(0.9))
@@ -52,17 +52,17 @@ struct OnboardingLLMSelectionView: View {
                             // Run locally card
                             ProviderCard(
                                 id: "ollama",
-                                title: "Run locally",
+                                title: "Use local AI",
                                 badgeText: "MOST PRIVATE",
                                 badgeType: .green,
                                 icon: "desktopcomputer",
                                 features: [
-                                    ("100% private - nothing leaves your computer", true),
-                                    ("No monthly fees, no usage limits", true),
+                                    ("100% private - everything's processed on your computer", true),
                                     ("Works completely offline", true),
-                                    ("M1 or later chip preferred", false),
-                                    ("Requires 16GB+ of RAM", false),
-                                    ("4GB free disk space", false)
+                                    ("Significantly less intelligence", true),
+                                    ("Requires the most setup", false),
+                                    ("16GB+ of RAM recommended", false),
+                                    ("Can be battery-intensive", false)
                                 ],
                                 isSelected: selectedProvider == "ollama",
                                 onSelect: {
@@ -81,13 +81,13 @@ struct OnboardingLLMSelectionView: View {
                             // Bring your own API card (selected by default)
                             ProviderCard(
                                 id: "gemini",
-                                title: "Bring your own API",
-                                badgeText: "FREE OPTION",
+                                title: "Bring your own API keys",
+                                badgeText: "RECOMMENED",
                                 badgeType: .orange,
                                 icon: "key.fill",
                                 features: [
-                                    ("More intelligent AI, uses latest Gemini models", true),
-                                    ("Utilizes Gemini's generous free tier (no credit card needed)", true),
+                                    ("Utilizes more intelligent AI via Google's Gemini models", true),
+                                    ("Uses Gemini's generous free tier (no credit card needed)", true),
                                     ("Your data goes directly to Google, bypasses our servers", true),
                                     ("Faster, more accurate than local models", true),
                                     ("Requires getting an API key (takes 2 clicks)", false)
