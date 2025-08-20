@@ -21,14 +21,22 @@ extension Color {
 struct DayflowAngularGradient {
     static let gradient = AngularGradient(
         gradient: Gradient(stops: [
+            // CLOSE THE LOOP — same color at 0.0 and 1.0
+            .init(color: Color(hex: 0xFFF1D3, alpha: 0.50), location: 0.00),
+            
             .init(color: Color(hex: 0xFF8904, alpha: 0.50), location: 0.03),
             .init(color: Color(hex: 0xFF8904, alpha: 0.35), location: 0.09),
             .init(color: .white, location: 0.17),
+            .init(color: .white.opacity(0.75), location: 0.23), // Smoother at ~83°
+            .init(color: .white.opacity(0.50), location: 0.25), // At 90°
             .init(color: .white.opacity(0.50), location: 0.30),
             .init(color: Color(hex: 0xFF8904, alpha: 0.35), location: 0.52),
             .init(color: Color(hex: 0xFFE0A5), location: 0.58),
             .init(color: .white, location: 0.80),
-            .init(color: Color(hex: 0xFFF1D3, alpha: 0.50), location: 0.91)
+            .init(color: Color(hex: 0xFFF1D3, alpha: 0.50), location: 0.91),
+            
+            // mirror the first stop so 1.0 == 0.0
+            .init(color: Color(hex: 0xFFF1D3, alpha: 0.50), location: 1.00)
         ]),
         center: .center,
         startAngle: .degrees(0),
