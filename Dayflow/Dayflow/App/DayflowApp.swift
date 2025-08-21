@@ -57,6 +57,7 @@ struct DayflowApp: App {
                         .transition(.opacity)
                 }
             }
+            .frame(minWidth: 900, maxWidth: .infinity, minHeight: 600, maxHeight: .infinity)
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
