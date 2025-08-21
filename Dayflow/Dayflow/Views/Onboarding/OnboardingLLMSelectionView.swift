@@ -10,7 +10,7 @@ import SwiftUI
 struct OnboardingLLMSelectionView: View {
     // Navigation callbacks
     var onBack: () -> Void
-    var onNext: () -> Void
+    var onNext: (String) -> Void  // Now passes the selected provider
     
     // MARK: - State
     @AppStorage("selectedLLMProvider") private var selectedProvider: String = "gemini" // Default to "Bring your own API"
@@ -74,7 +74,7 @@ struct OnboardingLLMSelectionView: View {
                                 onProceed: {
                                     selectedProvider = "ollama"
                                     saveProviderSelection()
-                                    onNext()
+                                    onNext("ollama")  // Pass provider to parent
                                 }
                             )
                             
@@ -101,7 +101,7 @@ struct OnboardingLLMSelectionView: View {
                                 onProceed: {
                                     selectedProvider = "gemini"
                                     saveProviderSelection()
-                                    onNext()
+                                    onNext("gemini")  // Pass provider to parent
                                 }
                             )
                             
@@ -129,7 +129,7 @@ struct OnboardingLLMSelectionView: View {
                                 onProceed: {
                                     selectedProvider = "dayflow"
                                     saveProviderSelection()
-                                    onNext()
+                                    onNext("dayflow")  // Pass provider to parent (no setup needed)
                                 }
                             )
                         }
@@ -649,7 +649,7 @@ struct OnboardingLLMSelectionView_Previews: PreviewProvider {
     static var previews: some View {
         OnboardingLLMSelectionView(
             onBack: {},
-            onNext: {}
+            onNext: { _ in }  // Takes provider string now
         )
         .frame(width: 1400, height: 900)
         .background(
