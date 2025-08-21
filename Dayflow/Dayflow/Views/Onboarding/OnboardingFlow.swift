@@ -8,6 +8,8 @@
 import SwiftUI
 import ScreenCaptureKit
 
+// Window manager removed - no longer needed!
+
 struct OnboardingFlow: View {
     // MARK: – State
     @AppStorage("onboardingStep") private var savedStepRawValue = 0
@@ -15,153 +17,95 @@ struct OnboardingFlow: View {
     @AppStorage("didOnboard") private var didOnboard = false
     @State private var timelineOffset: CGFloat = 300 // Start below screen
     @State private var textOpacity: Double = 0
+    @State private var selectedProvider: String = "" // Track selected provider
     private let fullText = "Stop wondering where your day went.\nStart understanding it."
     
+    @ViewBuilder
     var body: some View {
-        ZStack {
-            // Background image
-            Image("OnboardingBackgroundv2")
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .ignoresSafeArea()
-            
-            GeometryReader { geometry in
-                
-                if step == .welcome {
-                    ZStack {
-                        // Text and button container - positioned from top
-                        VStack {
-                            VStack(spacing: 40) {
-                                Text(fullText)
-                                    .font(.custom("InstrumentSerif-Regular", size: min(36, geometry.size.width / 20)))
-                                    .multilineTextAlignment(.center)
-                                    .foregroundColor(.black.opacity(0.8))
-                                    .padding(.horizontal, 20)
-                                    .minimumScaleFactor(0.5)
-                                    .lineLimit(3)
-                                    .frame(minHeight: 100) // Min height to prevent jumping
-                                    .opacity(textOpacity)
-                                    .onAppear {
-                                        withAnimation(.easeOut(duration: 0.6)) {
-                                            textOpacity = 1
-                                        }
-                                    }
-                                
-                                // Custom Start button right below text
-                                DayflowButton(title: "Start", action: advance)
-                                    .opacity(textOpacity)
-                                    .animation(.easeIn(duration: 0.3).delay(0.4), value: textOpacity)
-                            }
-                            .padding(.top, 80) // Move text higher up
-                            
-                            Spacer()
-                        }
-                        .zIndex(1) // Ensure text and button are always on top
-                        
-                        // Timeline image - anchored to bottom
-                        VStack {
-                            Spacer()
-                            Image("OnboardingTimeline")
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(maxWidth: min(geometry.size.width * 0.9, 800))
-                                .offset(y: timelineOffset)
-                                .opacity(timelineOffset > 0 ? 0 : 1)
-                                .onAppear {
-                                    // Emil Kowalski principles:
-                                    // - Use spring for natural movement
-                                    // - Keep it fast (under 1s)
-                                    // - Ease out for responsiveness
-                                    withAnimation(.spring(response: 0.6, dampingFraction: 0.8, blendDuration: 0).delay(0.3)) {
-                                        timelineOffset = 0
-                                    }
-                                }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if step == .howItWorks {
-                    // How It Works page with custom layout
-                    VStack {
-                        HowItWorksView(
-                            onBack: { step.prev() },
-                            onNext: { advance() }
-                        )
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if step == .screen {
-                    // Screen recording permission with visual guide
-                    ScreenRecordingPermissionView(
-                        onBack: { step.prev() },
-                        onNext: { advance() }
-                    )
-                } else if step == .llmSelection {
-                    // LLM Selection view
-                    OnboardingLLMSelectionView(
-                        onBack: { step.prev() },
-                        onNext: { advance() }
-                    )
-                } else {
-                    // Other onboarding steps
-                    VStack(spacing: 24) {
-                        switch step {
-                        case .screen:
-                            Heading("Give screen-recording permission",
-                                    "macOS will open System Settings → Screen Recording. Please enable Dayflow.")
-                        case .llmSelection:
-                            EmptyView() // Handled by custom view
-                        case .done:
-                            Heading("Setup Complete",
-                                    "You can now close this window; Dayflow will keep running in the menu-bar.")
-                        default:
-                            EmptyView()
-                        }
-                    }
-                    .padding(geometry.size.width < 600 ? 20 : 40)
-                    .frame(maxWidth: 420)
-                    .frame(maxWidth: .infinity)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(.ultraThinMaterial)
-                            .shadow(radius: 20)
-                    )
-                }
-                
-                // Navigation buttons (hidden on custom layout pages)
-                if step != .welcome && step != .howItWorks && step != .llmSelection && step != .screen {
-                    VStack {
-                        Spacer()
-                        HStack {
-                            Button("Back") { 
-                                timelineOffset = 300 // Reset for animation
-                                step.prev() 
-                            }
-                            .font(.custom("Nunito", size: 14))
-                            .foregroundColor(.secondary)
-                            .buttonStyle(.plain)
-                            
-                            Spacer()
-                            
-                            DayflowButton(
-                                title: step == .done ? "Finish" : "Next",
-                                action: advance,
-                                width: 120,
-                                fontSize: 14
-                            )
-                        }
-                        .padding(geometry.size.width < 600 ? 20 : 40)
-                    }
-                }
+        // NO NESTING! Just render the appropriate view directly - NO GROUP!
+        switch step {
+        case .welcome:
+            WelcomeView(
+                fullText: fullText,
+                textOpacity: $textOpacity,
+                timelineOffset: $timelineOffset,
+                onStart: advance
+            )
+            .onAppear {
+                restoreSavedStep()
             }
-        }
-        .onAppear {
-            // Restore saved step if app was restarted
-            if let savedStep = Step(rawValue: savedStepRawValue) {
-                step = savedStep
+            
+        case .howItWorks:
+            HowItWorksView(
+                onBack: { step.prev() },
+                onNext: { advance() }
+            )
+            .onAppear {
+                restoreSavedStep()
+            }
+            
+        case .screen:
+            ScreenRecordingPermissionView(
+                onBack: { step.prev() },
+                onNext: { advance() }
+            )
+            .onAppear {
+                restoreSavedStep()
+            }
+            
+        case .llmSelection:
+            OnboardingLLMSelectionView(
+                onBack: { step.prev() },
+                onNext: { provider in
+                    selectedProvider = provider
+                    if provider == "dayflow" {
+                        step = .done
+                        savedStepRawValue = step.rawValue
+                    } else {
+                        advance()
+                    }
+                }
+            )
+            .onAppear {
+                restoreSavedStep()
+            }
+            
+        case .llmSetup:
+            // COMPLETELY STANDALONE - no parent constraints!
+            LLMProviderSetupView(
+                providerType: selectedProvider,
+                onBack: {
+                    step.prev()
+                    savedStepRawValue = step.rawValue
+                },
+                onComplete: {
+                    advance()
+                }
+            )
+            .onAppear {
+                restoreSavedStep()
+            }
+            
+        case .done:
+            CompletionView(
+                onFinish: {
+                    didOnboard = true
+                    savedStepRawValue = 0
+                }
+            )
+            .onAppear {
+                restoreSavedStep()
             }
         }
     }
     
     // MARK: – Flow control
+    private func restoreSavedStep() {
+        if let savedStep = Step(rawValue: savedStepRawValue) {
+            step = savedStep
+        }
+    }
+    
     private func advance() {
         switch step {
         case .welcome:      
@@ -175,6 +119,9 @@ struct OnboardingFlow: View {
             step.next()
             savedStepRawValue = step.rawValue
         case .llmSelection:
+            step.next()  // Move to llmSetup
+            savedStepRawValue = step.rawValue
+        case .llmSetup:
             step.next()
             savedStepRawValue = step.rawValue
         case .done:         
@@ -191,19 +138,110 @@ struct OnboardingFlow: View {
 // MARK: – Helpers
 
 /// Wizard step order
-private enum Step: Int, CaseIterable { case welcome, howItWorks, screen, llmSelection, done
+private enum Step: Int, CaseIterable { case welcome, howItWorks, screen, llmSelection, llmSetup, done
     mutating func next() { self = Step(rawValue: rawValue + 1)! }
     mutating func prev() { self = Step(rawValue: rawValue - 1)! }
 }
 
-@ViewBuilder private func Heading(_ title: String, _ sub: String) -> some View {
-    VStack(alignment: .leading, spacing: 8) {
-        Text(title)
-            .font(.custom("InstrumentSerif-Regular", size: 28))
-            .fontWeight(.medium)
-        Text(sub)
-            .font(.system(size: 14))
-            .foregroundColor(.secondary)
+// MARK: - Standalone Views (Each handles its own background!)
+
+struct WelcomeView: View {
+    let fullText: String
+    @Binding var textOpacity: Double
+    @Binding var timelineOffset: CGFloat
+    let onStart: () -> Void
+    
+    var body: some View {
+        ZStack {
+            // Text and button container
+            VStack {
+                    VStack(spacing: 40) {
+                        Text(fullText)
+                            .font(.custom("InstrumentSerif-Regular", size: 36))
+                            .multilineTextAlignment(.center)
+                            .foregroundColor(.black.opacity(0.8))
+                            .padding(.horizontal, 20)
+                            .minimumScaleFactor(0.5)
+                            .lineLimit(3)
+                            .frame(minHeight: 100)
+                            .opacity(textOpacity)
+                            .onAppear {
+                                withAnimation(.easeOut(duration: 0.6)) {
+                                    textOpacity = 1
+                                }
+                            }
+                        
+                        DayflowButton(title: "Start", action: onStart)
+                            .opacity(textOpacity)
+                            .animation(.easeIn(duration: 0.3).delay(0.4), value: textOpacity)
+                    }
+                    .padding(.top, 80)
+                    
+                    Spacer()
+                }
+                .zIndex(1)
+                
+                // Timeline image
+                VStack {
+                    Spacer()
+                    Image("OnboardingTimeline")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: 800)
+                        .offset(y: timelineOffset)
+                        .opacity(timelineOffset > 0 ? 0 : 1)
+                        .onAppear {
+                            withAnimation(.spring(response: 0.6, dampingFraction: 0.8, blendDuration: 0).delay(0.3)) {
+                                timelineOffset = 0
+                            }
+                        }
+                }
+        }
+        .background {
+            // Background that doesn't affect layout!
+            Image("OnboardingBackgroundv2")
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .ignoresSafeArea()
+        }
+    }
+}
+
+struct CompletionView: View {
+    let onFinish: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 24) {
+            Text("Setup Complete")
+                .font(.custom("InstrumentSerif-Regular", size: 28))
+                .fontWeight(.medium)
+            
+            Text("You can now close this window; Dayflow will keep running in the menu-bar.")
+                .font(.system(size: 14))
+                .foregroundColor(.secondary)
+            
+            DayflowButton(
+                title: "Finish",
+                action: onFinish,
+                width: 120,
+                fontSize: 14
+            )
+        }
+        .padding(40)
+        .frame(maxWidth: 420)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(.ultraThinMaterial)
+                .shadow(radius: 20)
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            // Background that doesn't affect layout!
+            Image("OnboardingBackgroundv2")
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .ignoresSafeArea()
+        }
     }
 }
 
