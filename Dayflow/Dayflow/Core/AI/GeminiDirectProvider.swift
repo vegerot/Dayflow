@@ -13,6 +13,52 @@ final class GeminiDirectProvider: LLMProvider {
     init(apiKey: String) {
         self.apiKey = apiKey
     }
+
+    // MARK: - Debug helpers
+    private func truncate(_ text: String, max: Int = 2000) -> String {
+        if text.count <= max { return text }
+        let endIdx = text.index(text.startIndex, offsetBy: max)
+        return String(text[..<endIdx]) + "…(truncated)"
+    }
+
+    private func headerValue(_ response: URLResponse?, _ name: String) -> String? {
+        (response as? HTTPURLResponse)?.value(forHTTPHeaderField: name)
+    }
+
+    private func logGeminiFailure(context: String, attempt: Int? = nil, response: URLResponse?, data: Data?, error: Error?) {
+        var parts: [String] = []
+        parts.append("🔎 GEMINI DEBUG: context=\(context)")
+        if let attempt { parts.append("attempt=\(attempt)") }
+        if let http = response as? HTTPURLResponse {
+            parts.append("status=\(http.statusCode)")
+            let reqId = headerValue(response, "X-Goog-Request-Id") ?? headerValue(response, "x-request-id")
+            if let reqId { parts.append("requestId=\(reqId)") }
+            if let ct = headerValue(response, "Content-Type") { parts.append("contentType=\(ct)") }
+        }
+        if let error = error as NSError? {
+            parts.append("error=\(error.domain)#\(error.code): \(error.localizedDescription)")
+        }
+        print(parts.joined(separator: " "))
+
+        if let data {
+            if let jsonObj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let keys = Array(jsonObj.keys).sorted().joined(separator: ", ")
+                if let err = jsonObj["error"] as? [String: Any] {
+                    let message = err["message"] as? String ?? "<none>"
+                    let status = err["status"] as? String ?? "<none>"
+                    let code = err["code"] as? Int ?? -1
+                    print("🔎 GEMINI DEBUG: errorObject code=\(code) status=\(status) message=\(truncate(message, max: 500))")
+                } else {
+                    print("🔎 GEMINI DEBUG: jsonKeys=[\(keys)]")
+                }
+            }
+            if let body = String(data: data, encoding: .utf8) {
+                print("🔎 GEMINI DEBUG: bodySnippet=\(truncate(body, max: 1200))")
+            } else {
+                print("🔎 GEMINI DEBUG: bodySnippet=<non-UTF8 data length=\(data.count) bytes>")
+            }
+        }
+    }
     
     func transcribeVideo(videoData: Data, mimeType: String, prompt: String, batchStartTime: Date, videoDuration: TimeInterval) async throws -> (observations: [Observation], log: LLMCall) {
         let callStart = Date()
@@ -465,15 +511,16 @@ final class GeminiDirectProvider: LLMProvider {
         request.httpMethod = "POST"
         request.setValue(mimeType, forHTTPHeaderField: "Content-Type")
         request.httpBody = data
-        
-        let (responseData, _) = try await URLSession.shared.data(for: request)
-        
+
+        let (responseData, response) = try await URLSession.shared.data(for: request)
+
         if let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
            let file = json["file"] as? [String: Any],
            let uri = file["uri"] as? String {
             return uri
         }
-        
+        // Log unexpected response to help debugging
+        logGeminiFailure(context: "uploadSimple", response: response, data: responseData, error: nil)
         throw NSError(domain: "GeminiError", code: 3, userInfo: [NSLocalizedDescriptionKey: "Failed to parse upload response"])
     }
     
@@ -497,17 +544,10 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         request.httpBody = try JSONEncoder().encode(metadata)
         
         let (responseData, response) = try await URLSession.shared.data(for: request)
-        
-        // Removed debug print
-        if let httpResponse = response as? HTTPURLResponse {
-            // Removed debug print
-        }
-        if let responseString = String(data: responseData, encoding: .utf8) {
-            // Removed debug print
-        }
-        
+
         guard let httpResponse = response as? HTTPURLResponse,
               let uploadURL = httpResponse.value(forHTTPHeaderField: "X-Goog-Upload-URL") else {
+            logGeminiFailure(context: "uploadResumable(start)", response: response, data: responseData, error: nil)
             throw NSError(domain: "GeminiError", code: 4, userInfo:  [NSLocalizedDescriptionKey: "No upload URL in response"])
         }
         
@@ -517,14 +557,14 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         uploadRequest.setValue("0", forHTTPHeaderField: "X-Goog-Upload-Offset")
         uploadRequest.httpBody = data
         
-        let (uploadResponseData, _) = try await URLSession.shared.data(for: uploadRequest)
-        
+        let (uploadResponseData, uploadResponse) = try await URLSession.shared.data(for: uploadRequest)
+
         if let json = try JSONSerialization.jsonObject(with: uploadResponseData) as? [String: Any],
            let file = json["file"] as? [String: Any],
            let uri = file["uri"] as? String {
             return uri
         }
-        
+        logGeminiFailure(context: "uploadResumable(finalize)", response: uploadResponse, data: uploadResponseData, error: nil)
         throw NSError(domain: "GeminiError", code: 5, userInfo: [NSLocalizedDescriptionKey: "Failed to parse upload response"])
     }
     
@@ -533,13 +573,14 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             throw NSError(domain: "GeminiError", code: 6, userInfo: [NSLocalizedDescriptionKey: "Invalid file URI"])
         }
         
-        let (data, _) = try await URLSession.shared.data(from: url)
-        
+        let (data, response) = try await URLSession.shared.data(from: url)
+
         if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
            let state = json["state"] as? String {
             return state
         }
-        
+        // Unexpected response – log for diagnosis but still return UNKNOWN
+        logGeminiFailure(context: "getFileStatus", response: response, data: data, error: nil)
         return "UNKNOWN"
     }
     
@@ -606,6 +647,8 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                       let parts = content["parts"] as? [[String: Any]],
                       let firstPart = parts.first,
                       let text = firstPart["text"] as? String else {
+                    // Log raw response for invalid format
+                    logGeminiFailure(context: "transcribe.generateContent.invalidFormat", attempt: attempt + 1, response: response, data: data, error: nil)
                     throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "Invalid response format"])
                 }
                 
@@ -613,6 +656,8 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                 
             } catch {
                 lastError = error
+                // Log transport/parse error with attempt number
+                logGeminiFailure(context: "transcribe.generateContent.catch", attempt: attempt + 1, response: nil, data: nil, error: error)
                 
                 // If it's not the last attempt, wait before retrying
                 if attempt < maxRetries - 1 {
@@ -636,11 +681,17 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
     
     private func parseTranscripts(_ response: String) throws -> [VideoTranscriptChunk] {
         guard let data = response.data(using: .utf8) else {
+            print("🔎 GEMINI DEBUG: parseTranscripts received non-UTF8 or empty response: \(truncate(response, max: 400))")
             throw NSError(domain: "GeminiError", code: 8, userInfo: [NSLocalizedDescriptionKey: "Invalid response encoding"])
         }
-        
-        let transcripts = try JSONDecoder().decode([VideoTranscriptChunk].self, from: data)
-        return transcripts
+        do {
+            let transcripts = try JSONDecoder().decode([VideoTranscriptChunk].self, from: data)
+            return transcripts
+        } catch {
+            let snippet = truncate(String(data: data, encoding: .utf8) ?? "<non-utf8>", max: 1200)
+            print("🔎 GEMINI DEBUG: parseTranscripts JSON decode failed: \(error.localizedDescription) bodySnippet=\(snippet)")
+            throw error
+        }
     }
     
     private func geminiCardsRequest(prompt: String) async throws -> String {
@@ -706,6 +757,8 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                       let parts = content["parts"] as? [[String: Any]],
                       let firstPart = parts.first,
                       let text = firstPart["text"] as? String else {
+                    // Log raw response for invalid format
+                    logGeminiFailure(context: "cards.generateContent.invalidFormat", attempt: attempt + 1, response: response, data: data, error: nil)
                     throw NSError(domain: "GeminiError", code: 9, userInfo: [NSLocalizedDescriptionKey: "Invalid response format"])
                 }
                 
@@ -713,6 +766,8 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                 
             } catch {
                 lastError = error
+                // Log transport/parse error with attempt number
+                logGeminiFailure(context: "cards.generateContent.catch", attempt: attempt + 1, response: nil, data: nil, error: error)
                 
                 // If it's not the last attempt, wait before retrying
                 if attempt < maxRetries - 1 {
@@ -729,6 +784,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
     
     private func parseActivityCards(_ response: String) throws -> [ActivityCardData] {
         guard let data = response.data(using: .utf8) else {
+            print("🔎 GEMINI DEBUG: parseActivityCards received non-UTF8 or empty response: \(truncate(response, max: 400))")
             throw NSError(domain: "GeminiError", code: 10, userInfo: [NSLocalizedDescriptionKey: "Invalid response encoding"])
         }
         
@@ -751,7 +807,14 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             let summary: String
         }
         
-        let geminiCards = try JSONDecoder().decode([GeminiActivityCard].self, from: data)
+        let geminiCards: [GeminiActivityCard]
+        do {
+            geminiCards = try JSONDecoder().decode([GeminiActivityCard].self, from: data)
+        } catch {
+            let snippet = truncate(String(data: data, encoding: .utf8) ?? "<non-utf8>", max: 1200)
+            print("🔎 GEMINI DEBUG: parseActivityCards JSON decode failed: \(error.localizedDescription) bodySnippet=\(snippet)")
+            throw error
+        }
         
         // Convert to our ActivityCard format
         return geminiCards.map { geminiCard in
