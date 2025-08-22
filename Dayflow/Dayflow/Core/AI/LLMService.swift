@@ -272,6 +272,9 @@ final class LLMService: LLMServicing {
                 
             } catch {
                 print("Error processing batch: \(error)")
+                if let ns = error as NSError?, ns.domain == "GeminiError" {
+                    print("🔎 GEMINI DEBUG: NSError.userInfo=\(ns.userInfo)")
+                }
                 
                 // Mark batch as failed
                 StorageManager.shared.updateBatch(batchId, status: "failed", reason: error.localizedDescription)
@@ -441,4 +444,3 @@ final class LLMService: LLMServicing {
         }
     }
 }
-

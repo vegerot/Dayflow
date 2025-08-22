@@ -65,6 +65,9 @@ class GeminiAPIHelper {
         }
         
         if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
+            if let body = String(data: data, encoding: .utf8) {
+                print("🔎 GEMINI DEBUG: testConnection unauthorized (\(httpResponse.statusCode)) body=\(body)")
+            }
             throw APIError.invalidAPIKey
         }
         
@@ -72,7 +75,11 @@ class GeminiAPIHelper {
             if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let error = errorData["error"] as? [String: Any],
                let message = error["message"] as? String {
+                print("🔎 GEMINI DEBUG: testConnection non-200 status=\(httpResponse.statusCode) message=\(message)")
                 throw APIError.networkError(message)
+            }
+            if let body = String(data: data, encoding: .utf8) {
+                print("🔎 GEMINI DEBUG: testConnection non-200 status=\(httpResponse.statusCode) body=\(body)")
             }
             throw APIError.networkError("Status code: \(httpResponse.statusCode)")
         }
@@ -85,6 +92,9 @@ class GeminiAPIHelper {
               let parts = content["parts"] as? [[String: Any]],
               let firstPart = parts.first,
               let text = firstPart["text"] as? String else {
+            if let body = String(data: data, encoding: .utf8) {
+                print("🔎 GEMINI DEBUG: testConnection unexpected format; body=\(body)")
+            }
             throw APIError.invalidResponse
         }
         
