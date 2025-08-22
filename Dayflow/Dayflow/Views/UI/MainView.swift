@@ -112,8 +112,8 @@ struct MainView: View {
                             
                             // Content area with timeline and activity card
                             HStack(spacing: 20) {
-                                // Timeline area
-                                TimelineView(selectedDate: $selectedDate, selectedActivity: $selectedActivity)
+                                // Timeline area - using new grid-based timeline
+                                GridTimelineView(selectedDate: $selectedDate, selectedActivity: $selectedActivity)
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                                     .opacity(contentOpacity)
                                 

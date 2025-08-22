@@ -111,6 +111,15 @@ struct LLMProviderSetupView: View {
         }
     }
     
+    private var nextButtonText: String {
+        if let title = setupState.currentStep.contentType.informationTitle {
+            if (title == "Testing" || title == "Test Connection") && !setupState.testSuccessful {
+                return "Test Required"
+            }
+        }
+        return "Next"
+    }
+    
     @ViewBuilder
     private var nextButton: some View {
         if setupState.isLastStep {
@@ -145,11 +154,13 @@ struct LLMProviderSetupView: View {
         } else {
             Button(action: handleContinue) {
                 HStack(spacing: 6) {
-                    Text("Next")
+                    Text(nextButtonText)
                         .font(.custom("Nunito", size: 14))
                         .fontWeight(.semibold)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .medium))
+                    if nextButtonText == "Next" {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .medium))
+                    }
                 }
                 .foregroundColor(.black.opacity(0.8))
                 .padding(.horizontal, 24)
@@ -174,8 +185,8 @@ struct LLMProviderSetupView: View {
                     NSCursor.pop()
                 }
             }
-            .disabled(setupState.currentStep.contentType.isApiKeyInput && !setupState.canContinue)
-            .opacity(setupState.currentStep.contentType.isApiKeyInput && !setupState.canContinue ? 0.5 : 1.0)
+            .disabled(!setupState.canContinue)
+            .opacity(!setupState.canContinue ? 0.5 : 1.0)
         }
     }
     
@@ -257,7 +268,12 @@ struct LLMProviderSetupView: View {
                 
                 // Add test button for Test connection step
                 if title == "Testing" || title == "Test Connection" {
-                    TestConnectionView()
+                    TestConnectionView(
+                        onTestComplete: { success in
+                            setupState.hasTestedConnection = true
+                            setupState.testSuccessful = success
+                        }
+                    )
                 }
                 
                 HStack {
@@ -419,6 +435,8 @@ class ProviderSetupState: ObservableObject {
     @Published var steps: [SetupStep] = []
     @Published var currentStepIndex: Int = 0
     @Published var apiKey: String = ""
+    @Published var hasTestedConnection: Bool = false
+    @Published var testSuccessful: Bool = false
     
     var currentStep: SetupStep {
         guard currentStepIndex < steps.count else {
@@ -434,6 +452,12 @@ class ProviderSetupState: ObservableObject {
         case .terminalCommand, .modelDownload:
             // Allow users to continue after copying/running commands
             // They're responsible for ensuring commands complete
+            return true
+        case .information(let title, _):
+            // For test connection step, require successful test
+            if title == "Testing" || title == "Test Connection" {
+                return testSuccessful
+            }
             return true
         default:
             return true
@@ -474,6 +498,9 @@ class ProviderSetupState: ObservableObject {
         // Save API key to keychain when moving from API key input step
         if currentStep.contentType.isApiKeyInput && !apiKey.isEmpty {
             KeychainManager.shared.store(apiKey, for: "gemini")
+            // Reset test state when API key changes
+            hasTestedConnection = false
+            testSuccessful = false
         }
         
         if currentStepIndex < steps.count - 1 {
@@ -489,6 +516,11 @@ class ProviderSetupState: ObservableObject {
     
     func navigateToStep(_ stepId: String) {
         if let index = steps.firstIndex(where: { $0.id == stepId }) {
+            // Reset test state when navigating to test step
+            if stepId == "verify" {
+                hasTestedConnection = false
+                testSuccessful = false
+            }
             // Allow free navigation between all steps
             currentStepIndex = index
         }
@@ -525,6 +557,13 @@ enum StepContentType {
             return true
         }
         return false
+    }
+    
+    var informationTitle: String? {
+        if case .information(let title, _) = self {
+            return title
+        }
+        return nil
     }
 }
 

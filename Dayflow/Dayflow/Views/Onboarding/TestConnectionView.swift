@@ -8,9 +8,15 @@
 import SwiftUI
 
 struct TestConnectionView: View {
+    let onTestComplete: ((Bool) -> Void)?
+    
     @State private var isTesting = false
     @State private var testResult: TestResult?
     @State private var isHovered = false
+    
+    init(onTestComplete: ((Bool) -> Void)? = nil) {
+        self.onTestComplete = onTestComplete
+    }
     
     enum TestResult {
         case success(String)
@@ -126,6 +132,7 @@ struct TestConnectionView: View {
         // Get API key from keychain
         guard let apiKey = KeychainManager.shared.retrieve(for: "gemini") else {
             testResult = .failure("No API key found. Please enter your API key first.")
+            onTestComplete?(false)
             return
         }
         
@@ -134,15 +141,17 @@ struct TestConnectionView: View {
         
         Task {
             do {
-                let response = try await GeminiAPIHelper.shared.testConnection(apiKey: apiKey)
+                let _ = try await GeminiAPIHelper.shared.testConnection(apiKey: apiKey)
                 await MainActor.run {
-                    testResult = .success("Connection successful! Response: \(response)")
+                    testResult = .success("Connection successful! Your API key is working.")
                     isTesting = false
+                    onTestComplete?(true)
                 }
             } catch {
                 await MainActor.run {
                     testResult = .failure(error.localizedDescription)
                     isTesting = false
+                    onTestComplete?(false)
                 }
             }
         }
@@ -165,30 +174,4 @@ extension TestConnectionView.TestResult {
     }
 }
 
-// Color extension for hex (if not already defined)
-extension Color {
-    init(hex: String) {
-        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
-        let a, r, g, b: UInt64
-        switch hex.count {
-        case 3: // RGB (12-bit)
-            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
-        case 6: // RGB (24-bit)
-            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 8: // ARGB (32-bit)
-            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
-        default:
-            (a, r, g, b) = (255, 0, 0, 0)
-        }
-        
-        self.init(
-            .sRGB,
-            red: Double(r) / 255,
-            green: Double(g) / 255,
-            blue: Double(b) / 255,
-            opacity: Double(a) / 255
-        )
-    }
-}
+// Color extension removed - already defined elsewhere in the project

@@ -101,11 +101,11 @@ struct APIKeyInputView: View {
             
             // Help text
             HStack(spacing: 4) {
-                Image(systemName: "info.circle")
+                Image(systemName: "lock.shield.fill")
                     .font(.system(size: 12))
-                    .foregroundColor(.black.opacity(0.4))
+                    .foregroundColor(Color(red: 0.34, green: 1, blue: 0.45).opacity(0.7))
                 
-                Text("Your API key is stored locally and never shared")
+                Text("Your API key is encrypted and stored in your macOS Keychain - never uploaded anywhere")
                     .font(.custom("Nunito", size: 12))
                     .foregroundColor(.black.opacity(0.5))
             }
