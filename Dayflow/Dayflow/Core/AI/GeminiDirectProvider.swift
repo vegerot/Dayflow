@@ -60,6 +60,61 @@ final class GeminiDirectProvider: LLMProvider {
         }
     }
     
+    private func generateCurlCommand(url: String, requestBody: [String: Any]) -> String {
+        // Convert request body to JSON string with pretty printing for readability
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody, options: [.prettyPrinted, .sortedKeys]),
+              let jsonString = String(data: jsonData, encoding: .utf8) else {
+            return "# Failed to generate curl command"
+        }
+        
+        // Escape single quotes in JSON for shell
+        let escapedJson = jsonString.replacingOccurrences(of: "'", with: "'\\''")
+        
+        // Mask API key in URL for security (show first 8 chars only)
+        var maskedUrl = url
+        if let keyRange = url.range(of: "key=") {
+            let keyStart = url.index(keyRange.upperBound, offsetBy: 0)
+            if url.distance(from: keyStart, to: url.endIndex) > 8 {
+                let keyEnd = url.index(keyStart, offsetBy: 8)
+                let maskedKey = String(url[keyStart..<keyEnd]) + "..."
+                maskedUrl = String(url[url.startIndex..<keyRange.upperBound]) + maskedKey
+            }
+        }
+        
+        // Build curl command
+        var curlCommand = "# Replace YOUR_API_KEY with your actual API key\n"
+        curlCommand += "curl -X POST '\(maskedUrl)' \\\n"
+        curlCommand += "  -H 'Content-Type: application/json' \\\n"
+        curlCommand += "  -d '\(escapedJson)'"
+        
+        return curlCommand
+    }
+    
+    private func logCurlCommand(context: String, url: String, requestBody: [String: Any]) {
+        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        print("\n📋 CURL COMMAND for \(context) at \(timestamp):")
+        print("================================================================================")
+        print(generateCurlCommand(url: url, requestBody: requestBody))
+        print("================================================================================\n")
+    }
+    
+    // Track request timing for rate limit analysis
+    private static var lastRequestTime: Date?
+    private static let requestQueue = DispatchQueue(label: "gemini.request.timing")
+    
+    private func logRequestTiming(context: String) {
+        Self.requestQueue.sync {
+            let now = Date()
+            if let last = Self.lastRequestTime {
+                let interval = now.timeIntervalSince(last)
+                print("⏱️ GEMINI TIMING: \(context) - \(String(format: "%.1f", interval))s since last request")
+            } else {
+                print("⏱️ GEMINI TIMING: \(context) - First request")
+            }
+            Self.lastRequestTime = now
+        }
+    }
+    
     func transcribeVideo(videoData: Data, mimeType: String, prompt: String, batchStartTime: Date, videoDuration: TimeInterval) async throws -> (observations: [Observation], log: LLMCall) {
         let callStart = Date()
         
@@ -401,6 +456,9 @@ final class GeminiDirectProvider: LLMProvider {
         )
         var cards = try parseActivityCards(response)
         
+        // Track the actual prompt used for logging
+        var actualPromptUsed = activityGenerationPrompt
+        
         // Combined validation and retry loop
         var retryCount = 0
         let maxRetries = 3
@@ -461,6 +519,7 @@ final class GeminiDirectProvider: LLMProvider {
             """
             
             // Retry with enhanced prompt
+            actualPromptUsed = retryPrompt
             response = try await geminiCardsRequest(prompt: retryPrompt)
             cards = try parseActivityCards(response)
         }
@@ -468,7 +527,7 @@ final class GeminiDirectProvider: LLMProvider {
         let log = LLMCall(
             timestamp: callStart,
             latency: Date().timeIntervalSince(callStart),
-            input: activityGenerationPrompt,
+            input: actualPromptUsed,
             output: response
         )
         
@@ -525,6 +584,10 @@ final class GeminiDirectProvider: LLMProvider {
     }
     
 private func uploadResumable(data: Data, mimeType: String) async throws -> String {
+        print("📤 Starting resumable video upload:")
+        print("   Size: \(data.count / 1024 / 1024) MB")
+        print("   MIME Type: \(mimeType)")
+        
         let metadata = GeminiFileMetadata(file: GeminiFileInfo(displayName: "dayflow_video"))
         let boundary = UUID().uuidString
         
@@ -543,13 +606,29 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(metadata)
         
+        let startTime = Date()
         let (responseData, response) = try await URLSession.shared.data(for: request)
+        let initDuration = Date().timeIntervalSince(startTime)
 
-        guard let httpResponse = response as? HTTPURLResponse,
-              let uploadURL = httpResponse.value(forHTTPHeaderField: "X-Goog-Upload-URL") else {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("🔴 Upload init failed: Non-HTTP response")
+            throw NSError(domain: "GeminiError", code: 4, userInfo: [NSLocalizedDescriptionKey: "Non-HTTP response during upload init"])
+        }
+        
+        print("📡 Upload session initialized:")
+        print("   Status: \(httpResponse.statusCode)")
+        print("   Init Duration: \(String(format: "%.2f", initDuration))s")
+        
+        guard let uploadURL = httpResponse.value(forHTTPHeaderField: "X-Goog-Upload-URL") else {
+            print("🔴 No upload URL in response")
+            if let bodyText = String(data: responseData, encoding: .utf8) {
+                print("   Response Body: \(truncate(bodyText, max: 1000))")
+            }
             logGeminiFailure(context: "uploadResumable(start)", response: response, data: responseData, error: nil)
             throw NSError(domain: "GeminiError", code: 4, userInfo:  [NSLocalizedDescriptionKey: "No upload URL in response"])
         }
+        
+        print("   Upload URL: \(uploadURL.prefix(80))...")
         
         var uploadRequest = URLRequest(url: URL(string: uploadURL)!)
         uploadRequest.httpMethod = "PUT"
@@ -557,12 +636,38 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         uploadRequest.setValue("0", forHTTPHeaderField: "X-Goog-Upload-Offset")
         uploadRequest.httpBody = data
         
+        let uploadStartTime = Date()
         let (uploadResponseData, uploadResponse) = try await URLSession.shared.data(for: uploadRequest)
+        let uploadDuration = Date().timeIntervalSince(uploadStartTime)
 
+        guard let httpUploadResponse = uploadResponse as? HTTPURLResponse else {
+            print("🔴 Upload finalize failed: Non-HTTP response")
+            throw NSError(domain: "GeminiError", code: 5, userInfo: [NSLocalizedDescriptionKey: "Non-HTTP response during upload finalize"])
+        }
+        
+        print("📥 Upload completed:")
+        print("   Status: \(httpUploadResponse.statusCode)")
+        print("   Upload Duration: \(String(format: "%.2f", uploadDuration))s")
+        print("   Upload Speed: \(String(format: "%.2f", Double(data.count) / uploadDuration / 1024 / 1024)) MB/s")
+        
+        if httpUploadResponse.statusCode != 200 {
+            print("🔴 Upload failed with status \(httpUploadResponse.statusCode)")
+            if let bodyText = String(data: uploadResponseData, encoding: .utf8) {
+                print("   Response Body: \(truncate(bodyText, max: 1000))")
+            }
+        }
+        
         if let json = try JSONSerialization.jsonObject(with: uploadResponseData) as? [String: Any],
            let file = json["file"] as? [String: Any],
            let uri = file["uri"] as? String {
+            print("✅ Video uploaded successfully")
+            print("   File URI: \(uri)")
             return uri
+        }
+        
+        print("🔴 Failed to parse upload response")
+        if let bodyText = String(data: uploadResponseData, encoding: .utf8) {
+            print("   Response Body: \(truncate(bodyText, max: 1000))")
         }
         logGeminiFailure(context: "uploadResumable(finalize)", response: uploadResponse, data: uploadResponseData, error: nil)
         throw NSError(domain: "GeminiError", code: 5, userInfo: [NSLocalizedDescriptionKey: "Failed to parse upload response"])
@@ -603,10 +708,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             "temperature": 0.3,
             "maxOutputTokens": 65536,
             "responseMimeType": "application/json",
-            "responseSchema": transcriptionSchema,
-            "thinkingConfig": [
-                "thinkingBudget": 24576
-            ]
+            "responseSchema": transcriptionSchema
         ]
 
         let requestBody: [String: Any] = [
@@ -623,47 +725,170 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         
         for attempt in 0..<maxRetries {
             do {
-                var request = URLRequest(url: URL(string: genEndpoint + "?key=\(apiKey)")!)
+                let urlWithKey = genEndpoint + "?key=\(apiKey)"
+                var request = URLRequest(url: URL(string: urlWithKey)!)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
                 request.timeoutInterval = 120 // 2 minutes timeout
                 
+                // Log curl command on first attempt or after failures
+                if attempt == 0 || lastError != nil {
+                    logCurlCommand(context: "transcribe.generateContent.attempt\(attempt + 1)", url: urlWithKey, requestBody: requestBody)
+                }
+                
+                // Log request timing
+                logRequestTiming(context: "transcribe.attempt\(attempt + 1)")
+                
+                let requestStart = Date()
                 let (data, response) = try await URLSession.shared.data(for: request)
+                let requestDuration = Date().timeIntervalSince(requestStart)
+                
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    print("🔴 Non-HTTP response received")
+                    throw NSError(domain: "GeminiError", code: 9, userInfo: [NSLocalizedDescriptionKey: "Non-HTTP response"])
+                }
+                
+                print("📥 Response received for attempt \(attempt + 1):")
+                print("   Status Code: \(httpResponse.statusCode)")
+                print("   Duration: \(String(format: "%.2f", requestDuration))s")
+                
+                // Log important headers
+                if let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") {
+                    print("   Content-Type: \(contentType)")
+                }
+                if let contentLength = httpResponse.value(forHTTPHeaderField: "Content-Length") {
+                    print("   Content-Length: \(contentLength) bytes")
+                }
+                if let requestId = httpResponse.value(forHTTPHeaderField: "X-Goog-Request-Id") ?? httpResponse.value(forHTTPHeaderField: "x-request-id") {
+                    print("   Request ID: \(requestId)")
+                }
                 
                 // Check for rate limiting
-                if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 429 {
+                if httpResponse.statusCode == 429 {
+                    print("🚫 RATE LIMITED (429)")
                     let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After")
+                    if let retryAfter = retryAfter {
+                        print("   Retry-After: \(retryAfter)s")
+                    }
+                    if let remaining = httpResponse.value(forHTTPHeaderField: "X-RateLimit-Remaining") {
+                        print("   Rate Limit Remaining: \(remaining)")
+                    }
+                    if let reset = httpResponse.value(forHTTPHeaderField: "X-RateLimit-Reset") {
+                        print("   Rate Limit Reset: \(reset)")
+                    }
+                    
+                    // Log response body for 429 errors
+                    if let bodyText = String(data: data, encoding: .utf8) {
+                        print("   429 Response Body: \(truncate(bodyText, max: 1000))")
+                    }
+                    
                     let delay = TimeInterval(retryAfter ?? "60") ?? 60
-                    // Rate limited, retrying...
+                    print("⏳ Rate limited, waiting \(delay)s...")
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                     continue
                 }
                 
-                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let candidates = json["candidates"] as? [[String: Any]],
-                      let firstCandidate = candidates.first,
-                      let content = firstCandidate["content"] as? [String: Any],
-                      let parts = content["parts"] as? [[String: Any]],
+                // Log any non-200 response details
+                if httpResponse.statusCode != 200 {
+                    print("🔴 Non-200 status code: \(httpResponse.statusCode)")
+                    if let bodyText = String(data: data, encoding: .utf8) {
+                        print("   Response Body: \(truncate(bodyText, max: 2000))")
+                    } else {
+                        print("   Response Body: <non-UTF8 data, \(data.count) bytes>")
+                    }
+                    
+                    // Try to parse error details
+                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let error = json["error"] as? [String: Any] {
+                        if let code = error["code"] { print("   Error Code: \(code)") }
+                        if let message = error["message"] { print("   Error Message: \(message)") }
+                        if let status = error["status"] { print("   Error Status: \(status)") }
+                        if let details = error["details"] { print("   Error Details: \(details)") }
+                    }
+                }
+                
+                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    logGeminiFailure(context: "transcribe.generateContent.invalidJSON", attempt: attempt + 1, response: response, data: data, error: nil)
+                    throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "Invalid JSON response"])
+                }
+                
+                guard let candidates = json["candidates"] as? [[String: Any]],
+                      let firstCandidate = candidates.first else {
+                    logGeminiFailure(context: "transcribe.generateContent.noCandidates", attempt: attempt + 1, response: response, data: data, error: nil)
+                    throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "No candidates in response"])
+                }
+                
+                guard let content = firstCandidate["content"] as? [String: Any] else {
+                    logGeminiFailure(context: "transcribe.generateContent.noContent", attempt: attempt + 1, response: response, data: data, error: nil)
+                    throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "No content in candidate"])
+                }
+                
+                guard let parts = content["parts"] as? [[String: Any]],
                       let firstPart = parts.first,
                       let text = firstPart["text"] as? String else {
-                    // Log raw response for invalid format
-                    logGeminiFailure(context: "transcribe.generateContent.invalidFormat", attempt: attempt + 1, response: response, data: data, error: nil)
-                    throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "Invalid response format"])
+                    // This is the key failure - empty content with no parts
+                    logGeminiFailure(context: "transcribe.generateContent.emptyContent", attempt: attempt + 1, response: response, data: data, error: nil)
+                    throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "Empty content - no parts array"])
                 }
                 
                 return text
                 
             } catch {
                 lastError = error
+                
+                // Log detailed error information for this attempt
+                print("🔴 GEMINI TRANSCRIBE ATTEMPT \(attempt + 1)/\(maxRetries) FAILED:")
+                print("   Error Type: \(type(of: error))")
+                print("   Error Description: \(error.localizedDescription)")
+                
+                // Log URLError details if applicable
+                if let urlError = error as? URLError {
+                    print("   URLError Code: \(urlError.code.rawValue) (\(urlError.code))")
+                    if let failingURL = urlError.failingURL {
+                        print("   Failing URL: \(failingURL.absoluteString)")
+                    }
+                    // Note: underlyingError might not be available in all Swift versions
+                    
+                    // Check for specific network errors
+                    switch urlError.code {
+                    case .timedOut:
+                        print("   ⏱️ REQUEST TIMED OUT")
+                    case .notConnectedToInternet:
+                        print("   📵 NO INTERNET CONNECTION")
+                    case .networkConnectionLost:
+                        print("   📡 NETWORK CONNECTION LOST")
+                    case .cannotFindHost:
+                        print("   🔍 CANNOT FIND HOST")
+                    case .cannotConnectToHost:
+                        print("   🚫 CANNOT CONNECT TO HOST")
+                    case .badServerResponse:
+                        print("   💔 BAD SERVER RESPONSE")
+                    default:
+                        break
+                    }
+                }
+                
+                // Log NSError details if applicable
+                if let nsError = error as NSError? {
+                    print("   NSError Domain: \(nsError.domain)")
+                    print("   NSError Code: \(nsError.code)")
+                    if !nsError.userInfo.isEmpty {
+                        print("   NSError UserInfo: \(nsError.userInfo)")
+                    }
+                }
+                
                 // Log transport/parse error with attempt number
                 logGeminiFailure(context: "transcribe.generateContent.catch", attempt: attempt + 1, response: nil, data: nil, error: error)
                 
                 // If it's not the last attempt, wait before retrying
                 if attempt < maxRetries - 1 {
                     let backoffDelay = pow(2.0, Double(attempt)) * 5.0 // 5s, 10s, 20s
-                    // Gemini transcribe request failed, retrying...
+                    print("⏳ Waiting \(backoffDelay)s before retry \(attempt + 2)/\(maxRetries)...")
                     try await Task.sleep(nanoseconds: UInt64(backoffDelay * 1_000_000_000))
+                    print("🔄 Starting transcribe attempt \(attempt + 2)/\(maxRetries)...")
+                } else {
+                    print("❌ All \(maxRetries) transcribe attempts failed")
                 }
             }
         }
@@ -703,12 +928,12 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         let cardSchema: [String: Any] = [
             "type": "ARRAY", "items": [
                 "type": "OBJECT", "properties": [
-                    "startTimestamp": ["type": "STRING"], "endTimestamp": ["type": "STRING"], "category": ["type": "STRING"],
+                    "startTime": ["type": "STRING"], "endTime": ["type": "STRING"], "category": ["type": "STRING"],
                     "subcategory": ["type": "STRING"], "title": ["type": "STRING"], "summary": ["type": "STRING"],
                     "detailedSummary": ["type": "STRING"], "distractions": ["type": "ARRAY", "items": distractionSchema]
                 ],
-                "required": ["startTimestamp", "endTimestamp", "category", "subcategory", "title", "summary", "detailedSummary"],
-                "propertyOrdering": ["startTimestamp", "endTimestamp", "category", "subcategory", "title", "summary", "detailedSummary", "distractions"]
+                "required": ["startTime", "endTime", "category", "subcategory", "title", "summary", "detailedSummary"],
+                "propertyOrdering": ["startTime", "endTime", "category", "subcategory", "title", "summary", "detailedSummary", "distractions"]
             ]
         ]
         
@@ -716,10 +941,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             "temperature": 0.3,
             "maxOutputTokens": 65536,
             "responseMimeType": "application/json",
-            "responseSchema": cardSchema,
-            "thinkingConfig": [
-                "thinkingBudget": 24576
-            ]
+            "responseSchema": cardSchema
         ]
         
         let requestBody: [String: Any] = [
@@ -733,47 +955,164 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         
         for attempt in 0..<maxRetries {
             do {
-                var request = URLRequest(url: URL(string: genEndpoint + "?key=\(apiKey)")!)
+                let urlWithKey = genEndpoint + "?key=\(apiKey)"
+                var request = URLRequest(url: URL(string: urlWithKey)!)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
                 request.timeoutInterval = 120 // 2 minutes timeout
                 
+                // Log curl command on first attempt or after failures
+                if attempt == 0 || lastError != nil {
+                    logCurlCommand(context: "cards.generateContent.attempt\(attempt + 1)", url: urlWithKey, requestBody: requestBody)
+                }
+                
+                // Log request timing
+                logRequestTiming(context: "cards.attempt\(attempt + 1)")
+                
+                let requestStart = Date()
                 let (data, response) = try await URLSession.shared.data(for: request)
+                let requestDuration = Date().timeIntervalSince(requestStart)
+                
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    print("🔴 Non-HTTP response received for cards request")
+                    throw NSError(domain: "GeminiError", code: 9, userInfo: [NSLocalizedDescriptionKey: "Non-HTTP response"])
+                }
+                
+                print("📥 Cards response received for attempt \(attempt + 1):")
+                print("   Status Code: \(httpResponse.statusCode)")
+                print("   Duration: \(String(format: "%.2f", requestDuration))s")
+                
+                // Log important headers
+                if let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") {
+                    print("   Content-Type: \(contentType)")
+                }
+                if let contentLength = httpResponse.value(forHTTPHeaderField: "Content-Length") {
+                    print("   Content-Length: \(contentLength) bytes")
+                }
+                if let requestId = httpResponse.value(forHTTPHeaderField: "X-Goog-Request-Id") ?? httpResponse.value(forHTTPHeaderField: "x-request-id") {
+                    print("   Request ID: \(requestId)")
+                }
                 
                 // Check for rate limiting
-                if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 429 {
+                if httpResponse.statusCode == 429 {
+                    print("🚫 RATE LIMITED (429) on cards request")
                     let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After")
+                    if let retryAfter = retryAfter {
+                        print("   Retry-After: \(retryAfter)s")
+                    }
+                    if let remaining = httpResponse.value(forHTTPHeaderField: "X-RateLimit-Remaining") {
+                        print("   Rate Limit Remaining: \(remaining)")
+                    }
+                    if let reset = httpResponse.value(forHTTPHeaderField: "X-RateLimit-Reset") {
+                        print("   Rate Limit Reset: \(reset)")
+                    }
+                    
+                    // Log response body for 429 errors
+                    if let bodyText = String(data: data, encoding: .utf8) {
+                        print("   429 Response Body: \(truncate(bodyText, max: 1000))")
+                    }
+                    
                     let delay = TimeInterval(retryAfter ?? "60") ?? 60
-                    // Rate limited, retrying...
+                    print("⏳ Rate limited, waiting \(delay)s...")
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                     continue
+                }
+                
+                // Log any non-200 response details
+                if httpResponse.statusCode != 200 {
+                    print("🔴 Non-200 status code for cards: \(httpResponse.statusCode)")
+                    if let bodyText = String(data: data, encoding: .utf8) {
+                        print("   Response Body: \(truncate(bodyText, max: 2000))")
+                    } else {
+                        print("   Response Body: <non-UTF8 data, \(data.count) bytes>")
+                    }
+                    
+                    // Try to parse error details
+                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let error = json["error"] as? [String: Any] {
+                        if let code = error["code"] { print("   Error Code: \(code)") }
+                        if let message = error["message"] { print("   Error Message: \(message)") }
+                        if let status = error["status"] { print("   Error Status: \(status)") }
+                        if let details = error["details"] { print("   Error Details: \(details)") }
+                    }
                 }
                 
                 guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let candidates = json["candidates"] as? [[String: Any]],
                       let firstCandidate = candidates.first,
-                      let content = firstCandidate["content"] as? [String: Any],
-                      let parts = content["parts"] as? [[String: Any]],
-                      let firstPart = parts.first,
-                      let text = firstPart["text"] as? String else {
+                      let content = firstCandidate["content"] as? [String: Any] else {
                     // Log raw response for invalid format
                     logGeminiFailure(context: "cards.generateContent.invalidFormat", attempt: attempt + 1, response: response, data: data, error: nil)
-                    throw NSError(domain: "GeminiError", code: 9, userInfo: [NSLocalizedDescriptionKey: "Invalid response format"])
+                    throw NSError(domain: "GeminiError", code: 9, userInfo: [NSLocalizedDescriptionKey: "Invalid response format - missing candidates or content"])
+                }
+                
+                // Check for parts array - if missing, this is likely a schema validation failure
+                guard let parts = content["parts"] as? [[String: Any]],
+                      let firstPart = parts.first,
+                      let text = firstPart["text"] as? String else {
+                    // Log the specific failure - empty content likely means schema validation failed
+                    logGeminiFailure(context: "cards.generateContent.emptyContent", attempt: attempt + 1, response: response, data: data, error: nil)
+                    throw NSError(domain: "GeminiError", code: 9, userInfo: [NSLocalizedDescriptionKey: "Schema validation likely failed - no content parts in response"])
                 }
                 
                 return text
                 
             } catch {
                 lastError = error
+                
+                // Log detailed error information for this attempt
+                print("🔴 GEMINI CARDS ATTEMPT \(attempt + 1)/\(maxRetries) FAILED:")
+                print("   Error Type: \(type(of: error))")
+                print("   Error Description: \(error.localizedDescription)")
+                
+                // Log URLError details if applicable
+                if let urlError = error as? URLError {
+                    print("   URLError Code: \(urlError.code.rawValue) (\(urlError.code))")
+                    if let failingURL = urlError.failingURL {
+                        print("   Failing URL: \(failingURL.absoluteString)")
+                    }
+                    // Note: underlyingError might not be available in all Swift versions
+                    
+                    // Check for specific network errors
+                    switch urlError.code {
+                    case .timedOut:
+                        print("   ⏱️ REQUEST TIMED OUT")
+                    case .notConnectedToInternet:
+                        print("   📵 NO INTERNET CONNECTION")
+                    case .networkConnectionLost:
+                        print("   📡 NETWORK CONNECTION LOST")
+                    case .cannotFindHost:
+                        print("   🔍 CANNOT FIND HOST")
+                    case .cannotConnectToHost:
+                        print("   🚫 CANNOT CONNECT TO HOST")
+                    case .badServerResponse:
+                        print("   💔 BAD SERVER RESPONSE")
+                    default:
+                        break
+                    }
+                }
+                
+                // Log NSError details if applicable
+                if let nsError = error as NSError? {
+                    print("   NSError Domain: \(nsError.domain)")
+                    print("   NSError Code: \(nsError.code)")
+                    if !nsError.userInfo.isEmpty {
+                        print("   NSError UserInfo: \(nsError.userInfo)")
+                    }
+                }
+                
                 // Log transport/parse error with attempt number
                 logGeminiFailure(context: "cards.generateContent.catch", attempt: attempt + 1, response: nil, data: nil, error: error)
                 
                 // If it's not the last attempt, wait before retrying
                 if attempt < maxRetries - 1 {
                     let backoffDelay = pow(2.0, Double(attempt)) * 5.0 // 5s, 10s, 20s
-                    // Gemini cards request failed, retrying...
+                    print("⏳ Waiting \(backoffDelay)s before retry \(attempt + 2)/\(maxRetries)...")
                     try await Task.sleep(nanoseconds: UInt64(backoffDelay * 1_000_000_000))
+                    print("🔄 Starting cards attempt \(attempt + 2)/\(maxRetries)...")
+                } else {
+                    print("❌ All \(maxRetries) cards attempts failed")
                 }
             }
         }
@@ -790,14 +1129,27 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         
         // Need to map the response format to our ActivityCard format
         struct GeminiActivityCard: Codable {
-            let startTimestamp: String
-            let endTimestamp: String
+            let startTime: String
+            let endTime: String
             let category: String
             let subcategory: String
             let title: String
             let summary: String
             let detailedSummary: String
             let distractions: [GeminiDistraction]?
+            
+            // Make distractions optional with default nil
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                startTime = try container.decode(String.self, forKey: .startTime)
+                endTime = try container.decode(String.self, forKey: .endTime)
+                category = try container.decode(String.self, forKey: .category)
+                subcategory = try container.decode(String.self, forKey: .subcategory)
+                title = try container.decode(String.self, forKey: .title)
+                summary = try container.decode(String.self, forKey: .summary)
+                detailedSummary = try container.decode(String.self, forKey: .detailedSummary)
+                distractions = try container.decodeIfPresent([GeminiDistraction].self, forKey: .distractions)
+            }
         }
         
         struct GeminiDistraction: Codable {
@@ -819,8 +1171,8 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         // Convert to our ActivityCard format
         return geminiCards.map { geminiCard in
             ActivityCardData(
-                   startTime: geminiCard.startTimestamp,
-                   endTime: geminiCard.endTimestamp,
+                   startTime: geminiCard.startTime,
+                   endTime: geminiCard.endTime,
                 category: geminiCard.category,
                 subcategory: geminiCard.subcategory,
                 title: geminiCard.title,
@@ -1087,18 +1439,27 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             return 0
         }
     }
-}
-
-// MARK: - Gemini-specific types
-
-private struct GeminiFileMetadata: Codable {
-    let file: GeminiFileInfo
-}
-
-private struct GeminiFileInfo: Codable {
-    let displayName: String
     
-    enum CodingKeys: String, CodingKey {
-        case displayName = "display_name"
+    // Helper function to format timestamps
+    private func formatTimestampForPrompt(_ unixTime: Int) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(unixTime))
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        formatter.timeZone = TimeZone.current
+        return formatter.string(from: date)
+    }
+    
+    // MARK: - Gemini-specific types
+    
+    private struct GeminiFileMetadata: Codable {
+        let file: GeminiFileInfo
+    }
+    
+    private struct GeminiFileInfo: Codable {
+        let displayName: String
+        
+        enum CodingKeys: String, CodingKey {
+            case displayName = "display_name"
+        }
     }
 }
