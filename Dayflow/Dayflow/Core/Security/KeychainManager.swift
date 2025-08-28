@@ -60,8 +60,13 @@ final class KeychainManager {
     /// - Parameter provider: The provider identifier
     /// - Returns: The API key if found, nil otherwise
     func retrieve(for provider: String) -> String? {
+        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        print("\n🔐 [KeychainManager] Retrieving key for '\(provider)' at \(timestamp)")
+        
         return queue.sync {
             let service = "\(servicePrefix).\(provider)"
+            print("   Service: \(service)")
+            print("   Account: \(provider)")
             
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
@@ -74,11 +79,47 @@ final class KeychainManager {
             var result: AnyObject?
             let status = SecItemCopyMatching(query as CFDictionary, &result)
             
-            guard status == errSecSuccess,
-                  let data = result as? Data,
-                  let apiKey = String(data: data, encoding: .utf8) else {
+            // Log the status code for debugging
+            switch status {
+            case errSecSuccess:
+                print("✅ [KeychainManager] SecItemCopyMatching succeeded")
+            case errSecItemNotFound:
+                print("❌ [KeychainManager] Item not found in keychain (errSecItemNotFound)")
+            case errSecAuthFailed:
+                print("❌ [KeychainManager] Authentication failed (errSecAuthFailed)")
+            case errSecInteractionNotAllowed:
+                print("❌ [KeychainManager] Interaction not allowed (errSecInteractionNotAllowed)")
+                print("   This usually means the keychain is locked or inaccessible")
+            case errSecParam:
+                print("❌ [KeychainManager] Invalid parameters (errSecParam)")
+            case errSecNotAvailable:
+                print("❌ [KeychainManager] Keychain services not available (errSecNotAvailable)")
+            default:
+                print("❌ [KeychainManager] Unknown error code: \(status)")
+            }
+            
+            guard status == errSecSuccess else {
+                print("   Failed with status: \(status)")
                 return nil
             }
+            
+            guard let data = result as? Data else {
+                print("❌ [KeychainManager] Result is not Data type")
+                print("   Result type: \(type(of: result))")
+                return nil
+            }
+            
+            print("   Retrieved data: \(data.count) bytes")
+            
+            guard let apiKey = String(data: data, encoding: .utf8) else {
+                print("❌ [KeychainManager] Failed to decode data as UTF-8 string")
+                print("   Raw data (hex): \(data.map { String(format: "%02x", $0) }.prefix(20).joined())")
+                return nil
+            }
+            
+            print("✅ [KeychainManager] Successfully retrieved key")
+            print("   Key length: \(apiKey.count) characters")
+            print("   Key prefix: \(apiKey.prefix(8))...")
             
             return apiKey
         }
