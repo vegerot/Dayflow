@@ -54,6 +54,11 @@ struct VideoThumbnailView: View {
             .onAppear {
                 extractThumbnail()
             }
+            // Ensure thumbnail updates when a new video URL is provided
+            .onChange(of: videoURL) { _ in
+                thumbnail = nil
+                extractThumbnail()
+            }
             .sheet(isPresented: $showVideoPlayer) {
                 VideoPlayerModal(videoURL: videoURL)
             }
