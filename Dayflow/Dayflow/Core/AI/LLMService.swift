@@ -23,35 +23,87 @@ final class LLMService: LLMServicing {
     static let shared: LLMServicing = LLMService()
     
     private var providerType: LLMProviderType {
+        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        print("\n🔍 [LLMService] Reading provider type at \(timestamp)")
+        
         // Read provider configuration from UserDefaults
         guard let savedData = UserDefaults.standard.data(forKey: "llmProviderType") else {
-            // No saved provider type - default to Gemini
+            print("⚠️ [LLMService] No saved provider type in UserDefaults - defaulting to Gemini")
             return .geminiDirect
         }
         
+        print("✅ [LLMService] Found provider data in UserDefaults: \(savedData.count) bytes")
+        
         do {
-            return try JSONDecoder().decode(LLMProviderType.self, from: savedData)
+            let decoded = try JSONDecoder().decode(LLMProviderType.self, from: savedData)
+            print("✅ [LLMService] Successfully decoded provider type: \(decoded)")
+            return decoded
         } catch {
-            // Failed to decode provider type - default to Gemini
+            print("❌ [LLMService] Failed to decode provider type: \(error)")
+            print("   Raw data (hex): \(savedData.map { String(format: "%02x", $0) }.joined())")
             return .geminiDirect
         }
     }
     
     private var provider: LLMProvider? {
-        switch providerType {
+        let type = providerType
+        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        print("\n🏗️ [LLMService] Creating provider at \(timestamp)")
+        print("   Provider type: \(type)")
+        
+        switch type {
         case .geminiDirect:
-            // Retrieve API key from Keychain
-            guard let apiKey = KeychainManager.shared.retrieve(for: "gemini"),
-                  !apiKey.isEmpty else { return nil }
-            return GeminiDirectProvider(apiKey: apiKey)
+            print("🔑 [LLMService] Attempting to retrieve Gemini API key from Keychain...")
+            
+            // Try to retrieve API key with detailed logging
+            if let apiKey = KeychainManager.shared.retrieve(for: "gemini") {
+                print("✅ [LLMService] API key retrieved from Keychain")
+                print("   Key length: \(apiKey.count) characters")
+                print("   Key prefix: \(apiKey.prefix(8))...")
+                
+                if apiKey.isEmpty {
+                    print("❌ [LLMService] API key is empty string - cannot create provider")
+                    return nil
+                }
+                
+                print("✅ [LLMService] Creating GeminiDirectProvider with valid API key")
+                return GeminiDirectProvider(apiKey: apiKey)
+            } else {
+                print("❌ [LLMService] Failed to retrieve API key from Keychain")
+                print("   This might be due to:")
+                print("   - Keychain access timing issue")
+                print("   - Sandbox restrictions")
+                print("   - Security context mismatch")
+                
+                // Try to check if UserDefaults is accessible
+                if let _ = UserDefaults.standard.object(forKey: "llmProviderType") {
+                    print("   ✅ UserDefaults IS accessible")
+                } else {
+                    print("   ❌ UserDefaults also appears inaccessible")
+                }
+                
+                return nil
+            }
             
         case .dayflowBackend(let endpoint):
-            // Retrieve token from Keychain
-            guard let token = KeychainManager.shared.retrieve(for: "dayflow"),
-                  !token.isEmpty else { return nil }
-            return DayflowBackendProvider(token: token, endpoint: endpoint)
+            print("🔑 [LLMService] Attempting to retrieve Dayflow token from Keychain...")
+            print("   Endpoint: \(endpoint)")
+            
+            if let token = KeychainManager.shared.retrieve(for: "dayflow") {
+                print("✅ [LLMService] Token retrieved (length: \(token.count))")
+                if token.isEmpty {
+                    print("❌ [LLMService] Token is empty string")
+                    return nil
+                }
+                return DayflowBackendProvider(token: token, endpoint: endpoint)
+            } else {
+                print("❌ [LLMService] Failed to retrieve Dayflow token from Keychain")
+                return nil
+            }
             
         case .ollamaLocal(let endpoint):
+            print("🦙 [LLMService] Creating OllamaProvider")
+            print("   Endpoint: \(endpoint)")
             return OllamaProvider(endpoint: endpoint)
         }
     }
@@ -69,8 +121,32 @@ final class LLMService: LLMServicing {
             let (_, batchStartTs, batchEndTs, _) = batchInfo
             
             do {
+                print("\n📦 [LLMService] Processing batch \(batchId)")
+                print("   Batch time: \(Date(timeIntervalSince1970: TimeInterval(batchStartTs))) to \(Date(timeIntervalSince1970: TimeInterval(batchEndTs)))")
+                
                 // Check provider inside the do block so errors go through catch
                 guard let provider = provider else {
+                    print("❌ [LLMService] Provider is nil - checking diagnostics:")
+                    
+                    // Additional diagnostic checks
+                    if let data = UserDefaults.standard.data(forKey: "llmProviderType") {
+                        print("   ✅ UserDefaults has llmProviderType: \(data.count) bytes")
+                        if let str = String(data: data, encoding: .utf8) {
+                            print("   Content: \(str)")
+                        }
+                    } else {
+                        print("   ❌ UserDefaults missing llmProviderType")
+                    }
+                    
+                    // Try direct Keychain check
+                    print("   Attempting direct Keychain check...")
+                    let directCheck = KeychainManager.shared.retrieve(for: "gemini")
+                    if directCheck != nil {
+                        print("   ✅ Direct Keychain check succeeded")
+                    } else {
+                        print("   ❌ Direct Keychain check failed")
+                    }
+                    
                     throw NSError(domain: "LLMService", code: 1, userInfo: [NSLocalizedDescriptionKey: "No LLM provider configured. Please configure in settings."])
                 }
                 
