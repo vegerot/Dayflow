@@ -34,7 +34,7 @@ struct DayflowApp: App {
     var body: some Scene {
         WindowGroup {
             ZStack {
-                // Always render the next view underneath
+                // Main app UI or onboarding
                 if didOnboard {
                     // Show UI after onboarding
                     AppRootView()
@@ -42,7 +42,7 @@ struct DayflowApp: App {
                     OnboardingFlow()
                         .environmentObject(AppState.shared)
                 }
-                
+
                 // Video overlay on top
                 if showVideoLaunch {
                     VideoLaunchView()
@@ -55,6 +55,17 @@ struct DayflowApp: App {
                             }
                         }
                         .transition(.opacity)
+                }
+            }
+            // Inline background behind the main app UI only
+            .background {
+                if didOnboard {
+                    Image("MainUIBackground")
+                        .resizable()
+                        .scaledToFill()
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
             }
             .frame(minWidth: 900, maxWidth: .infinity, minHeight: 600, maxHeight: .infinity)
