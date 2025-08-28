@@ -31,8 +31,9 @@ struct MainView: View {
                 // Top left: Logo (centered)
                 Image("DayflowLogoMainApp")
                     .resizable()
+                    .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 60, height: 60)
+                    .frame(width: 128, height: 128)
                     .frame(maxWidth: 100, maxHeight: .infinity)
                     .scaleEffect(logoScale)
                     .opacity(logoOpacity)
@@ -82,21 +83,23 @@ struct MainView: View {
             }
             .padding(.leading, 10)
             .frame(height: 100)
+            .layoutPriority(1)  // Keep this section fixed when window shrinks
             
             // Bottom row of 2x2 grid
             HStack(alignment: .top, spacing: 0) {
-                // Bottom left: Sidebar (centered horizontally with logo)
-                HStack {
+                // Bottom left: Sidebar in fixed-width gutter (prevents horizontal shift)
+                VStack {
                     Spacer()
-                    VStack {
-                        SidebarView(selectedIcon: $selectedIcon)
-                            .offset(y: sidebarOffset)
-                            .opacity(sidebarOpacity)
-                        Spacer()
-                    }
+                    SidebarView(selectedIcon: $selectedIcon)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .offset(y: sidebarOffset)
+                        .opacity(sidebarOpacity)
                     Spacer()
                 }
-                .frame(maxWidth: 100, maxHeight: .infinity)
+                .frame(width: 100)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(maxHeight: .infinity)
+                .layoutPriority(1)
                 
                 // Bottom right: Main content area
                 ZStack {
@@ -110,24 +113,27 @@ struct MainView: View {
                             TabFilterBar()
                                 .opacity(contentOpacity)
                             
-                            // Content area with timeline and activity card
-                            HStack(spacing: 20) {
-                                // Timeline area - using new grid-based timeline
-                                GridTimelineView(selectedDate: $selectedDate, selectedActivity: $selectedActivity)
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                    .opacity(contentOpacity)
-                                
-                                // Activity detail card
-                                ActivityCard(activity: selectedActivity)
-                                    .frame(width: 400)
-                                    .opacity(contentOpacity)
+                            // Content area with timeline and activity card (always side-by-side; both shrink)
+                            GeometryReader { geo in
+                                HStack(alignment: .top, spacing: 20) {
+                                    // Timeline area - Canvas look wired to data
+                                    CanvasTimelineDataView(selectedDate: $selectedDate, selectedActivity: $selectedActivity)
+                                        .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
+                                        .opacity(contentOpacity)
+                                    
+                                    // Activity detail card — constrained height with internal scrolling for summary
+                                    ActivityCard(activity: selectedActivity, maxHeight: geo.size.height, scrollSummary: true)
+                                        .frame(minWidth: 260, idealWidth: 380, maxWidth: 420)
+                                        .opacity(contentOpacity)
+                                }
+                                .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
                             }
                         }
                         .padding(30)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.white.opacity(0.3))
+                .background(Color.white)
                 .cornerRadius(14.72286)
                 .overlay(
                     RoundedRectangle(cornerRadius: 14.72286)
@@ -140,7 +146,8 @@ struct MainView: View {
             .padding(.bottom, 20)
             .frame(maxHeight: .infinity)
         }
-        .frame(minWidth: 800, minHeight: 600)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.clear)
         .sheet(isPresented: $showDatePicker) {
             DatePickerSheet(selectedDate: $selectedDate, isPresented: $showDatePicker)
         }
@@ -406,6 +413,8 @@ extension View {
 // MARK: - Activity Card
 struct ActivityCard: View {
     let activity: TimelineActivity?
+    var maxHeight: CGFloat? = nil
+    var scrollSummary: Bool = false
     
     private let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -451,40 +460,27 @@ struct ActivityCard: View {
                         )
                 }
                 
-                // Summary section
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("SUMMARY")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.secondary)
-                    
-                    Text(activity.summary)
-                        .font(.system(size: 12))
-                        .foregroundColor(.primary)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
-                    
-                    if !activity.detailedSummary.isEmpty && activity.detailedSummary != activity.summary {
-                        Text("DETAILS")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
-                            .padding(.top, 8)
-                        
-                        Text(activity.detailedSummary)
-                            .font(.system(size: 12))
-                            .foregroundColor(.primary)
-                            .lineLimit(nil)
-                            .fixedSize(horizontal: false, vertical: true)
+                // Summary section (scrolls internally when constrained)
+                Group {
+                    if scrollSummary {
+                        ScrollView(.vertical, showsIndicators: false) {
+                            summaryContent(for: activity)
+                                .frame(maxWidth: .infinity, alignment: .topLeading)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(maxHeight: .infinity, alignment: .topLeading)
+                    } else {
+                        summaryContent(for: activity)
                     }
                 }
-                
-                Spacer()
             }
             .padding(20)
             .background(Color.white)
             .cornerRadius(20)
             .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 5)
+            .if(maxHeight != nil) { view in
+                view.frame(maxHeight: maxHeight!)
+            }
         } else {
             // Empty state
             VStack {
@@ -502,6 +498,39 @@ struct ActivityCard: View {
             .background(Color.white)
             .cornerRadius(20)
             .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 5)
+            .if(maxHeight != nil) { view in
+                view.frame(maxHeight: maxHeight!)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func summaryContent(for activity: TimelineActivity) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("SUMMARY")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+            
+            Text(activity.summary)
+                .font(.system(size: 12))
+                .foregroundColor(.primary)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+            
+            if !activity.detailedSummary.isEmpty && activity.detailedSummary != activity.summary {
+                Text("DETAILS")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 8)
+                
+                Text(activity.detailedSummary)
+                    .font(.system(size: 12))
+                    .foregroundColor(.primary)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
     
@@ -569,3 +598,5 @@ struct MetricRow: View {
         }
     }
 }
+
+// Background view moved to separate file: MainUIBackgroundView.swift
