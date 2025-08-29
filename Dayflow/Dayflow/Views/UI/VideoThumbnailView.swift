@@ -37,18 +37,17 @@ struct VideoThumbnailView: View {
                         )
                 }
                 
-                // Play button overlay
+                // Play button overlay (custom asset)
                 Button(action: {
                     showVideoPlayer = true
                 }) {
-                    Image(systemName: "play.circle.fill")
-                        .font(.system(size: 50))
-                        .foregroundColor(.white)
-                        .background(
-                            Circle()
-                                .fill(Color.black.opacity(0.7))
-                                .frame(width: 60, height: 60)
-                        )
+                    Image("VideoPlayButton")
+                        .resizable()
+                        .renderingMode(.original)
+                        .interpolation(.high)
+                        .frame(width: 64, height: 64)
+                        .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 2)
+                        .accessibilityLabel("Play video summary")
                 }
                 .buttonStyle(PlainButtonStyle())
             }
