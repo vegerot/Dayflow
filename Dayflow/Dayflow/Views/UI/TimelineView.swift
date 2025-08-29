@@ -95,6 +95,15 @@ struct TimelineView: View {
             DispatchQueue.main.async {
                 self.activities = activities
                 self.isLoading = false
+
+                // Prefetch thumbnails for first few activities to keep UI snappy
+                let targetSize = CGSize(width: 356, height: 200)
+                let prefetchCount = 6
+                activities.prefix(prefetchCount).forEach { activity in
+                    if let url = activity.videoSummaryURL {
+                        ThumbnailCache.shared.prefetch(videoURL: url, targetSize: targetSize)
+                    }
+                }
             }
         }
     }
@@ -468,4 +477,3 @@ struct TimelineActivityCard: View {
         }
     }
 }
-
