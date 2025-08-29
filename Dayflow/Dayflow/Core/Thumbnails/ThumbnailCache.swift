@@ -36,9 +36,6 @@ final class ThumbnailCache {
         let key = cacheKey(url: normalizedURL, mtime: mtime, size: targetSize)
 
         if let image = cache.object(forKey: key as NSString) {
-#if DEBUG
-            print("🎞️ Thumb cache HIT key=\(key)")
-#endif
             DispatchQueue.main.async { completion(image) }
             return
         }
@@ -59,10 +56,7 @@ final class ThumbnailCache {
 
         queue.addOperation { [weak self] in
             guard let self = self else { return }
-#if DEBUG
             let t0 = CFAbsoluteTimeGetCurrent()
-            print("🎞️ Thumb GEN start key=\(key)")
-#endif
             let image = self.generateThumbnail(urlString: normalizedURL, targetSize: targetSize)
 
             if let image = image {
@@ -77,10 +71,6 @@ final class ThumbnailCache {
             }
 
             DispatchQueue.main.async {
-#if DEBUG
-                let dt = (CFAbsoluteTimeGetCurrent() - t0) * 1000
-                print("🎞️ Thumb GEN done key=\(key) ms=\(Int(dt)) success=\(image != nil)")
-#endif
                 callbacks.forEach { $0(image) }
             }
         }
@@ -142,8 +132,10 @@ final class ThumbnailCache {
             generator.maximumSize = CGSize(width: targetSize.width * scale, height: targetSize.height * scale)
         }
 
-        // Try 1s, then 0s to increase odds of hitting a keyframe quickly
-        let times: [CMTime] = [CMTime(seconds: 1, preferredTimescale: 600), .zero]
+        // Prefer a representative mid-point (bounded) to avoid identical first frames
+        let durationSec = CMTimeGetSeconds(asset.duration)
+        let mid = max(0.5, min(5.0, durationSec / 2.0))
+        let times: [CMTime] = [CMTime(seconds: mid, preferredTimescale: 600), CMTime(seconds: 1, preferredTimescale: 600), .zero]
         for t in times {
             do {
                 let cg = try generator.copyCGImage(at: t, actualTime: nil)
