@@ -13,6 +13,7 @@ struct VideoThumbnailView: View {
     let videoURL: String
     @State private var thumbnail: NSImage?
     @State private var showVideoPlayer = false
+    @State private var requestId: Int = 0
     
     var body: some View {
         GeometryReader { geometry in
@@ -51,13 +52,16 @@ struct VideoThumbnailView: View {
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            .onAppear {
-                extractThumbnail()
-            }
+            .id(videoURL)
+            .onAppear { fetchViaCache(size: geometry.size) }
             // Ensure thumbnail updates when a new video URL is provided
             .onChange(of: videoURL) { _ in
                 thumbnail = nil
-                extractThumbnail()
+                fetchViaCache(size: geometry.size)
+            }
+            // If our layout width meaningfully changes, refresh to better size
+            .onChange(of: geometry.size.width) { _ in
+                fetchViaCache(size: geometry.size)
             }
             .sheet(isPresented: $showVideoPlayer) {
                 VideoPlayerModal(videoURL: videoURL)
@@ -65,38 +69,18 @@ struct VideoThumbnailView: View {
         }
     }
     
-    private func extractThumbnail() {
-        let processedURL = videoURL.hasPrefix("file://") ? videoURL : "file://" + videoURL
-        
-        guard let url = URL(string: processedURL) else { return }
-        
-        let asset = AVAsset(url: url)
-        let imageGenerator = AVAssetImageGenerator(asset: asset)
-        imageGenerator.appliesPreferredTrackTransform = true
-        
-        // Extract frame at 1 second (or 0 if video is shorter)
-        let time = CMTime(seconds: 1, preferredTimescale: 1)
-        
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                let cgImage = try imageGenerator.copyCGImage(at: time, actualTime: nil)
-                let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-                
-                DispatchQueue.main.async {
-                    self.thumbnail = nsImage
-                }
-            } catch {
-                // Try at 0 seconds if 1 second fails
-                do {
-                    let cgImage = try imageGenerator.copyCGImage(at: .zero, actualTime: nil)
-                    let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-                    
-                    DispatchQueue.main.async {
-                        self.thumbnail = nsImage
-                    }
-                } catch {
-                    print("Failed to generate thumbnail: \(error)")
-                }
+    private func fetchViaCache(size: CGSize) {
+        // Create a unique request token to guard against race conditions
+        requestId &+= 1
+        let currentId = requestId
+        // Use the actual geometry size; avoid zero sizes
+        let w = max(1, size.width)
+        let h = max(1, size.height)
+        let target = CGSize(width: w, height: h)
+        ThumbnailCache.shared.fetchThumbnail(videoURL: videoURL, targetSize: target) { image in
+            // Guard against late completions from older URLs
+            if currentId == requestId {
+                self.thumbnail = image
             }
         }
     }
