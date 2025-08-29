@@ -227,6 +227,10 @@ struct VideoPlayerModal: View {
     private func setupPlayer() {
         let processedURL = videoURL.hasPrefix("file://") ? videoURL : "file://" + videoURL
         guard let url = URL(string: processedURL) else { return }
+        if url.isFileURL {
+            let path = url.path
+            guard FileManager.default.fileExists(atPath: path) else { return }
+        }
         viewModel.setupPlayer(url: url)
     }
     
