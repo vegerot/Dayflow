@@ -443,6 +443,7 @@ struct ActivityCard: View {
                 // Video thumbnail placeholder
                 if let videoURL = activity.videoSummaryURL {
                     VideoThumbnailView(videoURL: videoURL)
+                        .id(videoURL)
                         .frame(height: 200)
                 } else {
                     RoundedRectangle(cornerRadius: 12)
