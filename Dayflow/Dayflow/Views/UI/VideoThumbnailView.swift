@@ -80,6 +80,8 @@ struct VideoThumbnailView: View {
             // Guard against late completions from older URLs
             if currentId == requestId {
                 self.thumbnail = image
+            } else {
+                // Ignore stale completion
             }
         }
     }
