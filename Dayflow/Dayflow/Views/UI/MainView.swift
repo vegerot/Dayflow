@@ -294,7 +294,7 @@ struct TabFilterBar: View {
             )
             
             TabButton(
-                title: "Core tasks",
+                title: "Work",
                 icon: "person.crop.rectangle",
                 gradient: LinearGradient(
                     stops: [
@@ -309,7 +309,7 @@ struct TabFilterBar: View {
             )
             
             TabButton(
-                title: "Personal tasks",
+                title: "Personal",
                 icon: "eyes",
                 gradient: LinearGradient(
                     stops: [
@@ -339,7 +339,7 @@ struct TabFilterBar: View {
             )
             
             TabButton(
-                title: "Idle time",
+                title: "Idle",
                 icon: "face.smiling",
                 gradient: LinearGradient(
                     stops: [
@@ -537,7 +537,7 @@ struct ActivityCard: View {
     private func iconForActivity(_ activity: TimelineActivity) -> String {
         switch activity.category.lowercased() {
         case "productive work", "work":
-            return "laptop"
+            return "laptopcomputer" // valid SF Symbol
         case "research", "learning":
             return "book"
         case "personal", "hobbies":
