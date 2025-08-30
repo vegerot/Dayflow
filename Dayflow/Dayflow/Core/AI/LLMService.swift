@@ -222,7 +222,8 @@ final class LLMService: LLMServicing {
                     mimeType: mimeType,
                     prompt: "Transcribe this video", // Provider will use its own prompt
                     batchStartTime: batchStartDate,
-                    videoDuration: totalDuration
+                    videoDuration: totalDuration,
+                    batchId: batchId
                 )
                 
                 // Clean up temp file after transcription is complete
@@ -230,12 +231,6 @@ final class LLMService: LLMServicing {
                 
                 // Save observations to database
                 StorageManager.shared.saveObservations(batchId: batchId, observations: observations)
-                
-                // Save transcription log as batch metadata
-                if let logData = try? JSONEncoder().encode(transcribeLog),
-                   let logString = String(data: logData, encoding: .utf8) {
-                    StorageManager.shared.updateBatchMetadata(batchId, metadata: logString)
-                }
                 
                 // If no observations, mark batch as complete with no activities
                 guard !observations.isEmpty else {
@@ -291,8 +286,10 @@ final class LLMService: LLMServicing {
                 // Generate activity cards using sliding window observations
                 let (cards, cardsLog) = try await provider.generateActivityCards(
                     observations: recentObservations,
-                    context: context
+                    context: context,
+                    batchId: batchId
                 )
+                // Note: card generation log is not persisted per-batch yet
                 
                 // Replace old cards with new ones in the time range
                 let (insertedCardIds, deletedVideoPaths) = StorageManager.shared.replaceTimelineCardsInRange(
