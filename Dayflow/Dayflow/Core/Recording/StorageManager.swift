@@ -192,6 +192,28 @@ struct LLMCall: Codable, Sendable {
     let output: String?
 }
 
+// DB record for llm_calls table
+struct LLMCallDBRecord: Sendable {
+    let batchId: Int64?
+    let callGroupId: String?
+    let attempt: Int
+    let provider: String
+    let model: String?
+    let operation: String
+    let status: String // "success" | "failure"
+    let latencyMs: Int?
+    let httpStatus: Int?
+    let requestMethod: String?
+    let requestURL: String?
+    let requestHeadersJSON: String?
+    let requestBody: String?
+    let responseHeadersJSON: String?
+    let responseBody: String?
+    let errorDomain: String?
+    let errorCode: Int?
+    let errorMessage: String?
+}
+
 // Add TimelineCardShell struct for the new save function
 struct TimelineCardShell: Sendable {
     let startTimestamp: String
@@ -319,6 +341,35 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 CREATE INDEX IF NOT EXISTS idx_observations_batch_id ON observations(batch_id);
                 CREATE INDEX IF NOT EXISTS idx_observations_start_ts ON observations(start_ts);
                 CREATE INDEX IF NOT EXISTS idx_observations_time_range ON observations(start_ts, end_ts);
+            """)
+
+            // LLM calls logging table
+            try db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS llm_calls (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    batch_id INTEGER NULL,
+                    call_group_id TEXT NULL,
+                    attempt INTEGER NOT NULL DEFAULT 1,
+                    provider TEXT NOT NULL,
+                    model TEXT NULL,
+                    operation TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK(status IN ('success','failure')),
+                    latency_ms INTEGER NULL,
+                    http_status INTEGER NULL,
+                    request_method TEXT NULL,
+                    request_url TEXT NULL,
+                    request_headers TEXT NULL,
+                    request_body TEXT NULL,
+                    response_headers TEXT NULL,
+                    response_body TEXT NULL,
+                    error_domain TEXT NULL,
+                    error_code INTEGER NULL,
+                    error_message TEXT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_llm_calls_created ON llm_calls(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_llm_calls_group ON llm_calls(call_group_id, attempt);
+                CREATE INDEX IF NOT EXISTS idx_llm_calls_batch ON llm_calls(batch_id);
             """)
         }
     }
@@ -957,6 +1008,40 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
+    }
+
+    // MARK: - LLM Calls Logging ----------------------------------------------
+    func insertLLMCall(_ rec: LLMCallDBRecord) {
+        try? db.write { db in
+            try db.execute(sql: """
+                INSERT INTO llm_calls (
+                    batch_id, call_group_id, attempt, provider, model, operation,
+                    status, latency_ms, http_status, request_method, request_url,
+                    request_headers, request_body, response_headers, response_body,
+                    error_domain, error_code, error_message
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                rec.batchId,
+                rec.callGroupId,
+                rec.attempt,
+                rec.provider,
+                rec.model,
+                rec.operation,
+                rec.status,
+                rec.latencyMs,
+                rec.httpStatus,
+                rec.requestMethod,
+                rec.requestURL,
+                rec.requestHeadersJSON,
+                rec.requestBody,
+                rec.responseHeadersJSON,
+                rec.responseBody,
+                rec.errorDomain,
+                rec.errorCode,
+                rec.errorMessage
+            ])
+        }
     }
     
     func fetchObservations(startTs: Int, endTs: Int) -> [Observation] {
