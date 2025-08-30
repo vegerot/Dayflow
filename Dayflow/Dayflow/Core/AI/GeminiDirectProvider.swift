@@ -115,7 +115,7 @@ final class GeminiDirectProvider: LLMProvider {
         }
     }
     
-    func transcribeVideo(videoData: Data, mimeType: String, prompt: String, batchStartTime: Date, videoDuration: TimeInterval) async throws -> (observations: [Observation], log: LLMCall) {
+    func transcribeVideo(videoData: Data, mimeType: String, prompt: String, batchStartTime: Date, videoDuration: TimeInterval, batchId: Int64?) async throws -> (observations: [Observation], log: LLMCall) {
         let callStart = Date()
         
         // First, save video data to a temporary file
@@ -251,7 +251,8 @@ final class GeminiDirectProvider: LLMProvider {
         let response = try await geminiTranscribeRequest(
             fileURI: fileURI,
             mimeType: mimeType,
-            prompt: finalTranscriptionPrompt
+            prompt: finalTranscriptionPrompt,
+            batchId: batchId
         )
         
         
@@ -313,7 +314,7 @@ final class GeminiDirectProvider: LLMProvider {
         return (observations, log)
     }
     
-    func generateActivityCards(observations: [Observation], context: ActivityGenerationContext) async throws -> (cards: [ActivityCardData], log: LLMCall) {
+    func generateActivityCards(observations: [Observation], context: ActivityGenerationContext, batchId: Int64?) async throws -> (cards: [ActivityCardData], log: LLMCall) {
         let callStart = Date()
         
         // Convert observations to human-readable format for the prompt
@@ -452,7 +453,8 @@ final class GeminiDirectProvider: LLMProvider {
         
         // Initial request
         var response = try await geminiCardsRequest(
-            prompt: activityGenerationPrompt
+            prompt: activityGenerationPrompt,
+            batchId: batchId
         )
         var cards = try parseActivityCards(response)
         
@@ -520,7 +522,7 @@ final class GeminiDirectProvider: LLMProvider {
             
             // Retry with enhanced prompt
             actualPromptUsed = retryPrompt
-            response = try await geminiCardsRequest(prompt: retryPrompt)
+            response = try await geminiCardsRequest(prompt: retryPrompt, batchId: batchId)
             cards = try parseActivityCards(response)
         }
         
@@ -689,7 +691,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         return "UNKNOWN"
     }
     
-    private func geminiTranscribeRequest(fileURI: String, mimeType: String, prompt: String) async throws -> String {
+    private func geminiTranscribeRequest(fileURI: String, mimeType: String, prompt: String, batchId: Int64?) async throws -> String {
         let transcriptionSchema: [String:Any] = [
           "type":"ARRAY",
           "items": [
@@ -723,14 +725,16 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         let maxRetries = 3
         var lastError: Error?
         
+        let callGroupId = UUID().uuidString
         for attempt in 0..<maxRetries {
-            do {
                 let urlWithKey = genEndpoint + "?key=\(apiKey)"
-                var request = URLRequest(url: URL(string: urlWithKey)!)
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            var request = URLRequest(url: URL(string: urlWithKey)!)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = 120 // 2 minutes timeout
+            let requestStart = Date()
+            do {
                 request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-                request.timeoutInterval = 120 // 2 minutes timeout
                 
                 // Log curl command on first attempt or after failures
                 if attempt == 0 || lastError != nil {
@@ -740,7 +744,6 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                 // Log request timing
                 logRequestTiming(context: "transcribe.attempt\(attempt + 1)")
                 
-                let requestStart = Date()
                 let (data, response) = try await URLSession.shared.data(for: request)
                 let requestDuration = Date().timeIntervalSince(requestStart)
                 
@@ -807,7 +810,36 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                         if let details = error["details"] { print("   Error Details: \(details)") }
                     }
                 }
-                
+                // Centralized LLM call logging (success)
+                let responseHeaders: [String:String] = (response as? HTTPURLResponse)?.allHeaderFields.reduce(into: [:]) { acc, kv in
+                    if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible { acc[k] = v.description }
+                } ?? [:]
+                let modelName: String? = {
+                    if let u = URL(string: urlWithKey) {
+                        let last = u.path.split(separator: "/").last.map(String.init)
+                        return last?.split(separator: ":").first.map(String.init)
+                    }
+                    return nil
+                }()
+                let ctx = LLMCallContext(
+                    batchId: batchId,
+                    callGroupId: callGroupId,
+                    attempt: attempt + 1,
+                    provider: "gemini",
+                    model: modelName,
+                    operation: "transcribe",
+                    requestMethod: request.httpMethod,
+                    requestURL: request.url,
+                    requestHeaders: request.allHTTPHeaderFields,
+                    requestBody: request.httpBody,
+                    startedAt: requestStart
+                )
+                LLMLogger.logSuccess(
+                    ctx: ctx,
+                    http: LLMHTTPInfo(httpStatus: (response as? HTTPURLResponse)?.statusCode, responseHeaders: responseHeaders, responseBody: data),
+                    finishedAt: Date()
+                )
+
                 guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                     logGeminiFailure(context: "transcribe.generateContent.invalidJSON", attempt: attempt + 1, response: response, data: data, error: nil)
                     throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "Invalid JSON response"])
@@ -836,6 +868,35 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                 
             } catch {
                 lastError = error
+                // Centralized LLM call logging (failure)
+                let modelName: String? = {
+                    if let u = URL(string: genEndpoint) {
+                        let last = u.path.split(separator: "/").last.map(String.init)
+                        return last?.split(separator: ":").first.map(String.init)
+                    }
+                    return nil
+                }()
+                let ctx = LLMCallContext(
+                    batchId: batchId,
+                    callGroupId: callGroupId,
+                    attempt: attempt + 1,
+                    provider: "gemini",
+                    model: modelName,
+                    operation: "transcribe",
+                    requestMethod: request.httpMethod,
+                    requestURL: request.url,
+                    requestHeaders: request.allHTTPHeaderFields,
+                    requestBody: request.httpBody,
+                    startedAt: requestStart
+                )
+                LLMLogger.logFailure(
+                    ctx: ctx,
+                    http: nil,
+                    finishedAt: Date(),
+                    errorDomain: (error as NSError).domain,
+                    errorCode: (error as NSError).code,
+                    errorMessage: (error as NSError).localizedDescription
+                )
                 
                 // Log detailed error information for this attempt
                 print("🔴 GEMINI TRANSCRIBE ATTEMPT \(attempt + 1)/\(maxRetries) FAILED:")
@@ -919,7 +980,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         }
     }
     
-    private func geminiCardsRequest(prompt: String) async throws -> String {
+    private func geminiCardsRequest(prompt: String, batchId: Int64?) async throws -> String {
         let distractionSchema: [String: Any] = [
             "type": "OBJECT", "properties": ["startTime": ["type": "STRING"], "endTime": ["type": "STRING"], "title": ["type": "STRING"], "summary": ["type": "STRING"]],
             "required": ["startTime", "endTime", "title", "summary"], "propertyOrdering": ["startTime", "endTime", "title", "summary"]
@@ -952,15 +1013,17 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         // Retry logic with exponential backoff
         let maxRetries = 3
         var lastError: Error?
+        let callGroupId = UUID().uuidString
         
         for attempt in 0..<maxRetries {
+            let urlWithKey = genEndpoint + "?key=\(apiKey)"
+            var request = URLRequest(url: URL(string: urlWithKey)!)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = 120 // 2 minutes timeout
+            let requestStart = Date()
             do {
-                let urlWithKey = genEndpoint + "?key=\(apiKey)"
-                var request = URLRequest(url: URL(string: urlWithKey)!)
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-                request.timeoutInterval = 120 // 2 minutes timeout
                 
                 // Log curl command on first attempt or after failures
                 if attempt == 0 || lastError != nil {
@@ -970,7 +1033,6 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                 // Log request timing
                 logRequestTiming(context: "cards.attempt\(attempt + 1)")
                 
-                let requestStart = Date()
                 let (data, response) = try await URLSession.shared.data(for: request)
                 let requestDuration = Date().timeIntervalSince(requestStart)
                 
@@ -1037,7 +1099,36 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                         if let details = error["details"] { print("   Error Details: \(details)") }
                     }
                 }
-                
+                // Centralized LLM call logging (success)
+                let responseHeaders: [String:String] = (response as? HTTPURLResponse)?.allHeaderFields.reduce(into: [:]) { acc, kv in
+                    if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible { acc[k] = v.description }
+                } ?? [:]
+                let modelName: String? = {
+                    if let u = URL(string: urlWithKey) {
+                        let last = u.path.split(separator: "/").last.map(String.init)
+                        return last?.split(separator: ":").first.map(String.init)
+                    }
+                    return nil
+                }()
+                let ctx = LLMCallContext(
+                    batchId: batchId,
+                    callGroupId: callGroupId,
+                    attempt: attempt + 1,
+                    provider: "gemini",
+                    model: modelName,
+                    operation: "generate_activity_cards",
+                    requestMethod: request.httpMethod,
+                    requestURL: request.url,
+                    requestHeaders: request.allHTTPHeaderFields,
+                    requestBody: request.httpBody,
+                    startedAt: requestStart
+                )
+                LLMLogger.logSuccess(
+                    ctx: ctx,
+                    http: LLMHTTPInfo(httpStatus: (response as? HTTPURLResponse)?.statusCode, responseHeaders: responseHeaders, responseBody: data),
+                    finishedAt: Date()
+                )
+
                 guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let candidates = json["candidates"] as? [[String: Any]],
                       let firstCandidate = candidates.first,
@@ -1060,6 +1151,34 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                 
             } catch {
                 lastError = error
+                let modelName: String? = {
+                    if let u = URL(string: genEndpoint) {
+                        let last = u.path.split(separator: "/").last.map(String.init)
+                        return last?.split(separator: ":").first.map(String.init)
+                    }
+                    return nil
+                }()
+                let ctx = LLMCallContext(
+                    batchId: batchId,
+                    callGroupId: callGroupId,
+                    attempt: attempt + 1,
+                    provider: "gemini",
+                    model: modelName,
+                    operation: "generate_activity_cards",
+                    requestMethod: request.httpMethod,
+                    requestURL: request.url,
+                    requestHeaders: request.allHTTPHeaderFields,
+                    requestBody: request.httpBody,
+                    startedAt: requestStart
+                )
+                LLMLogger.logFailure(
+                    ctx: ctx,
+                    http: nil,
+                    finishedAt: Date(),
+                    errorDomain: (error as NSError).domain,
+                    errorCode: (error as NSError).code,
+                    errorMessage: (error as NSError).localizedDescription
+                )
                 
                 // Log detailed error information for this attempt
                 print("🔴 GEMINI CARDS ATTEMPT \(attempt + 1)/\(maxRetries) FAILED:")
@@ -1189,6 +1308,8 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             )
         }
     }
+
+    // (no local logging helpers needed; centralized via LLMLogger)
     
     // MARK: - Validation Helpers
     
