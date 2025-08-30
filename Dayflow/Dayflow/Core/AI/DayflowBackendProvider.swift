@@ -14,11 +14,11 @@ final class DayflowBackendProvider: LLMProvider {
         self.endpoint = endpoint
     }
     
-    func transcribeVideo(videoData: Data, mimeType: String, prompt: String, batchStartTime: Date, videoDuration: TimeInterval) async throws -> (observations: [Observation], log: LLMCall) {
+    func transcribeVideo(videoData: Data, mimeType: String, prompt: String, batchStartTime: Date, videoDuration: TimeInterval, batchId: Int64?) async throws -> (observations: [Observation], log: LLMCall) {
         fatalError("DayflowBackendProvider not implemented yet")
     }
     
-    func generateActivityCards(observations: [Observation], context: ActivityGenerationContext) async throws -> (cards: [ActivityCardData], log: LLMCall) {
+    func generateActivityCards(observations: [Observation], context: ActivityGenerationContext, batchId: Int64?) async throws -> (cards: [ActivityCardData], log: LLMCall) {
         fatalError("DayflowBackendProvider not implemented yet")
     }
 }
