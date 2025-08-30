@@ -95,6 +95,8 @@ struct SettingsView: View {
                 SystemInfoSection(sys: sys, accent: accent)
                     .transaction { tx in tx.disablesAnimations = true }
 
+                ReprocessSection(accent: accent)
+
                 Spacer(minLength: 40)
             }
             .padding(.horizontal, 40)
@@ -273,6 +275,197 @@ private struct SystemInfoSection: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Reprocess Section
+
+private final class ReprocessVM: ObservableObject {
+    @Published var selectedDate: Date = Date()
+    @Published var isRunning: Bool = false
+    @Published var totalBatches: Int = 0
+    @Published var processedBatches: Int = 0
+    @Published var elapsedSeconds: Int = 0
+    @Published var logLines: [String] = []
+    @Published var errorMessage: String? = nil
+
+    private var elapsedTimer: Timer?
+    private var pollTimer: Timer?
+    private var currentDayString: String = ""
+
+    func start() {
+        guard !isRunning else { return }
+        isRunning = true
+        errorMessage = nil
+        elapsedSeconds = 0
+        processedBatches = 0
+
+        currentDayString = formatDay(selectedDate)
+
+        // Compute total batches first
+        let batches = StorageManager.shared.fetchBatches(forDay: currentDayString)
+        totalBatches = batches.count
+
+        if totalBatches == 0 {
+            appendLog("No batches found for \(currentDayString)")
+            isRunning = false
+            return
+        }
+
+        // Pause auto analysis to avoid contention
+        AnalysisManager.shared.stopAnalysisJob()
+
+        // Start timers
+        elapsedTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.elapsedSeconds += 1
+        }
+        RunLoop.main.add(elapsedTimer!, forMode: .common)
+
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.pollProgress()
+        }
+        RunLoop.main.add(pollTimer!, forMode: .common)
+
+        // Kick off reprocess
+        AnalysisManager.shared.reprocessDay(currentDayString, progressHandler: { [weak self] msg in
+            self?.appendLog(msg)
+        }, completion: { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    self?.appendLog("\n✅ Reprocessing finished for \(self?.currentDayString ?? "")")
+                    self?.processedBatches = self?.totalBatches ?? 0
+                    self?.finish()
+                case .failure(let err):
+                    self?.appendLog("\n❌ Reprocessing failed: \(err.localizedDescription)")
+                    self?.errorMessage = err.localizedDescription
+                    self?.finish()
+                }
+            }
+        })
+    }
+
+    func teardown() { stopTimers() }
+
+    private func finish() {
+        stopTimers()
+        isRunning = false
+        // Resume auto analysis
+        AnalysisManager.shared.startAnalysisJob()
+    }
+
+    private func stopTimers() {
+        elapsedTimer?.invalidate(); elapsedTimer = nil
+        pollTimer?.invalidate(); pollTimer = nil
+    }
+
+    private func pollProgress() {
+        guard !currentDayString.isEmpty else { return }
+        let batches = StorageManager.shared.fetchBatches(forDay: currentDayString)
+        let processedStatuses: Set<String> = ["completed", "analyzed", "failed", "failed_empty", "skipped_short"]
+        processedBatches = batches.filter { processedStatuses.contains($0.status) }.count
+    }
+
+    func clearLog() { if !isRunning { logLines.removeAll() } }
+
+    func appendLog(_ line: String) {
+        DispatchQueue.main.async {
+            self.logLines.append(line)
+        }
+    }
+
+    func formatDay(_ date: Date) -> String {
+        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"; return df.string(from: date)
+    }
+
+    func formattedElapsed() -> String {
+        let m = elapsedSeconds / 60, s = elapsedSeconds % 60
+        return String(format: "%dm %02ds", m, s)
+    }
+}
+
+private struct ReprocessSection: View {
+    let accent: Color
+    @StateObject private var vm = ReprocessVM()
+
+    var body: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 16) {
+                SectionTitle("Reprocess Day")
+
+                HStack(spacing: 12) {
+                    DatePicker("Day:", selection: $vm.selectedDate, displayedComponents: .date)
+                        .labelsHidden()
+                        .disabled(vm.isRunning)
+
+                    Spacer()
+
+                    DayflowButton(
+                        title: vm.isRunning ? "Running..." : "Reprocess Day",
+                        action: vm.start,
+                        width: 160,
+                        fontSize: 14
+                    )
+                    .disabled(vm.isRunning)
+                }
+
+                if vm.totalBatches > 0 || vm.isRunning {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ProgressView(value: Double(max(vm.processedBatches, 0)), total: Double(max(vm.totalBatches, 1)))
+                            .tint(accent)
+                        HStack {
+                            Text("\(vm.processedBatches) / \(vm.totalBatches) batches")
+                                .font(.custom("Nunito", size: 12))
+                                .foregroundColor(.black.opacity(0.7))
+                            Spacer()
+                            Text("Elapsed: \(vm.formattedElapsed())")
+                                .font(.custom("Nunito", size: 12))
+                                .foregroundColor(.black.opacity(0.7))
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Activity Log")
+                        .font(.custom("Nunito", size: 14))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.black.opacity(0.8))
+
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.black.opacity(0.1))
+                            .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.5)))
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(Array(vm.logLines.enumerated()), id: \.offset) { _, line in
+                                    Text(line)
+                                        .font(.system(.footnote, design: .monospaced))
+                                        .foregroundColor(.black.opacity(0.8))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
+                            .padding(8)
+                        }
+                        .frame(minHeight: 120, maxHeight: 160)
+                    }
+
+                    HStack {
+                        Spacer()
+                        Button("Clear Log") { vm.clearLog() }
+                            .disabled(vm.isRunning || vm.logLines.isEmpty)
+                            .buttonStyle(.plain)
+                            .foregroundColor(accent)
+                    }
+                }
+
+                if let err = vm.errorMessage {
+                    Text("Error: \(err)")
+                        .font(.custom("Nunito", size: 12))
+                        .foregroundColor(.red)
+                }
+            }
+        }
+        .onDisappear { vm.teardown() }
     }
 }
 
