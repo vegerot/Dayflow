@@ -57,10 +57,55 @@ class GeminiAPIHelper {
         ]
         
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-        
+
+        // Build timing
+        let startedAt = Date()
+
         let (data, response) = try await URLSession.shared.data(for: request)
+        let ctx = LLMCallContext(
+            batchId: nil,
+            callGroupId: UUID().uuidString,
+            attempt: 1,
+            provider: "gemini",
+            model: nil,
+            operation: "test_connection",
+            requestMethod: request.httpMethod,
+            requestURL: request.url,
+            requestHeaders: request.allHTTPHeaderFields,
+            requestBody: request.httpBody,
+            startedAt: startedAt
+        )
+        if let http = response as? HTTPURLResponse {
+            let headers: [String:String] = http.allHeaderFields.reduce(into: [:]) { acc, kv in
+                if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible { acc[k] = v.description }
+            }
+            LLMLogger.logSuccess(
+                ctx: ctx,
+                http: LLMHTTPInfo(httpStatus: http.statusCode, responseHeaders: headers, responseBody: data),
+                finishedAt: Date()
+            )
+        } else {
+            LLMLogger.logSuccess(
+                ctx: ctx,
+                http: LLMHTTPInfo(httpStatus: nil, responseHeaders: nil, responseBody: data),
+                finishedAt: Date()
+            )
+        }
         
         guard let httpResponse = response as? HTTPURLResponse else {
+            LLMLogger.logFailure(
+                ctx: ctx,
+                http: (response as? HTTPURLResponse).map { http in
+                    let headers: [String:String] = http.allHeaderFields.reduce(into: [:]) { acc, kv in
+                        if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible { acc[k] = v.description }
+                    }
+                    return LLMHTTPInfo(httpStatus: http.statusCode, responseHeaders: headers, responseBody: data)
+                },
+                finishedAt: Date(),
+                errorDomain: "GeminiAPIHelper",
+                errorCode: nil,
+                errorMessage: "Invalid response"
+            )
             throw APIError.invalidResponse
         }
         
@@ -68,6 +113,16 @@ class GeminiAPIHelper {
             if let body = String(data: data, encoding: .utf8) {
                 print("🔎 GEMINI DEBUG: testConnection unauthorized (\(httpResponse.statusCode)) body=\(body)")
             }
+            LLMLogger.logFailure(
+                ctx: ctx,
+                http: LLMHTTPInfo(httpStatus: httpResponse.statusCode, responseHeaders: httpResponse.allHeaderFields.reduce(into: [:]) { acc, kv in
+                    if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible { acc[k] = v.description }
+                }, responseBody: data),
+                finishedAt: Date(),
+                errorDomain: "GeminiAPIHelper",
+                errorCode: httpResponse.statusCode,
+                errorMessage: "Invalid or missing API key"
+            )
             throw APIError.invalidAPIKey
         }
         
@@ -76,11 +131,31 @@ class GeminiAPIHelper {
                let error = errorData["error"] as? [String: Any],
                let message = error["message"] as? String {
                 print("🔎 GEMINI DEBUG: testConnection non-200 status=\(httpResponse.statusCode) message=\(message)")
+                LLMLogger.logFailure(
+                    ctx: ctx,
+                    http: LLMHTTPInfo(httpStatus: httpResponse.statusCode, responseHeaders: httpResponse.allHeaderFields.reduce(into: [:]) { acc, kv in
+                        if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible { acc[k] = v.description }
+                    }, responseBody: data),
+                    finishedAt: Date(),
+                    errorDomain: "GeminiAPIHelper",
+                    errorCode: httpResponse.statusCode,
+                    errorMessage: message
+                )
                 throw APIError.networkError(message)
             }
             if let body = String(data: data, encoding: .utf8) {
                 print("🔎 GEMINI DEBUG: testConnection non-200 status=\(httpResponse.statusCode) body=\(body)")
             }
+            LLMLogger.logFailure(
+                ctx: ctx,
+                http: LLMHTTPInfo(httpStatus: httpResponse.statusCode, responseHeaders: httpResponse.allHeaderFields.reduce(into: [:]) { acc, kv in
+                    if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible { acc[k] = v.description }
+                }, responseBody: data),
+                finishedAt: Date(),
+                errorDomain: "GeminiAPIHelper",
+                errorCode: httpResponse.statusCode,
+                errorMessage: "Status code: \(httpResponse.statusCode)"
+            )
             throw APIError.networkError("Status code: \(httpResponse.statusCode)")
         }
         
@@ -99,5 +174,26 @@ class GeminiAPIHelper {
         }
         
         return text
+    }
+
+    // MARK: - Helpers
+    private func encodeJSON(_ obj: Any) -> String? {
+        guard JSONSerialization.isValidJSONObject(obj) else {
+            // Try to coerce header dictionaries with AnyHashable keys
+            if let map = obj as? [AnyHashable: Any] {
+                var strMap: [String: String] = [:]
+                for (k, v) in map {
+                    if let ks = k as? String, let vs = v as? CustomStringConvertible { strMap[ks] = vs.description }
+                }
+                if JSONSerialization.isValidJSONObject(strMap), let data = try? JSONSerialization.data(withJSONObject: strMap, options: [.sortedKeys]) {
+                    return String(data: data, encoding: .utf8)
+                }
+            }
+            return nil
+        }
+        if let data = try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]) {
+            return String(data: data, encoding: .utf8)
+        }
+        return nil
     }
 }
