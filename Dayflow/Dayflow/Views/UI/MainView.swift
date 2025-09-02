@@ -14,6 +14,8 @@ struct MainView: View {
     @State private var selectedDate = Date()
     @State private var showDatePicker = false
     @State private var selectedActivity: TimelineActivity? = nil
+    @State private var scrollToNowTick: Int = 0
+    @ObservedObject private var inactivity = InactivityMonitor.shared
     
     // Animation states for orchestrated entrance - Emil Kowalski principles
     @State private var logoScale: CGFloat = 0.8
@@ -24,16 +26,15 @@ struct MainView: View {
     @State private var sidebarOpacity: Double = 0
     @State private var contentOpacity: Double = 0
     
+    // Track if we've performed the initial scroll to current time
+    @State private var didInitialScroll = false
+    
     var body: some View {
         VStack(spacing: 0) {
             // Top row of 2x2 grid
             HStack(alignment: .center, spacing: 0) {
-                // Top left: Logo (centered)
-                Image("DayflowLogoMainApp")
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 128, height: 128)
+                // Top left: Logo (centered) — premium animation without SVG
+                LogoBadgeView(imageName: "DayflowLogoMainApp", size: 45)
                     .frame(maxWidth: 100, maxHeight: .infinity)
                     .scaleEffect(logoScale)
                     .opacity(logoOpacity)
@@ -117,7 +118,7 @@ struct MainView: View {
                             GeometryReader { geo in
                                 HStack(alignment: .top, spacing: 20) {
                                     // Timeline area - Canvas look wired to data
-                                    CanvasTimelineDataView(selectedDate: $selectedDate, selectedActivity: $selectedActivity)
+                                    CanvasTimelineDataView(selectedDate: $selectedDate, selectedActivity: $selectedActivity, scrollToNowTick: $scrollToNowTick)
                                         .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
                                         .opacity(contentOpacity)
                                     
@@ -176,6 +177,25 @@ struct MainView: View {
             // Main content fades in last
             withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0).delay(0.2)) {
                 contentOpacity = 1
+            }
+            
+            // Perform initial scroll to current time on cold start
+            if !didInitialScroll {
+                performInitialScrollIfNeeded()
+            }
+        }
+        // Trigger reset when idle fired and timeline is visible
+        .onChange(of: inactivity.pendingReset) { fired in
+            if fired, selectedIcon != .settings {
+                performIdleResetAndScroll()
+                InactivityMonitor.shared.markHandledIfPending()
+            }
+        }
+        // If user returns from Settings and a reset was pending, perform it once
+        .onChange(of: selectedIcon) { newIcon in
+            if newIcon != .settings, inactivity.pendingReset {
+                performIdleResetAndScroll()
+                InactivityMonitor.shared.markHandledIfPending()
             }
         }
     }
@@ -406,6 +426,45 @@ extension View {
             transform(self)
         } else {
             self
+        }
+    }
+}
+
+// MARK: - Idle Reset Helpers
+extension MainView {
+    private func performIdleResetAndScroll() {
+        // Switch to today
+        selectedDate = Date()
+        // Clear selection
+        selectedActivity = nil
+        // Nudge timeline to scroll to now after it reloads
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            withAnimation(.easeInOut(duration: 0.35)) {
+                scrollToNowTick &+= 1
+            }
+        }
+    }
+    
+    private func performInitialScrollIfNeeded() {
+        // Check all conditions for initial scroll:
+        // 1. Timeline is visible (not in settings)
+        // 2. No modal is open
+        // 3. Selected date is today
+        guard selectedIcon != .settings,
+              !showDatePicker,
+              Calendar.current.isDateInToday(selectedDate) else {
+            return
+        }
+        
+        // Mark that we've attempted initial scroll
+        didInitialScroll = true
+        
+        // Wait for layout to settle after animations complete
+        // (0.2s for content opacity + 0.5s buffer for layout)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+            withAnimation(.easeInOut(duration: 0.35)) {
+                scrollToNowTick &+= 1
+            }
         }
     }
 }
