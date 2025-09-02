@@ -47,6 +47,7 @@ private struct SelectionEffectConstants {
 struct CanvasTimelineDataView: View {
     @Binding var selectedDate: Date
     @Binding var selectedActivity: TimelineActivity?
+    @Binding var scrollToNowTick: Int
 
     @State private var selectedCardId: UUID? = nil
     @State private var positionedActivities: [CanvasPositionedActivity] = []
@@ -55,8 +56,9 @@ struct CanvasTimelineDataView: View {
     private let storageManager = StorageManager.shared
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            ZStack(alignment: .topLeading) {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                ZStack(alignment: .topLeading) {
                 // Horizontal lines that extend past the vertical separator
                 VStack(spacing: 0) {
                     ForEach(0..<(CanvasConfig.endHour - CanvasConfig.startHour), id: \.self) { _ in
@@ -71,10 +73,10 @@ struct CanvasTimelineDataView: View {
                 }
                 .padding(.leading, CanvasConfig.timeColumnWidth)
 
-                // Main content with time labels
-                HStack(spacing: 0) {
-                    // Time labels column
-                    VStack(spacing: 0) {
+                    // Main content with time labels
+                    HStack(spacing: 0) {
+                        // Time labels column
+                        VStack(spacing: 0) {
                         ForEach(CanvasConfig.startHour..<CanvasConfig.endHour, id: \.self) { hour in
                             Text(formatHour(hour))
                                 .font(.system(size: 13))
@@ -87,11 +89,11 @@ struct CanvasTimelineDataView: View {
                     }
                     .frame(width: CanvasConfig.timeColumnWidth)
 
-                    // Main timeline area
-                    ZStack(alignment: .topLeading) {
-                        Color.clear
+                        // Main timeline area
+                        ZStack(alignment: .topLeading) {
+                            Color.clear
 
-                        ForEach(positionedActivities) { item in
+                            ForEach(positionedActivities) { item in
                             CanvasActivityCard(
                                 icon: item.icon,
                                 title: item.title,
@@ -111,14 +113,24 @@ struct CanvasTimelineDataView: View {
                             )
                             .frame(height: item.height)
                             .offset(y: item.yPosition)
+                            }
+
+                            // Invisible anchor near "now" to enable programmatic scroll
+                            nowAnchorView()
+                                .id("nowAnchor")
                         }
+                        .clipped() // Prevent shadows/animations from affecting scroll geometry
+                        // Allow timeline column to shrink under narrow widths
+                        .frame(minWidth: 0, maxWidth: .infinity)
                     }
-                    .clipped() // Prevent shadows/animations from affecting scroll geometry
-                    // Allow timeline column to shrink under narrow widths
-                    .frame(minWidth: 0, maxWidth: .infinity)
+                }
+                .frame(height: CGFloat(CanvasConfig.endHour - CanvasConfig.startHour) * CanvasConfig.hourHeight)
+            }
+            .onChange(of: scrollToNowTick) { _ in
+                withAnimation(.easeInOut(duration: 0.35)) {
+                    proxy.scrollTo("nowAnchor", anchor: .top)
                 }
             }
-            .frame(height: CGFloat(CanvasConfig.endHour - CanvasConfig.startHour) * CanvasConfig.hourHeight)
         }
         .background(Color.white)
         .onAppear {
@@ -302,13 +314,31 @@ struct CanvasTimelineDataView: View {
 
     private func colorForCategory(_ category: String) -> CardColor {
         switch category.lowercased() {
-        case "productive work", "work", "research", "coding", "writing", "learning":
-            return .blue
-        case "distraction", "entertainment", "social media":
-            return .red
+        case let cat where cat.contains("work") || cat.contains("productive") || cat.contains("coding") || cat.contains("research"):
+            return .blue  // Will map to teal gradient
+        case let cat where cat.contains("distraction") || cat.contains("entertainment") || cat.contains("social"):
+            return .red   // Will map to terracotta gradient
+        case let cat where cat.contains("learning") || cat.contains("studying") || cat.contains("personal"):
+            return .orange  // Will map to purple gradient
         default:
-            return .orange
+            return .orange  // Default warm gray
         }
+    }
+}
+
+// MARK: - Now Anchor Helper
+extension CanvasTimelineDataView {
+    // Places a hidden view at a position slightly above "now" so that scrolling reveals "now" plus more below
+    @ViewBuilder
+    private func nowAnchorView() -> some View {
+        let buffer: CGFloat = 200 // pixels of extra space below current time
+        let yNow = calculateYPosition(for: Date())
+        let anchorY = max(0, yNow - buffer)
+        Color.clear
+            .frame(height: 1)
+            .offset(y: anchorY)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
@@ -321,6 +351,42 @@ struct CanvasActivityCard: View {
     let cardColor: CardColor
     let isSelected: Bool
     let onTap: () -> Void
+    
+    // Helper function to get gradient colors based on card type
+    private func gradientColors(for color: CardColor) -> [Color] {
+        switch color {
+        case .blue:
+            // Productive work: Soft mint/sage pastels
+            return [
+                Color(red: 0.85, green: 0.94, blue: 0.90), // #D9F0E5 - Soft mint
+                Color(red: 0.90, green: 0.96, blue: 0.93)  // #E5F5ED - Lighter mint
+            ]
+        case .red:
+            // Distractions: Warm peach/coral pastels
+            return [
+                Color(red: 1.0, green: 0.88, blue: 0.85),  // #FFE0D9 - Soft peach
+                Color(red: 1.0, green: 0.92, blue: 0.90)   // #FFEBE5 - Lighter peach
+            ]
+        case .orange:
+            // Learning/Personal: Soft lavender pastels
+            return [
+                Color(red: 0.92, green: 0.88, blue: 0.95), // #EBE0F2 - Soft lavender
+                Color(red: 0.95, green: 0.92, blue: 0.97)  // #F2EBF7 - Lighter lavender
+            ]
+        }
+    }
+    
+    // Helper function to get border color based on card type
+    private func borderColor(for color: CardColor) -> Color {
+        switch color {
+        case .blue:
+            return Color(red: 0.70, green: 0.85, blue: 0.78).opacity(0.5) // Soft mint border
+        case .red:
+            return Color(red: 0.95, green: 0.75, blue: 0.70).opacity(0.5) // Soft coral border
+        case .orange:
+            return Color(red: 0.82, green: 0.75, blue: 0.88).opacity(0.5) // Soft lavender border
+        }
+    }
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
@@ -329,14 +395,14 @@ struct CanvasActivityCard: View {
 
             Text(title)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.black.opacity(0.8))
+                .foregroundColor(Color(red: 0.25, green: 0.25, blue: 0.30))
 
             Text("• \(time)")
                 .font(
                     Font.custom("Nunito", size: 10)
                         .weight(.medium)
                 )
-                .foregroundColor(.black.opacity(0.6))
+                .foregroundColor(Color(red: 0.35, green: 0.35, blue: 0.40).opacity(0.8))
 
             Spacer()
         }
@@ -344,23 +410,23 @@ struct CanvasActivityCard: View {
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .leading)
         .background(
-            Image(cardColor.rawValue)
-                .resizable()
+            LinearGradient(
+                colors: gradientColors(for: cardColor),
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         )
         .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
         .overlay(
             Group {
-                if cardColor == .orange {
-                    RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .stroke(Color(hex: "FFEBC9"), lineWidth: 1.5)
-                } else if cardColor == .blue {
-                    RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .stroke(Color(hex: "C9D6F6"), lineWidth: 1.5)
-                }
+                // Subtle border based on card type
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .stroke(borderColor(for: cardColor), lineWidth: 1)
 
+                // Highlight overlay
                 LinearGradient(
                     colors: [
-                        Color.white.opacity(isSelected ? 0.3 : 0.1),
+                        Color.white.opacity(isSelected ? 0.25 : 0.08),
                         Color.clear
                     ],
                     startPoint: .top,
@@ -403,8 +469,9 @@ struct CanvasActivityCard: View {
     struct PreviewWrapper: View {
         @State private var date = Date()
         @State private var selected: TimelineActivity? = nil
+        @State private var tick: Int = 0
         var body: some View {
-            CanvasTimelineDataView(selectedDate: $date, selectedActivity: $selected)
+            CanvasTimelineDataView(selectedDate: $date, selectedActivity: $selected, scrollToNowTick: $tick)
                 .frame(width: 800, height: 600)
         }
     }

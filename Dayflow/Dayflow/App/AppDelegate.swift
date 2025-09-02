@@ -20,6 +20,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Start the Gemini analysis background job
         setupGeminiAnalysis()
+
+        // Start inactivity monitoring for idle reset
+        InactivityMonitor.shared.start()
     }
     
     // Start Gemini analysis as a background task
