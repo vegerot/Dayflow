@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 struct OnboardingLLMSelectionView: View {
     // Navigation callbacks
@@ -17,150 +18,170 @@ struct OnboardingLLMSelectionView: View {
     @State private var titleOpacity: Double = 0
     @State private var cardsOpacity: Double = 0
     @State private var bottomTextOpacity: Double = 0
+    @State private var hasAppeared: Bool = false
     
     var body: some View {
         GeometryReader { geometry in
-            let idealWidth: CGFloat = 1400
-            let idealHeight: CGFloat = 900
-            
-            // Calculate scale factor to fit content in available space
-            let scaleX = geometry.size.width / idealWidth
-            let scaleY = geometry.size.height / idealHeight
-            let scale = min(scaleX, scaleY, 1.0) // Never scale up, only down
-            
-            ZStack {
-                // Main content with fixed ideal size
-                VStack(spacing: 0) {
-                    Spacer()
-                    
-                    VStack(spacing: 48) {
-                        // MARK: - Title
-                        Text("Choose a way to run Dayflow")
-                            .font(.custom("InstrumentSerif-Regular", size: 48))
-                            .multilineTextAlignment(.center)
-                            .foregroundColor(.black.opacity(0.9))
-                            .opacity(titleOpacity)
-                            .onAppear {
-                                withAnimation(.easeOut(duration: 0.6)) {
-                                    titleOpacity = 1
-                                }
-                                animateContent()
-                            }
-                        
-                        // MARK: - Provider Cards (Horizontal Layout)
-                        HStack(spacing: 24) {
-                            // Run locally card
-                            ProviderCard(
-                                id: "ollama",
-                                title: "Use local AI",
-                                badgeText: "MOST PRIVATE",
-                                badgeType: .green,
-                                icon: "desktopcomputer",
-                                features: [
-                                    ("100% private - everything's processed on your computer", true),
-                                    ("Works completely offline", true),
-                                    ("Significantly less intelligence", true),
-                                    ("Requires the most setup", false),
-                                    ("16GB+ of RAM recommended", false),
-                                    ("Can be battery-intensive", false)
-                                ],
-                                isSelected: selectedProvider == "ollama",
-                                onSelect: {
-                                    // Higher damping (0.9) for less bounce, more professional feel
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
-                                        selectedProvider = "ollama"
-                                    }
-                                },
-                                onProceed: {
-                                    selectedProvider = "ollama"
-                                    saveProviderSelection()
-                                    onNext("ollama")  // Pass provider to parent
-                                }
-                            )
-                            
-                            // Bring your own API card (selected by default)
-                            ProviderCard(
-                                id: "gemini",
-                                title: "Bring your own API keys",
-                                badgeText: "RECOMMENED",
-                                badgeType: .orange,
-                                icon: "key.fill",
-                                features: [
-                                    ("Utilizes more intelligent AI via Google's Gemini models", true),
-                                    ("Uses Gemini's generous free tier (no credit card needed)", true),
-                                    ("Your data goes directly to Google, bypasses our servers", true),
-                                    ("Faster, more accurate than local models", true),
-                                    ("Requires getting an API key (takes 2 clicks)", false)
-                                ],
-                                isSelected: selectedProvider == "gemini",
-                                onSelect: {
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
-                                        selectedProvider = "gemini"
-                                    }
-                                },
-                                onProceed: {
-                                    selectedProvider = "gemini"
-                                    saveProviderSelection()
-                                    onNext("gemini")  // Pass provider to parent
-                                }
-                            )
-                            
-                            // Dayflow Pro card
-                            ProviderCard(
-                                id: "dayflow",
-                                title: "Dayflow Pro",
-                                badgeText: "EASIEST SETUP",
-                                badgeType: .blue,
-                                icon: "sparkles",
-                                features: [
-                                    ("Zero setup - just sign in and go", true),
-                                    ("Your data is processed then immediately deleted", true),
-                                    ("Never used to train AI models", true),
-                                    ("Always the fastest, most capable AI", true),
-                                    ("Fixed monthly pricing, no surprises", true),
-                                    ("Requires internet connection", false)
-                                ],
-                                isSelected: selectedProvider == "dayflow",
-                                onSelect: {
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
-                                        selectedProvider = "dayflow"
-                                    }
-                                },
-                                onProceed: {
-                                    selectedProvider = "dayflow"
-                                    saveProviderSelection()
-                                    onNext("dayflow")  // Pass provider to parent (no setup needed)
-                                }
-                            )
-                        }
-                        .opacity(cardsOpacity)
-                        
-                        // MARK: - Bottom text
-                        HStack {
-                            Text("Not sure which to choose? ")
-                                .font(.custom("Nunito", size: 14))
-                                .foregroundColor(.black.opacity(0.6))
-                            + Text("Try Dayflow Pro free for 1 month")
-                                .font(.custom("Nunito", size: 14))
-                                .fontWeight(.semibold)
-                                .foregroundColor(.black.opacity(0.8))
-                            
-                            Text(" - no credit card required.")
-                                .font(.custom("Nunito", size: 14))
-                                .foregroundColor(.black.opacity(0.6))
-                        }
-                        .opacity(bottomTextOpacity)
-                        .padding(.top, 8)
+            let windowWidth = geometry.size.width
+            let windowHeight = geometry.size.height
+
+            // Constants
+            let edgePadding: CGFloat = 40
+            let cardGap: CGFloat = 20
+            let headerHeight: CGFloat = 70
+            let footerHeight: CGFloat = 40
+
+            // Card width calc (no min width, cap at 480)
+            let availableWidth = windowWidth - (edgePadding * 2)
+            let rawCardWidth = (availableWidth - (cardGap * 2)) / 3
+            let cardWidth = max(1, min(480, floor(rawCardWidth)))
+
+            // Card height calc
+            let availableHeight = windowHeight - headerHeight - footerHeight
+            let cardHeight = min(500, max(300, availableHeight - 20))
+
+            // Title font size
+            let titleSize: CGFloat = windowWidth <= 900 ? 32 : 48
+
+            VStack(spacing: 0) {
+                // Header
+                Text("Choose a way to run Dayflow")
+                    .font(.custom("InstrumentSerif-Regular", size: titleSize))
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(.black.opacity(0.9))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: headerHeight)
+                    .opacity(titleOpacity)
+                    .onAppear {
+                        guard !hasAppeared else { return }
+                        hasAppeared = true
+                        withAnimation(.easeOut(duration: 0.6)) { titleOpacity = 1 }
+                        animateContent()
                     }
-                    .padding(.horizontal, 60)
-                    
-                    Spacer()
+
+                // Dynamic card area
+                Spacer(minLength: 10)
+
+                HStack(spacing: cardGap) {
+                    ForEach(providerCards, id: \.id) { card in
+                        card
+                            .frame(width: cardWidth, height: cardHeight)
+                    }
                 }
-                .frame(width: idealWidth, height: idealHeight)
-                .scaleEffect(scale)
-                .frame(width: geometry.size.width, height: geometry.size.height)
+                .padding(.horizontal, edgePadding)
+                .opacity(cardsOpacity)
+
+                Spacer(minLength: 10)
+
+                // Footer
+                HStack(spacing: 0) {
+                    Group {
+                        Text("Not sure which to choose? ")
+                            .foregroundColor(.black.opacity(0.6))
+                        + Text("Try Dayflow Pro free for 1 month")
+                            .fontWeight(.semibold)
+                            .foregroundColor(.black.opacity(0.8))
+                        + Text(" – no credit card required.")
+                            .foregroundColor(.black.opacity(0.6))
+                    }
+                    .font(.custom("Nunito", size: 14))
+                    .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: footerHeight)
+                .opacity(bottomTextOpacity)
             }
+            .animation(.easeOut(duration: 0.2), value: cardWidth)
+            .animation(.easeOut(duration: 0.2), value: cardHeight)
         }
+    }
+    
+    // Create provider cards as a computed property for reuse
+    private var providerCards: [ProviderCard] {
+        [
+            // Run locally card
+            ProviderCard(
+                id: "ollama",
+                title: "Use local AI",
+                badgeText: "MOST PRIVATE",
+                badgeType: .green,
+                icon: "desktopcomputer",
+                features: [
+                    ("100% private - everything's processed on your computer", true),
+                    ("Works completely offline", true),
+                    ("Significantly less intelligence", true),
+                    ("Requires the most setup", false),
+                    ("16GB+ of RAM recommended", false),
+                    ("Can be battery-intensive", false)
+                ],
+                isSelected: selectedProvider == "ollama",
+                onSelect: {
+                    // Higher damping (0.9) for less bounce, more professional feel
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                        selectedProvider = "ollama"
+                    }
+                },
+                onProceed: {
+                    selectedProvider = "ollama"
+                    saveProviderSelection()
+                    onNext("ollama")  // Pass provider to parent
+                }
+            ),
+            
+            // Bring your own API card (selected by default)
+            ProviderCard(
+                id: "gemini",
+                title: "Bring your own API keys",
+                badgeText: "RECOMMENDED",
+                badgeType: .orange,
+                icon: "key.fill",
+                features: [
+                    ("Utilizes more intelligent AI via Google's Gemini models", true),
+                    ("Uses Gemini's generous free tier (no credit card needed)", true),
+                    ("Faster, more accurate than local models", true),
+                    ("Requires getting an API key (takes 2 clicks)", false)
+                ],
+                isSelected: selectedProvider == "gemini",
+                onSelect: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                        selectedProvider = "gemini"
+                    }
+                },
+                onProceed: {
+                    selectedProvider = "gemini"
+                    saveProviderSelection()
+                    onNext("gemini")  // Pass provider to parent
+                }
+            ),
+            
+            // Dayflow Pro card
+            ProviderCard(
+                id: "dayflow",
+                title: "Dayflow Pro",
+                badgeText: "EASIEST SETUP",
+                badgeType: .blue,
+                icon: "sparkles",
+                features: [
+                    ("Zero setup - just sign in and go", true),
+                    ("Your data is processed then immediately deleted", true),
+                    ("Never used to train AI models", true),
+                    ("Always the fastest, most capable AI", true),
+                    ("Fixed monthly pricing, no surprises", true),
+                    ("Requires internet connection", false)
+                ],
+                isSelected: selectedProvider == "dayflow",
+                onSelect: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                        selectedProvider = "dayflow"
+                    }
+                },
+                onProceed: {
+                    selectedProvider = "dayflow"
+                    saveProviderSelection()
+                    onNext("dayflow")  // Pass provider to parent (no setup needed)
+                }
+            )
+        ]
     }
     
     // MARK: - Helper Methods
@@ -203,20 +224,10 @@ enum BadgeType {
     case green, orange, blue
 }
 
-// MARK: - Custom Button Style (No press dimming)
-struct NoHighlightButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            // No opacity or scale changes on press
-    }
-}
-
 // MARK: - Proceed Button Style with active state
 struct ProceedButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.9 : 1.0)
-            .animation(.timingCurve(0.2, 0.8, 0.4, 1.0, duration: 0.25), value: configuration.isPressed)
     }
 }
 
@@ -232,42 +243,36 @@ struct ProviderCard: View {
     let onSelect: () -> Void
     let onProceed: () -> Void
     
-    @State private var isHovered = false
-    
     var body: some View {
-        Button(action: onSelect) {
-            cardContent
-        }
-        .buttonStyle(NoHighlightButtonStyle())
-        .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.2)) {
-                isHovered = hovering
+        cardContent
+            .contentShape(RoundedRectangle(cornerRadius: 4))
+            .allowsHitTesting(id != "dayflow")
+            .onTapGesture {
+                guard id != "dayflow" else { return }
+                onSelect()
             }
-        }
     }
     
     private var cardContent: some View {
         VStack(spacing: 0) {
-            // Main content area
+            // Header + scrollable features
             VStack(alignment: .leading, spacing: 0) {
                 iconSection
                 titleSection
                 badgeSection
-                featuresSection
-                Spacer()
+                featuresScroll
             }
-            
+
+            // Fixed footer button area
             proceedButton
         }
-        .frame(width: 360, height: 500)
+        .frame(maxWidth: .infinity)
         .background(cardBackground)
         .cornerRadius(4)
         .overlay(cardOverlay)
         .modifier(CardShadowModifier(isSelected: isSelected))
-        .scaleEffect(isHovered && !isSelected ? 1.02 : 1.0)  // Only hover effect
-        // Less bouncy spring for selection (0.9 damping = minimal bounce)
+        // Selection spring
         .animation(.spring(response: 0.3, dampingFraction: 0.9), value: isSelected)
-        .animation(.easeOut(duration: 0.2), value: isHovered)
     }
     
     private var iconSection: some View {
@@ -284,9 +289,11 @@ struct ProviderCard: View {
         HStack {
             Spacer()
             Text(title)
-                .font(.custom("Nunito", size: 20))
+                .font(.custom("Nunito", size: 18))
                 .fontWeight(.semibold)
                 .foregroundColor(.black.opacity(0.9))
+                .lineLimit(2)
+                .truncationMode(.tail)
             Spacer()
         }
         .padding(.bottom, 8)
@@ -301,21 +308,28 @@ struct ProviderCard: View {
         .padding(.bottom, 24)
     }
     
-    private var featuresSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(features.enumerated()), id: \.offset) { index, feature in
-                FeatureRowView(feature: feature)
+    private var featuresScroll: some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(features.enumerated()), id: \.offset) { _, feature in
+                    FeatureRowView(feature: feature)
+                }
             }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 8)
         }
-        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
     private var proceedButton: some View {
         ProceedButtonView(
+            providerId: id,
             isSelected: isSelected,
             action: onProceed
         )
+        .padding(.horizontal, 24)
         .padding(.bottom, 24)
+        .frame(height: 60, alignment: .center)
     }
     
     @ViewBuilder
@@ -380,28 +394,42 @@ struct FeatureRowView: View {
 }
 
 struct ProceedButtonView: View {
+    let providerId: String
     let isSelected: Bool
     let action: () -> Void
-    @State private var isHovered = false
+    @State private var isHovered: Bool = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    
+    private var isComingSoon: Bool {
+        providerId == "dayflow"
+    }
     
     var body: some View {
-        Button(action: action) {
+        Button(action: isComingSoon ? {} : action) {
             HStack(spacing: 4) {
-                Text("Proceed")
+                Text(isComingSoon ? "Coming Soon" : "Proceed")
                     .font(.custom("Nunito", size: 14))
                     .fontWeight(.semibold)
-                    .foregroundColor(isSelected ? .white : .black.opacity(0.8))
+                    .foregroundColor(
+                        isComingSoon ? .black.opacity(0.4) : 
+                        (isSelected ? .white : .black.opacity(0.8))
+                    )
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 13)
-            .frame(width: 312)
+            .frame(maxWidth: .infinity)
             .background(buttonBackground)
             .cornerRadius(4)
             .overlay(buttonOverlay)
         }
         .buttonStyle(ProceedButtonStyle())
-        .scaleEffect(isHovered ? 1.02 : 1.0)
-        .animation(.timingCurve(0.2, 0.8, 0.4, 1.0, duration: 0.25), value: isHovered)
+        .disabled(isComingSoon)
+        .if(!isComingSoon) { view in
+            view.pointingHandCursor()
+        }
+        .scaleEffect(reduceMotion ? 1.0 : (isHovered && !isComingSoon ? 1.05 : 1.0))
+        .offset(y: reduceMotion ? 0 : (isHovered && !isComingSoon ? -1.5 : 0))
+        .animation(.spring(response: 0.22, dampingFraction: 0.85, blendDuration: 0), value: isHovered)
         .onHover { hovering in
             isHovered = hovering
         }
@@ -409,7 +437,9 @@ struct ProceedButtonView: View {
     
     @ViewBuilder
     private var buttonBackground: some View {
-        if isSelected {
+        if isComingSoon {
+            Color.gray.opacity(0.1)
+        } else if isSelected {
             Color(red: 0.25, green: 0.17, blue: 0)
         } else {
             Color.white.opacity(0.0001)
@@ -420,7 +450,8 @@ struct ProceedButtonView: View {
     private var buttonOverlay: some View {
         RoundedRectangle(cornerRadius: 4)
             .stroke(
-                isSelected ? Color.clear : Color.black.opacity(0.2),
+                isComingSoon ? Color.gray.opacity(0.2) :
+                (isSelected ? Color.clear : Color.black.opacity(0.2)),
                 lineWidth: 1
             )
     }
