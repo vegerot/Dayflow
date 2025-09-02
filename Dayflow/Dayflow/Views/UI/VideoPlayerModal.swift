@@ -195,18 +195,20 @@ struct VideoPlayerModal: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 
-                // Timeline and controls at bottom
-                VStack(spacing: 0) {
-                    VideoTimelineView(viewModel: viewModel)
-                        .frame(height: 80)
-                        .background(Color.black.opacity(0.95))
-                    
-                    PlayerControlsView(viewModel: viewModel)
-                        .padding()
-                        .background(Color.black)
+                // Custom scrubber below the video
+                VStack(spacing: 12) {
+                    if let url = scrubberURL {
+                        ScrubberView(
+                            url: url,
+                            duration: max(0.001, viewModel.duration),
+                            currentTime: viewModel.currentTime,
+                            onSeek: { t in viewModel.seek(to: t) },
+                            onScrubStateChange: { dragging in viewModel.isDragging = dragging }
+                        )
+                        .padding(.horizontal)
+                        .padding(.bottom, 12)
+                    }
                 }
-                .opacity(showControls ? 1 : 0)
-                .animation(.easeInOut(duration: 0.3), value: showControls)
             }
         }
         .frame(width: 800, height: 600)
@@ -233,6 +235,12 @@ struct VideoPlayerModal: View {
         }
         viewModel.setupPlayer(url: url)
     }
+
+    private var scrubberURL: URL? {
+        let processedURL = videoURL.hasPrefix("file://") ? videoURL : "file://" + videoURL
+        guard let url = URL(string: processedURL) else { return nil }
+        return url
+    }
     
     private func startControlsTimer() {
         controlsTimer?.invalidate()
@@ -246,246 +254,5 @@ struct VideoPlayerModal: View {
     private func showControlsTemporarily() {
         showControls = true
         startControlsTimer()
-    }
-}
-
-// MARK: - Timeline View
-struct VideoTimelineView: View {
-    @ObservedObject var viewModel: VideoPlayerViewModel
-    @State private var isDraggingTimeline = false
-    
-    private let segmentHeight: CGFloat = 45
-    private let timeRulerHeight: CGFloat = 20
-    
-    var body: some View {
-        VStack(spacing: 0) {
-            // Time ruler
-            GeometryReader { geometry in
-                TimeRulerView(duration: viewModel.duration, width: geometry.size.width)
-            }
-            .frame(height: timeRulerHeight)
-            
-            // Timeline with segments
-            GeometryReader { geometry in
-                ZStack(alignment: .top) {
-                    // Dark background track
-                    Rectangle()
-                        .fill(Color.black.opacity(0.3))
-                        .frame(height: segmentHeight)
-                    
-                    // Segments laid out horizontally
-                    HStack(spacing: 0) {
-                        ForEach(viewModel.segments) { segment in
-                            SegmentView(
-                                segment: segment,
-                                totalDuration: viewModel.duration,
-                                totalWidth: geometry.size.width,
-                                isActive: viewModel.currentSegment?.id == segment.id,
-                                onTap: {
-                                    viewModel.seek(to: segment.startTime)
-                                }
-                            )
-                        }
-                    }
-                    .frame(height: segmentHeight)
-                    
-                    // Playhead
-                    Rectangle()
-                        .fill(Color.white)
-                        .frame(width: 2, height: segmentHeight + 10)
-                        .offset(x: playheadOffset(in: geometry.size.width) - 1, y: -5)
-                        .allowsHitTesting(false)
-                }
-                .gesture(
-                    DragGesture()
-                        .onChanged { value in
-                            viewModel.isDragging = true
-                            let percentage = value.location.x / geometry.size.width
-                            let time = max(0, min(viewModel.duration, percentage * viewModel.duration))
-                            viewModel.seek(to: time)
-                        }
-                        .onEnded { _ in
-                            viewModel.isDragging = false
-                        }
-                )
-            }
-            .frame(height: segmentHeight)
-        }
-    }
-    
-    private func playheadOffset(in width: CGFloat) -> CGFloat {
-        guard viewModel.duration > 0 else { return 0 }
-        return (viewModel.currentTime / viewModel.duration) * width
-    }
-}
-
-// MARK: - Segment View
-struct SegmentView: View {
-    let segment: VideoSegment
-    let totalDuration: Double
-    let totalWidth: CGFloat
-    let isActive: Bool
-    let onTap: () -> Void
-    
-    @State private var isPressed = false
-    
-    private var segmentWidth: CGFloat {
-        guard totalDuration > 0 else { return 0 }
-        return (segment.duration / totalDuration) * totalWidth
-    }
-    
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            Rectangle()
-                .fill(segment.color.opacity(isActive ? 1.0 : 0.85))
-                .frame(width: segmentWidth, height: 45)
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Text(segment.title)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                
-                Text(segment.durationString)
-                    .font(.system(size: 9))
-                    .foregroundColor(.white.opacity(0.8))
-            }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
-        }
-        .frame(width: segmentWidth, height: 45)
-        .scaleEffect(isPressed ? 0.97 : 1.0)
-        .animation(.easeInOut(duration: 0.15), value: isPressed)
-        .onTapGesture {
-            onTap()
-        }
-        .onLongPressGesture(
-            minimumDuration: 0,
-            maximumDistance: .infinity,
-            pressing: { pressing in
-                isPressed = pressing
-            },
-            perform: {}
-        )
-    }
-}
-
-
-// MARK: - Time Ruler View
-struct TimeRulerView: View {
-    let duration: Double
-    let width: CGFloat
-    
-    private var timeMarkers: [Double] {
-        guard duration > 0 else { return [] }
-        
-        let interval: Double
-        if duration < 300 { // < 5 minutes
-            interval = 30 // 30 second intervals
-        } else if duration < 1800 { // < 30 minutes
-            interval = 60 // 1 minute intervals
-        } else {
-            interval = 300 // 5 minute intervals
-        }
-        
-        var markers: [Double] = []
-        var time: Double = 0
-        while time <= duration {
-            markers.append(time)
-            time += interval
-        }
-        return markers
-    }
-    
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .topLeading) {
-                ForEach(timeMarkers, id: \.self) { time in
-                    VStack(spacing: 2) {
-                        Rectangle()
-                            .fill(Color.white.opacity(0.5))
-                            .frame(width: 1, height: 8)
-                        
-                        Text(formatTime(time))
-                            .font(.system(size: 9))
-                            .foregroundColor(.white.opacity(0.7))
-                    }
-                    .offset(x: (time / duration) * geometry.size.width - 15)
-                }
-            }
-        }
-    }
-    
-    private func formatTime(_ seconds: Double) -> String {
-        let mins = Int(seconds) / 60
-        let secs = Int(seconds) % 60
-        return String(format: "%d:%02d", mins, secs)
-    }
-}
-
-// MARK: - Player Controls View
-struct PlayerControlsView: View {
-    @ObservedObject var viewModel: VideoPlayerViewModel
-    
-    var body: some View {
-        HStack(spacing: 20) {
-            // Play/Pause
-            Button(action: { viewModel.togglePlayPause() }) {
-                Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 24))
-                    .foregroundColor(.white)
-            }
-            .buttonStyle(ScaleButtonStyle())
-            
-            // Time display
-            Text("\(formatTime(viewModel.currentTime)) / \(formatTime(viewModel.duration))")
-                .font(.system(size: 14, design: .monospaced))
-                .foregroundColor(.white)
-            
-            Spacer()
-            
-            // Current segment
-            if let segment = viewModel.currentSegment {
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(segment.color)
-                        .frame(width: 8, height: 8)
-                    Text(segment.title)
-                        .font(.system(size: 14))
-                        .foregroundColor(.white.opacity(0.9))
-                }
-            }
-            
-            Spacer()
-            
-            // Speed control
-            Menu {
-                Button("0.5x") { viewModel.setPlaybackSpeed(0.5) }
-                Button("0.75x") { viewModel.setPlaybackSpeed(0.75) }
-                Button("1x") { viewModel.setPlaybackSpeed(1.0) }
-                Button("1.5x") { viewModel.setPlaybackSpeed(1.5) }
-                Button("2x") { viewModel.setPlaybackSpeed(2.0) }
-            } label: {
-                Text("\(String(format: "%.1fx", viewModel.playbackSpeed))")
-                    .font(.system(size: 14, design: .monospaced))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color.white.opacity(0.2))
-                    .cornerRadius(6)
-            }
-        }
-    }
-    
-    private func formatTime(_ seconds: Double) -> String {
-        let hours = Int(seconds) / 3600
-        let minutes = (Int(seconds) % 3600) / 60
-        let secs = Int(seconds) % 60
-        
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, secs)
-        } else {
-            return String(format: "%02d:%02d", minutes, secs)
-        }
     }
 }
