@@ -22,80 +22,95 @@ struct OnboardingFlow: View {
     
     @ViewBuilder
     var body: some View {
-        // NO NESTING! Just render the appropriate view directly - NO GROUP!
-        switch step {
-        case .welcome:
-            WelcomeView(
-                fullText: fullText,
-                textOpacity: $textOpacity,
-                timelineOffset: $timelineOffset,
-                onStart: advance
-            )
-            .onAppear {
-                restoreSavedStep()
-            }
-            
-        case .howItWorks:
-            HowItWorksView(
-                onBack: { step.prev() },
-                onNext: { advance() }
-            )
-            .onAppear {
-                restoreSavedStep()
-            }
-            
-        case .screen:
-            ScreenRecordingPermissionView(
-                onBack: { step.prev() },
-                onNext: { advance() }
-            )
-            .onAppear {
-                restoreSavedStep()
-            }
-            
-        case .llmSelection:
-            OnboardingLLMSelectionView(
-                onBack: { step.prev() },
-                onNext: { provider in
-                    selectedProvider = provider
-                    if provider == "dayflow" {
-                        step = .done
+        ZStack {
+            // NO NESTING! Just render the appropriate view directly - NO GROUP!
+            switch step {
+            case .welcome:
+                WelcomeView(
+                    fullText: fullText,
+                    textOpacity: $textOpacity,
+                    timelineOffset: $timelineOffset,
+                    onStart: advance
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onAppear {
+                    restoreSavedStep()
+                }
+                
+            case .howItWorks:
+                HowItWorksView(
+                    onBack: { step.prev() },
+                    onNext: { advance() }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onAppear {
+                    restoreSavedStep()
+                }
+                
+            case .screen:
+                ScreenRecordingPermissionView(
+                    onBack: { step.prev() },
+                    onNext: { advance() }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onAppear {
+                    restoreSavedStep()
+                }
+                
+            case .llmSelection:
+                OnboardingLLMSelectionView(
+                    onBack: { step.prev() },
+                    onNext: { provider in
+                        selectedProvider = provider
+                        if provider == "dayflow" {
+                            step = .done
+                            savedStepRawValue = step.rawValue
+                        } else {
+                            advance()
+                        }
+                    }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onAppear {
+                    restoreSavedStep()
+                }
+                
+            case .llmSetup:
+                // COMPLETELY STANDALONE - no parent constraints!
+                LLMProviderSetupView(
+                    providerType: selectedProvider,
+                    onBack: {
+                        step.prev()
                         savedStepRawValue = step.rawValue
-                    } else {
+                    },
+                    onComplete: {
                         advance()
                     }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onAppear {
+                    restoreSavedStep()
                 }
-            )
-            .onAppear {
-                restoreSavedStep()
-            }
-            
-        case .llmSetup:
-            // COMPLETELY STANDALONE - no parent constraints!
-            LLMProviderSetupView(
-                providerType: selectedProvider,
-                onBack: {
-                    step.prev()
-                    savedStepRawValue = step.rawValue
-                },
-                onComplete: {
-                    advance()
+                
+            case .done:
+                CompletionView(
+                    onFinish: {
+                        didOnboard = true
+                        savedStepRawValue = 0
+                    }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onAppear {
+                    restoreSavedStep()
                 }
-            )
-            .onAppear {
-                restoreSavedStep()
             }
-            
-        case .done:
-            CompletionView(
-                onFinish: {
-                    didOnboard = true
-                    savedStepRawValue = 0
-                }
-            )
-            .onAppear {
-                restoreSavedStep()
-            }
+        }
+        .background {
+            // Background at parent level - fills entire window!
+            Image("OnboardingBackgroundv2")
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .ignoresSafeArea()
         }
     }
     
@@ -143,7 +158,7 @@ private enum Step: Int, CaseIterable { case welcome, howItWorks, screen, llmSele
     mutating func prev() { self = Step(rawValue: rawValue - 1)! }
 }
 
-// MARK: - Standalone Views (Each handles its own background!)
+// MARK: - Standalone Views
 
 struct WelcomeView: View {
     let fullText: String
@@ -197,13 +212,6 @@ struct WelcomeView: View {
                         }
                 }
         }
-        .background {
-            // Background that doesn't affect layout!
-            Image("OnboardingBackgroundv2")
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .ignoresSafeArea()
-        }
     }
 }
 
@@ -235,13 +243,6 @@ struct CompletionView: View {
                 .shadow(radius: 20)
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            // Background that doesn't affect layout!
-            Image("OnboardingBackgroundv2")
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .ignoresSafeArea()
-        }
     }
 }
 
