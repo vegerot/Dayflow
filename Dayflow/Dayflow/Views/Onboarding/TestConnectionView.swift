@@ -26,48 +26,30 @@ struct TestConnectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Test button
-            Button(action: testConnection) {
-                HStack(spacing: 12) {
-                    if isTesting {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle())
-                            .scaleEffect(0.8)
-                            .frame(width: 16, height: 16)
-                    } else {
-                        Image(systemName: testResult == nil ? "bolt.fill" : 
-                              (testResult?.isSuccess == true ? "checkmark.circle.fill" : "xmark.circle.fill"))
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(testResult == nil ? .white : 
-                                           (testResult?.isSuccess == true ? Color(red: 0.34, green: 1, blue: 0.45) : Color(hex: "E91515")))
+            DayflowSurfaceButton(
+                action: testConnection,
+                content: {
+                    HStack(spacing: 12) {
+                        if isTesting {
+                            ProgressView().scaleEffect(0.8).frame(width: 16, height: 16)
+                        } else {
+                            Image(systemName: testResult == nil ? "bolt.fill" : (testResult?.isSuccess == true ? "checkmark.circle.fill" : "xmark.circle.fill"))
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        Text(buttonTitle)
+                            .font(.custom("Nunito", size: 14))
+                            .fontWeight(.semibold)
                     }
-                    
-                    Text(buttonTitle)
-                        .font(.custom("Nunito", size: 14))
-                        .fontWeight(.semibold)
-                }
-                .foregroundColor(testResult?.isSuccess == true ? .black : .white)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 13)
-                .frame(minWidth: 200)
-                .background(buttonBackground)
-                .cornerRadius(4)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(buttonBorder, lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
+                    .frame(minWidth: 200, alignment: .center)
+                },
+                background: buttonBackground,
+                foreground: testResult?.isSuccess == true ? .black : .white,
+                borderColor: buttonBorder,
+                cornerRadius: 4,
+                horizontalPadding: 24,
+                verticalPadding: 13
+            )
             .disabled(isTesting)
-            .scaleEffect(isHovered && !isTesting ? 1.05 : 1.0)
-            .animation(.timingCurve(0.2, 0.8, 0.4, 1.0, duration: 0.25), value: isHovered)
-            .onHover { hovering in
-                isHovered = hovering
-                if hovering && !isTesting {
-                    NSCursor.pointingHand.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
             
             // Result message
             if let result = testResult {
