@@ -17,7 +17,7 @@ struct OnboardingFlow: View {
     @AppStorage("didOnboard") private var didOnboard = false
     @State private var timelineOffset: CGFloat = 300 // Start below screen
     @State private var textOpacity: Double = 0
-    @State private var selectedProvider: String = "" // Track selected provider
+    @AppStorage("selectedLLMProvider") private var selectedProvider: String = "gemini" // Persist across sessions
     private let fullText = "Stop wondering where your day went.\nStart understanding it."
     
     @ViewBuilder
@@ -186,7 +186,17 @@ struct WelcomeView: View {
                                 }
                             }
                         
-                        DayflowButton(title: "Start", action: onStart)
+                        DayflowSurfaceButton(
+                            action: onStart,
+                            content: { Text("Start").font(.custom("Nunito", size: 16)).fontWeight(.semibold) },
+                            background: Color(red: 1, green: 0.42, blue: 0.02),
+                            foreground: .white,
+                            borderColor: .clear,
+                            cornerRadius: 12,
+                            horizontalPadding: 28,
+                            verticalPadding: 16,
+                            minWidth: 160
+                        )
                             .opacity(textOpacity)
                             .animation(.easeIn(duration: 0.3).delay(0.4), value: textOpacity)
                     }
@@ -219,28 +229,68 @@ struct CompletionView: View {
     let onFinish: () -> Void
     
     var body: some View {
-        VStack(spacing: 24) {
-            Text("Setup Complete")
-                .font(.custom("InstrumentSerif-Regular", size: 28))
-                .fontWeight(.medium)
+        VStack(spacing: 32) {
+            // Title section
+            VStack(spacing: 12) {
+                Text("You are ready to go!")
+                    .font(.custom("InstrumentSerif-Regular", size: 36))
+                    .foregroundColor(.black.opacity(0.9))
+                
+                Text("Welcome to Dayflow! Hit proceed to begin. For the best experience, let Dayflow run for about 30 minutes to learn your work patterns, then return to explore your personalized timeline.")
+                    .font(.custom("Nunito", size: 15))
+                    .foregroundColor(.black.opacity(0.6))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             
-            Text("You can now close this window; Dayflow will keep running in the menu-bar.")
-                .font(.system(size: 14))
-                .foregroundColor(.secondary)
+            // Preview area
+            RoundedRectangle(cornerRadius: 12)
+                .fill(
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color(red: 1, green: 0.98, blue: 0.94),
+                            Color(red: 1, green: 0.96, blue: 0.88)
+                        ]),
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(height: 280)
+                .overlay(
+                    // Timeline image
+                    VStack {
+                        Image("OnboardingTimeline")
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxHeight: 260)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .padding(10)
+                )
             
-            DayflowButton(
-                title: "Finish",
+            // Proceed button
+            DayflowSurfaceButton(
                 action: onFinish,
-                width: 120,
-                fontSize: 14
+                content: { 
+                    Text("Proceed")
+                        .font(.custom("Nunito", size: 16))
+                        .fontWeight(.semibold) 
+                },
+                background: Color(red: 0.25, green: 0.17, blue: 0),
+                foreground: .white,
+                borderColor: .clear,
+                cornerRadius: 8,
+                horizontalPadding: 40,
+                verticalPadding: 14,
+                minWidth: 200
             )
         }
-        .padding(40)
-        .frame(maxWidth: 420)
+        .padding(48)
+        .frame(width: 640)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(.ultraThinMaterial)
-                .shadow(radius: 20)
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.white)
+                .shadow(color: Color.black.opacity(0.1), radius: 20, x: 0, y: 10)
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
