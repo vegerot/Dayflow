@@ -56,7 +56,7 @@ struct GridTimelineView: View {
                     .frame(width: geometry.size.width, height: GridConfig.gridHeight)
                     .id("timeline-grid")
                 }
-                .background(Color(NSColor.controlBackgroundColor))
+                .background(Color.clear)
                 .onAppear {
                     loadActivities(containerWidth: geometry.size.width)
                     scrollToCurrentTime(scrollProxy: scrollProxy)
