@@ -64,13 +64,7 @@ struct APIKeyInputView: View {
                             .foregroundColor(.black.opacity(0.4))
                     }
                     .buttonStyle(.plain)
-                    .onHover { hovering in
-                        if hovering {
-                            NSCursor.pointingHand.push()
-                        } else {
-                            NSCursor.pop()
-                        }
-                    }
+                    .pointingHandCursor()
                     
                     // Validation indicator
                     if validationState != .none {
