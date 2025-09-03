@@ -128,16 +128,12 @@ struct SetupSidebarItem: View {
             .shadow(color: shadowColor(at: 4), radius: 9.56456, x: -25.91687, y: 63.55804)
         }
         .buttonStyle(.plain)
+        .pointingHandCursor()
         .scaleEffect(isHovered && !isSelected ? 1.02 : 1.0)
         .animation(.spring(response: 0.3, dampingFraction: 0.9), value: isSelected)
         .animation(.easeOut(duration: 0.2), value: isHovered)
         .onHover { hovering in
             isHovered = hovering
-            if hovering {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
         }
     }
     

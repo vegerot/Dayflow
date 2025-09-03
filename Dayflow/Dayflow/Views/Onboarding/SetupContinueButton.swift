@@ -67,5 +67,6 @@ struct SetupContinueButton: View {
                 }
         )
         .disabled(!isEnabled)
+        .pointingHandCursor(enabled: isEnabled)
     }
 }

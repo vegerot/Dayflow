@@ -69,58 +69,48 @@ struct HowItWorksView: View {
                 
                 // Navigation section - all buttons on same line
                 HStack {
-                    DayflowButton(
-                        title: "Back",
+                    DayflowSurfaceButton(
                         action: onBack,
-                        width: 120,
-                        fontSize: 14,
-                        isSubtle: true
+                        content: { Text("Back").font(.custom("Nunito", size: 14)).fontWeight(.semibold) },
+                        background: .white,
+                        foreground: .black,
+                        borderColor: Color.black.opacity(0.15),
+                        cornerRadius: 8,
+                        horizontalPadding: 20,
+                        verticalPadding: 12,
+                        minWidth: 120
                     )
                     
                     Spacer()
                     
-                    // GitHub button centered with hover effect
-                    Button {
-                        if let url = URL(string: "https://github.com/teleportlabs/Dayflow") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image("GithubIcon")
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 20, height: 20)
-
-                            Text("Read the code on GitHub")
-                                .font(.custom("Nunito", size: 16))
-                                .fontWeight(.medium)
-                        }
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.white.opacity(isHoveringGitHub ? 1.0 : 0.9))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(Color.black.opacity(isHoveringGitHub ? 0.3 : 0.1), lineWidth: isHoveringGitHub ? 2 : 1)
-                                )
-                                .shadow(color: Color.black.opacity(isHoveringGitHub ? 0.15 : 0), radius: 8, x: 0, y: 4)
-                        )
-                        .scaleEffect(isHoveringGitHub ? 1.05 : 1.0)
-                        .animation(.easeInOut(duration: 0.2), value: isHoveringGitHub)
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { hovering in
-                        isHoveringGitHub = hovering
-                    }
+                    DayflowSurfaceButton(
+                        action: { if let url = URL(string: "https://github.com/teleportlabs/Dayflow") { NSWorkspace.shared.open(url) } },
+                        content: {
+                            HStack(spacing: 12) {
+                                Image("GithubIcon").resizable().aspectRatio(contentMode: .fit).frame(width: 20, height: 20)
+                                Text("Read the code on GitHub").font(.custom("Nunito", size: 16)).fontWeight(.medium)
+                            }
+                        },
+                        background: .white,
+                        foreground: .black,
+                        borderColor: Color.black.opacity(0.15),
+                        cornerRadius: 8,
+                        horizontalPadding: 24,
+                        verticalPadding: 12
+                    )
                     
                     Spacer()
                     
-                    DayflowButton(
-                        title: "Next",
+                    DayflowSurfaceButton(
                         action: onNext,
-                        width: 120,
-                        fontSize: 14
+                        content: { Text("Next").font(.custom("Nunito", size: 14)).fontWeight(.semibold) },
+                        background: Color(red: 1, green: 0.42, blue: 0.02),
+                        foreground: .white,
+                        borderColor: .clear,
+                        cornerRadius: 8,
+                        horizontalPadding: 20,
+                        verticalPadding: 12,
+                        minWidth: 120
                     )
                 }
                 .frame(maxWidth: 600) // Match card width
