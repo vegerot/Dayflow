@@ -72,6 +72,9 @@ struct SettingsView: View {
     // UI state
     @State private var saveConfirmation = false
     @State private var sys: SystemSnapshot = .empty
+    // Modal setup flow for provider configuration
+    @State private var setupModalProvider: Provider? = nil
+    @State private var didInitialLoad: Bool = false
 
     // Colors (reduces literal noise in view tree)
     private let accent = Color(red: 1, green: 0.42, blue: 0.02)
@@ -106,6 +109,41 @@ struct SettingsView: View {
             if sys.model.isEmpty { sys = SystemSnapshot.capture() }
             loadSettings()
         }
+        // Present onboarding-style setup flow when user selects a provider
+        .onChange(of: selectedProvider) { newValue in
+            guard didInitialLoad else { return }
+            switch newValue {
+            case .ollama, .gemini:
+                setupModalProvider = newValue
+            case .dayflow:
+                break
+            }
+        }
+        .sheet(item: $setupModalProvider) { provider in
+            LLMProviderSetupView(
+                providerType: provider == .ollama ? "ollama" : "gemini",
+                onBack: { setupModalProvider = nil },
+                onComplete: {
+                    // Persist provider type when setup finishes (esp. Gemini path)
+                    let type: LLMProviderType
+                    switch provider {
+                    case .ollama:
+                        let base = UserDefaults.standard.string(forKey: "llmLocalBaseURL") ?? ollamaEndpoint
+                        type = .ollamaLocal(endpoint: base)
+                    case .gemini:
+                        type = .geminiDirect
+                    case .dayflow:
+                        type = .dayflowBackend()
+                    }
+                    if let encoded = try? JSONEncoder().encode(type) {
+                        UserDefaults.standard.set(encoded, forKey: "llmProviderType")
+                    }
+                    setupModalProvider = nil
+                    loadSettings()
+                }
+            )
+            .frame(minWidth: 900, minHeight: 650)
+        }
     }
 
     // MARK: - Actions
@@ -128,6 +166,7 @@ struct SettingsView: View {
                 ollamaEndpoint = endpoint
             }
         }
+        didInitialLoad = true
     }
 
     private func saveSettings() {
