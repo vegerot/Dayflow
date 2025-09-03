@@ -12,6 +12,17 @@ import UniformTypeIdentifiers
 
 final class OllamaProvider: LLMProvider {
     private let endpoint: String
+    // Read persisted local settings
+    private var savedModelId: String {
+        if let m = UserDefaults.standard.string(forKey: "llmLocalModelId"), !m.isEmpty {
+            return m
+        }
+        // Fallback to a sensible default
+        return isLMStudio ? "qwen2.5-vl-3b-instruct" : "qwen2.5vl:3b"
+    }
+    private var isLMStudio: Bool {
+        (UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama") == "lmstudio"
+    }
     private let frameExtractionInterval: TimeInterval = 30.0 // Extract frame every 30 seconds
     
     init(endpoint: String = "http://localhost:1234") {
@@ -372,7 +383,7 @@ final class OllamaProvider: LLMProvider {
         ]
         
         let request = ChatRequest(
-            model: "google/gemma-3n-e4b",
+            model: savedModelId,
             messages: [
                 ChatMessage(role: "user", content: content)
             ]
@@ -397,6 +408,9 @@ final class OllamaProvider: LLMProvider {
                 var urlRequest = URLRequest(url: url)
                 urlRequest.httpMethod = "POST"
                 urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                if isLMStudio {
+                    urlRequest.setValue("Bearer lm-studio", forHTTPHeaderField: "Authorization")
+                }
                 urlRequest.httpBody = try JSONEncoder().encode(request)
                 urlRequest.timeoutInterval = 30.0  // 30-second timeout
                 
@@ -512,7 +526,7 @@ final class OllamaProvider: LLMProvider {
         let systemPrompt = expectJSON ? "You are a helpful assistant. Always respond with valid JSON." : "You are a helpful assistant."
         
         let request = ChatRequest(
-            model: "google/gemma-3n-e4b",
+            model: savedModelId,
             messages: [
                 ChatMessage(role: "system", content: [MessageContent(type: "text", text: systemPrompt, image_url: nil)]),
                 ChatMessage(role: "user", content: [MessageContent(type: "text", text: prompt, image_url: nil)])
