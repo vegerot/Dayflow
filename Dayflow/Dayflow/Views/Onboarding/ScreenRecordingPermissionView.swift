@@ -44,37 +44,41 @@ struct ScreenRecordingPermissionView: View {
                 }
                 
                 // Open Settings button
-                Button(action: {
-                    openScreenRecordingSettings()
-                }) {
-                    Text("Open System Settings")
-                        .font(.custom("Nunito", size: 16))
-                        .fontWeight(.medium)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 12)
-                        .background(Color.blue)
-                        .cornerRadius(8)
-                }
-                .buttonStyle(.plain)
+                DayflowSurfaceButton(
+                    action: openScreenRecordingSettings,
+                    content: { Text("Open System Settings").font(.custom("Nunito", size: 16)).fontWeight(.medium) },
+                    background: Color.blue,
+                    foreground: .white,
+                    borderColor: .clear,
+                    cornerRadius: 8,
+                    horizontalPadding: 24,
+                    verticalPadding: 12
+                )
                 .padding(.top, 16)
                 
                 // Navigation buttons
                 HStack(spacing: 16) {
-                    DayflowButton(
-                        title: "Back",
+                    DayflowSurfaceButton(
                         action: onBack,
-                        width: 120,
-                        fontSize: 14,
-                        isSubtle: true
+                        content: { Text("Back").font(.custom("Nunito", size: 14)).fontWeight(.semibold) },
+                        background: .white,
+                        foreground: .black,
+                        borderColor: Color.black.opacity(0.15),
+                        cornerRadius: 8,
+                        horizontalPadding: 20,
+                        verticalPadding: 12,
+                        minWidth: 120
                     )
-                    
-                    DayflowButton(
-                        title: "Next",
-                        action: hasPermission ? onNext : {},
-                        width: 120,
-                        fontSize: 14,
-                        isSubtle: !hasPermission
+                    DayflowSurfaceButton(
+                        action: { if hasPermission { onNext() } },
+                        content: { Text("Next").font(.custom("Nunito", size: 14)).fontWeight(.semibold) },
+                        background: hasPermission ? Color(red: 1, green: 0.42, blue: 0.02) : Color.white,
+                        foreground: hasPermission ? .white : .black.opacity(0.4),
+                        borderColor: hasPermission ? .clear : Color.black.opacity(0.1),
+                        cornerRadius: 8,
+                        horizontalPadding: 20,
+                        verticalPadding: 12,
+                        minWidth: 120
                     )
                     .disabled(!hasPermission)
                 }
