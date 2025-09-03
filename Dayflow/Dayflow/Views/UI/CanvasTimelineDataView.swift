@@ -6,7 +6,7 @@ import Foundation
 private struct CanvasConfig {
     static let hourHeight: CGFloat = 120           // 120px per hour (Canvas look)
     static let pixelsPerMinute: CGFloat = 2        // 2px = 1 minute (Canvas look)
-    static let timeColumnWidth: CGFloat = 80
+    static let timeColumnWidth: CGFloat = 60
     static let startHour: Int = 4                  // 4 AM baseline
     static let endHour: Int = 28                   // 4 AM next day
 }
@@ -64,8 +64,8 @@ struct CanvasTimelineDataView: View {
                     ForEach(0..<(CanvasConfig.endHour - CanvasConfig.startHour), id: \.self) { _ in
                         VStack(spacing: 0) {
                             Rectangle()
-                                .fill(Color.black.opacity(0.1))
-                                .frame(height: 2)
+                                .fill(Color(hex: "E5E4E4"))
+                                .frame(height: 1)
                             Spacer()
                         }
                         .frame(height: CanvasConfig.hourHeight)
@@ -79,10 +79,11 @@ struct CanvasTimelineDataView: View {
                         VStack(spacing: 0) {
                         ForEach(CanvasConfig.startHour..<CanvasConfig.endHour, id: \.self) { hour in
                             Text(formatHour(hour))
-                                .font(.system(size: 13))
-                                .foregroundColor(Color.gray)
-                                .frame(width: CanvasConfig.timeColumnWidth - 12, alignment: .leading)
-                                .padding(.leading, 12)
+                                .font(.custom("Figtree", size: 13))
+                                .foregroundColor(Color(hex: "594838"))
+                                .padding(.trailing, 5)
+                                .frame(width: CanvasConfig.timeColumnWidth, alignment: .trailing)
+                                .multilineTextAlignment(.trailing)
                                 .frame(height: CanvasConfig.hourHeight, alignment: .top)
                                 .offset(y: -8)
                         }
@@ -132,7 +133,7 @@ struct CanvasTimelineDataView: View {
                 }
             }
         }
-        .background(Color.white)
+        .background(Color.clear)
         .onAppear {
             loadActivities()
             startRefreshTimer()
@@ -397,14 +398,16 @@ struct CanvasActivityCard: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(Color(red: 0.25, green: 0.25, blue: 0.30))
 
-            Text("• \(time)")
+            Spacer()
+
+            Text(time)
                 .font(
                     Font.custom("Nunito", size: 10)
                         .weight(.medium)
                 )
                 .foregroundColor(Color(red: 0.35, green: 0.35, blue: 0.40).opacity(0.8))
-
-            Spacer()
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
