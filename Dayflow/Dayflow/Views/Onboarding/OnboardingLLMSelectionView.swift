@@ -81,7 +81,7 @@ struct OnboardingLLMSelectionView: View {
                         + Text("Try Dayflow Pro free for 1 month")
                             .fontWeight(.semibold)
                             .foregroundColor(.black.opacity(0.8))
-                        + Text(" – no credit card required.")
+                        + Text(" - no credit card required.")
                             .foregroundColor(.black.opacity(0.6))
                     }
                     .font(.custom("Nunito", size: 14))
@@ -224,13 +224,6 @@ enum BadgeType {
     case green, orange, blue
 }
 
-// MARK: - Proceed Button Style with active state
-struct ProceedButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-    }
-}
-
 // MARK: - Provider Card Component
 struct ProviderCard: View {
     let id: String
@@ -247,6 +240,7 @@ struct ProviderCard: View {
         cardContent
             .contentShape(RoundedRectangle(cornerRadius: 4))
             .allowsHitTesting(id != "dayflow")
+            .pointingHandCursor(enabled: id != "dayflow")
             .onTapGesture {
                 guard id != "dayflow" else { return }
                 onSelect()
@@ -322,11 +316,24 @@ struct ProviderCard: View {
     }
     
     private var proceedButton: some View {
-        ProceedButtonView(
-            providerId: id,
-            isSelected: isSelected,
-            action: onProceed
+        let isComingSoon = id == "dayflow"
+        return DayflowSurfaceButton(
+            action: { if !isComingSoon { onProceed() } },
+            content: {
+                Text(isComingSoon ? "Coming Soon" : "Proceed")
+                    .font(.custom("Nunito", size: 14))
+                    .fontWeight(.semibold)
+                    .foregroundColor(isSelected ? .white : (isComingSoon ? .black.opacity(0.4) : .black.opacity(0.85)))
+            },
+            background: isComingSoon ? Color.gray.opacity(0.08) : (isSelected ? Color(red: 0.25, green: 0.17, blue: 0) : Color.white),
+            foreground: isSelected ? .white : .black,
+            borderColor: isSelected ? .clear : .black.opacity(0.2),
+            cornerRadius: 4,
+            horizontalPadding: 24,
+            verticalPadding: 13,
+            minWidth: nil
         )
+        .disabled(isComingSoon)
         .padding(.horizontal, 24)
         .padding(.bottom, 24)
         .frame(height: 60, alignment: .center)
@@ -393,69 +400,7 @@ struct FeatureRowView: View {
     }
 }
 
-struct ProceedButtonView: View {
-    let providerId: String
-    let isSelected: Bool
-    let action: () -> Void
-    @State private var isHovered: Bool = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    
-    private var isComingSoon: Bool {
-        providerId == "dayflow"
-    }
-    
-    var body: some View {
-        Button(action: isComingSoon ? {} : action) {
-            HStack(spacing: 4) {
-                Text(isComingSoon ? "Coming Soon" : "Proceed")
-                    .font(.custom("Nunito", size: 14))
-                    .fontWeight(.semibold)
-                    .foregroundColor(
-                        isComingSoon ? .black.opacity(0.4) : 
-                        (isSelected ? .white : .black.opacity(0.8))
-                    )
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 13)
-            .frame(maxWidth: .infinity)
-            .background(buttonBackground)
-            .cornerRadius(4)
-            .overlay(buttonOverlay)
-        }
-        .buttonStyle(ProceedButtonStyle())
-        .disabled(isComingSoon)
-        .if(!isComingSoon) { view in
-            view.pointingHandCursor()
-        }
-        .scaleEffect(reduceMotion ? 1.0 : (isHovered && !isComingSoon ? 1.05 : 1.0))
-        .offset(y: reduceMotion ? 0 : (isHovered && !isComingSoon ? -1.5 : 0))
-        .animation(.spring(response: 0.22, dampingFraction: 0.85, blendDuration: 0), value: isHovered)
-        .onHover { hovering in
-            isHovered = hovering
-        }
-    }
-    
-    @ViewBuilder
-    private var buttonBackground: some View {
-        if isComingSoon {
-            Color.gray.opacity(0.1)
-        } else if isSelected {
-            Color(red: 0.25, green: 0.17, blue: 0)
-        } else {
-            Color.white.opacity(0.0001)
-        }
-    }
-    
-    @ViewBuilder
-    private var buttonOverlay: some View {
-        RoundedRectangle(cornerRadius: 4)
-            .stroke(
-                isComingSoon ? Color.gray.opacity(0.2) :
-                (isSelected ? Color.clear : Color.black.opacity(0.2)),
-                lineWidth: 1
-            )
-    }
-}
+// Old ProceedButtonView removed; using DayflowSurfaceButton instead
 
 struct SelectedCardBackground: View {
     var body: some View {
