@@ -30,65 +30,20 @@ struct MainView: View {
     @State private var didInitialScroll = false
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Top row of 2x2 grid
-            HStack(alignment: .center, spacing: 0) {
-                // Top left: Logo (centered) — premium animation without SVG
-                LogoBadgeView(imageName: "DayflowLogoMainApp", size: 45)
-                    .frame(maxWidth: 100, maxHeight: .infinity)
+        // Two-column layout: left logo + sidebar; right white panel with header, filters, timeline
+        HStack(alignment: .top, spacing: 0) {
+            // Left column: Logo on top, sidebar centered
+            VStack(spacing: 0) {
+                // Logo area (keeps same animation)
+                LogoBadgeView(imageName: "DayflowLogoMainApp", size: 36)
+                    .frame(height: 100)
+                    .frame(maxWidth: .infinity)
                     .scaleEffect(logoScale)
                     .opacity(logoOpacity)
-                
-                // Top right: Timeline text + Date navigation
-                HStack {
-                    Text("Timeline")
-                        .font(.custom("InstrumentSerif-Regular", size: 42))
-                        .foregroundColor(.primary)
-                        .offset(x: timelineOffset)
-                        .opacity(timelineOpacity)
-                    
-                    Spacer()
-                    
-                    // Date navigation
-                    HStack(spacing: 12) {
-                        DayflowCircleButton {
-                            // Go to previous day
-                            selectedDate = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
-                        } content: {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(Color(red: 0.3, green: 0.3, blue: 0.3))
-                        }
-                        
-                        Button(action: { showDatePicker = true }) {
-                            DayflowPillButton(text: formatDateForDisplay(selectedDate))
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        
-                        DayflowCircleButton {
-                            // Go to next day
-                            let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
-                            if tomorrow <= Date() {
-                                selectedDate = tomorrow
-                            }
-                        } content: {
-                            let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(tomorrow > Date() ? Color.gray.opacity(0.3) : Color(red: 0.3, green: 0.3, blue: 0.3))
-                        }
-                    }
-                }
-                .padding(.horizontal, 30)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .padding(.leading, 10)
-            .frame(height: 100)
-            .layoutPriority(1)  // Keep this section fixed when window shrinks
-            
-            // Bottom row of 2x2 grid
-            HStack(alignment: .top, spacing: 0) {
-                // Bottom left: Sidebar in fixed-width gutter (prevents horizontal shift)
+
+                Spacer(minLength: 0)
+
+                // Sidebar in fixed-width gutter
                 VStack {
                     Spacer()
                     SidebarView(selectedIcon: $selectedIcon)
@@ -97,56 +52,94 @@ struct MainView: View {
                         .opacity(sidebarOpacity)
                     Spacer()
                 }
-                .frame(width: 100)
-                .fixedSize(horizontal: true, vertical: false)
-                .frame(maxHeight: .infinity)
-                .layoutPriority(1)
-                
-                // Bottom right: Main content area
-                ZStack {
-                    if selectedIcon == .settings {
-                        // Settings view
-                        SettingsView()
-                    } else {
-                        // Default timeline view
-                        VStack(alignment: .leading, spacing: 20) {
-                            // Tab filters
-                            TabFilterBar()
-                                .opacity(contentOpacity)
-                            
-                            // Content area with timeline and activity card (always side-by-side; both shrink)
-                            GeometryReader { geo in
-                                HStack(alignment: .top, spacing: 20) {
-                                    // Timeline area - Canvas look wired to data
-                                    CanvasTimelineDataView(selectedDate: $selectedDate, selectedActivity: $selectedActivity, scrollToNowTick: $scrollToNowTick)
-                                        .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
-                                        .opacity(contentOpacity)
-                                    
-                                    // Activity detail card — constrained height with internal scrolling for summary
-                                    ActivityCard(activity: selectedActivity, maxHeight: geo.size.height, scrollSummary: true)
-                                        .frame(minWidth: 260, idealWidth: 380, maxWidth: 420)
-                                        .opacity(contentOpacity)
+                Spacer(minLength: 0)
+            }
+            .frame(width: 100)
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(maxHeight: .infinity)
+            .layoutPriority(1)
+
+            // Right column: Main white panel including header + content
+            ZStack {
+                if selectedIcon == .settings {
+                    SettingsView()
+                } else {
+                    VStack(alignment: .leading, spacing: 20) {
+                        // Header: Timeline title + Date navigation (now inside white panel)
+                        HStack {
+                            Text("Timeline")
+                                .font(.custom("InstrumentSerif-Regular", size: 42))
+                                .foregroundColor(.primary)
+                                .offset(x: timelineOffset)
+                                .opacity(timelineOpacity)
+
+                            Spacer()
+
+                            HStack(spacing: 12) {
+                                DayflowCircleButton {
+                                    // Go to previous day
+                                    selectedDate = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
+                                } content: {
+                                    Image(systemName: "chevron.left")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(Color(red: 0.3, green: 0.3, blue: 0.3))
                                 }
-                                .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+
+                                Button(action: { showDatePicker = true }) {
+                                    DayflowPillButton(text: formatDateForDisplay(selectedDate))
+                                }
+                                .buttonStyle(PlainButtonStyle())
+
+                                DayflowCircleButton {
+                                    // Go to next day
+                                    let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
+                                    if tomorrow <= Date() {
+                                        selectedDate = tomorrow
+                                    }
+                                } content: {
+                                    let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(tomorrow > Date() ? Color.gray.opacity(0.3) : Color(red: 0.3, green: 0.3, blue: 0.3))
+                                }
                             }
                         }
-                        .padding(30)
+
+                        // Tab filters
+                        TabFilterBar()
+                            .opacity(contentOpacity)
+
+                        // Content area with timeline and activity card (always side-by-side; both shrink)
+                        GeometryReader { geo in
+                            HStack(alignment: .top, spacing: 20) {
+                                // Timeline area - Canvas look wired to data
+                                CanvasTimelineDataView(selectedDate: $selectedDate, selectedActivity: $selectedActivity, scrollToNowTick: $scrollToNowTick)
+                                    .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
+                                    .opacity(contentOpacity)
+
+                                // Activity detail card — constrained height with internal scrolling for summary
+                                ActivityCard(activity: selectedActivity, maxHeight: geo.size.height, scrollSummary: true)
+                                    .frame(minWidth: 260, idealWidth: 380, maxWidth: 420)
+                                    .opacity(contentOpacity)
+                            }
+                            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                        }
                     }
+                    .padding(30)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.white)
-                .cornerRadius(14.72286)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14.72286)
-                        .inset(by: 0.31)
-                        .stroke(DayflowAngularGradient.gradient, lineWidth: 0.61771)
-                )
             }
-            .padding(.leading, 10)
-            .padding(.trailing, 20)
-            .padding(.bottom, 20)
-            .frame(maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 14.72286, style: .continuous)
+                    .fill(Color.white)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 14.72286, style: .continuous))
+            // No outline stroke — clean white panel
         }
+        .padding(.leading, 10)
+        .padding(.trailing, 20)
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.clear)
         .sheet(isPresented: $showDatePicker) {
@@ -294,128 +287,43 @@ struct SidebarIconButton: View {
 
 // MARK: - Tab Filter Bar
 struct TabFilterBar: View {
-    @State private var selectedTab = "All tasks"
-    
     var body: some View {
-        HStack(spacing: 8) {
-            TabButton(
-                title: "All tasks",
-                icon: "hourglass",
-                gradient: LinearGradient(
-                    stops: [
-                        Gradient.Stop(color: Color(red: 0.67, green: 0.67, blue: 0.67), location: 0.00),
-                        Gradient.Stop(color: Color(red: 1, green: 0.98, blue: 0.95).opacity(0), location: 1.00),
-                    ],
-                    startPoint: UnitPoint(x: 1.15, y: 3.61),
-                    endPoint: UnitPoint(x: 0.02, y: 0)
-                ),
-                isSelected: selectedTab == "All tasks",
-                action: { selectedTab = "All tasks" }
-            )
-            
-            TabButton(
-                title: "Work",
-                icon: "person.crop.rectangle",
-                gradient: LinearGradient(
-                    stops: [
-                        Gradient.Stop(color: Color(red: 1, green: 0.77, blue: 0.34), location: 0.00),
-                        Gradient.Stop(color: Color(red: 1, green: 0.98, blue: 0.95).opacity(0), location: 1.00),
-                    ],
-                    startPoint: UnitPoint(x: 1.15, y: 3.61),
-                    endPoint: UnitPoint(x: 0.02, y: 0)
-                ),
-                isSelected: selectedTab == "Core tasks",
-                action: { selectedTab = "Core tasks" }
-            )
-            
-            TabButton(
-                title: "Personal",
-                icon: "eyes",
-                gradient: LinearGradient(
-                    stops: [
-                        Gradient.Stop(color: Color(red: 0.54, green: 0.88, blue: 1), location: 0.00),
-                        Gradient.Stop(color: Color(red: 1, green: 0.98, blue: 0.95).opacity(0), location: 1.00),
-                    ],
-                    startPoint: UnitPoint(x: 1.15, y: 3.61),
-                    endPoint: UnitPoint(x: 0.02, y: 0)
-                ),
-                isSelected: selectedTab == "Personal tasks",
-                action: { selectedTab = "Personal tasks" }
-            )
-            
-            TabButton(
-                title: "Distractions",
-                icon: "face.dashed",
-                gradient: LinearGradient(
-                    stops: [
-                        Gradient.Stop(color: .white.opacity(0.8), location: 0.00),
-                        Gradient.Stop(color: Color(red: 0.99, green: 0.69, blue: 0.69), location: 1.00),
-                    ],
-                    startPoint: UnitPoint(x: 0, y: 0.5),
-                    endPoint: UnitPoint(x: 1.08, y: 1.73)
-                ),
-                isSelected: selectedTab == "Distractions",
-                action: { selectedTab = "Distractions" }
-            )
-            
-            TabButton(
-                title: "Idle",
-                icon: "face.smiling",
-                gradient: LinearGradient(
-                    stops: [
-                        Gradient.Stop(color: Color(red: 0.67, green: 0.67, blue: 0.67), location: 0.00),
-                        Gradient.Stop(color: Color(red: 1, green: 0.98, blue: 0.95).opacity(0), location: 1.00),
-                    ],
-                    startPoint: UnitPoint(x: 1.15, y: 3.61),
-                    endPoint: UnitPoint(x: 0.02, y: 0)
-                ),
-                isSelected: selectedTab == "Idle time",
-                action: { selectedTab = "Idle time" }
-            )
-            
+        HStack(spacing: 10) {
+            // Work
+            Button(action: {}) {
+                Image("WorkChip")
+                    .resizable()
+                    .interpolation(.high)
+                    .renderingMode(.original)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(height: 30)
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            // Personal
+            Button(action: {}) {
+                Image("PersonalChip")
+                    .resizable()
+                    .interpolation(.high)
+                    .renderingMode(.original)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(height: 30)
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            // Distractions
+            Button(action: {}) {
+                Image("DistractionsChip")
+                    .resizable()
+                    .interpolation(.high)
+                    .renderingMode(.original)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(height: 30)
+            }
+            .buttonStyle(PlainButtonStyle())
+
             Spacer()
         }
-    }
-}
-
-struct TabButton: View {
-    let title: String
-    let icon: String
-    let gradient: LinearGradient
-    let isSelected: Bool
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            HStack(alignment: .center, spacing: 0) {
-                Image(systemName: icon)
-                    .font(.system(size: 14))
-                    .padding(.trailing, 6)
-                Text(title)
-                    .font(.system(size: 13))
-            }
-            .padding(.horizontal, 8.3318)
-            .padding(.vertical, 5.55453)
-            .background(
-                gradient
-                    .background(.white.opacity(0.69))
-            )
-            .foregroundColor(isSelected ? Color(red: 0.4, green: 0.2, blue: 0) : .secondary)
-            .cornerRadius(693.62213)
-            .shadow(color: Color(red: 0.57, green: 0.57, blue: 0.57).opacity(0.05), radius: 2.91304, x: -1.16522, y: 2.33043)
-            .shadow(color: Color(red: 0.57, green: 0.57, blue: 0.57).opacity(0.04), radius: 5.24348, x: -4.07826, y: 9.90435)
-            .shadow(color: Color(red: 0.57, green: 0.57, blue: 0.57).opacity(0.03), radius: 6.9913, x: -8.73913, y: 21.55652)
-            .shadow(color: Color(red: 0.57, green: 0.57, blue: 0.57).opacity(0.01), radius: 8.44783, x: -15.73043, y: 38.45218)
-            .shadow(color: Color(red: 0.57, green: 0.57, blue: 0.57).opacity(0), radius: 9.03043, x: -24.46956, y: 60.00869)
-            .overlay(
-                isSelected ? 
-                RoundedRectangle(cornerRadius: 693.62213)
-                    .inset(by: 0.29)
-                    .stroke(Color(red: 1, green: 0.54, blue: 0.02).opacity(0.5), lineWidth: 0.58261)
-                : nil
-            )
-        }
-        .buttonStyle(PlainButtonStyle())
     }
 }
 
