@@ -19,8 +19,8 @@ struct LLMProviderSetupView: View {
     @StateObject private var setupState = ProviderSetupState()
     @State private var sidebarOpacity: Double = 0
     @State private var contentOpacity: Double = 0
-    @State private var nextButtonHovered: Bool = false
-    @State private var googleButtonHovered: Bool = false
+    @State private var nextButtonHovered: Bool = false // legacy, unused after refactor
+    @State private var googleButtonHovered: Bool = false // legacy, unused after refactor
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -44,13 +44,7 @@ struct LLMProviderSetupView: View {
                     .buttonStyle(.plain)
                     // Position where sidebar items start: 20 + 16 = 36px
                     .padding(.leading, 36) // Align with sidebar item structure
-                    .onHover { hovering in
-                        if hovering {
-                            NSCursor.pointingHand.push()
-                        } else {
-                            NSCursor.pop()
-                        }
-                    }
+                    .pointingHandCursor()
                     
                     Spacer()
                 }
@@ -116,68 +110,39 @@ struct LLMProviderSetupView: View {
     @ViewBuilder
     private var nextButton: some View {
         if setupState.isLastStep {
-            Button(action: {
-                saveConfiguration()
-                onComplete()
-            }) {
-                HStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 14))
-                    Text("Complete Setup")
-                        .font(.custom("Nunito", size: 14))
-                        .fontWeight(.semibold)
-                }
-                .foregroundColor(.white)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 13)
-                .background(Color(red: 1, green: 0.42, blue: 0.02))
-                .cornerRadius(4)
-            }
-            .buttonStyle(NextButtonStyle())
-            .scaleEffect(nextButtonHovered ? 1.05 : 1.0)
-            .animation(.timingCurve(0.2, 0.8, 0.4, 1.0, duration: 0.25), value: nextButtonHovered)
-            .onHover { hovering in
-                nextButtonHovered = hovering
-                if hovering {
-                    NSCursor.pointingHand.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
-        } else {
-            Button(action: handleContinue) {
-                HStack(spacing: 6) {
-                    Text(nextButtonText)
-                        .font(.custom("Nunito", size: 14))
-                        .fontWeight(.semibold)
-                    if nextButtonText == "Next" {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .medium))
+            DayflowSurfaceButton(
+                action: { saveConfiguration(); onComplete() },
+                content: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill").font(.system(size: 14))
+                        Text("Complete Setup").font(.custom("Nunito", size: 14)).fontWeight(.semibold)
                     }
-                }
-                .foregroundColor(.black.opacity(0.8))
-                .padding(.horizontal, 24)
-                .padding(.vertical, 13)
-                .background(Color.white)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .inset(by: 0.5)
-                        .stroke(Color.black.opacity(0.15), lineWidth: 1)
-                )
-                .cornerRadius(4)
-                .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
-            }
-            .buttonStyle(NextButtonStyle())
-            .scaleEffect(nextButtonHovered ? 1.05 : 1.0)
-            .animation(.timingCurve(0.2, 0.8, 0.4, 1.0, duration: 0.25), value: nextButtonHovered)
-            .onHover { hovering in
-                nextButtonHovered = hovering
-                if hovering {
-                    NSCursor.pointingHand.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
+                },
+                background: Color(red: 1, green: 0.42, blue: 0.02),
+                foreground: .white,
+                borderColor: .clear,
+                cornerRadius: 4,
+                horizontalPadding: 24,
+                verticalPadding: 13
+            )
+        } else {
+            DayflowSurfaceButton(
+                action: handleContinue,
+                content: {
+                    HStack(spacing: 6) {
+                        Text(nextButtonText).font(.custom("Nunito", size: 14)).fontWeight(.semibold)
+                        if nextButtonText == "Next" {
+                            Image(systemName: "chevron.right").font(.system(size: 12, weight: .medium))
+                        }
+                    }
+                },
+                background: .white,
+                foreground: .black,
+                borderColor: Color.black.opacity(0.15),
+                cornerRadius: 4,
+                horizontalPadding: 24,
+                verticalPadding: 13
+            )
             .disabled(!setupState.canContinue)
             .opacity(!setupState.canContinue ? 0.5 : 1.0)
         }
@@ -191,39 +156,61 @@ struct LLMProviderSetupView: View {
         case .localChoice:
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Choose your local engine")
+                    Text("Choose your local AI engine")
                         .font(.custom("Nunito", size: 24))
                         .fontWeight(.semibold)
                         .foregroundColor(.black.opacity(0.9))
-                    Text("Pick Ollama or LM Studio. You can also use any OpenAI-compatible local server (vLLM, llama.cpp server, etc.)")
+                    Text("We recommend either Ollama or LM Studio, which are both free to use.")
                         .font(.custom("Nunito", size: 14))
                         .foregroundColor(.black.opacity(0.6))
                 }
-                HStack(spacing: 12) {
-                    Button(action: { setupState.selectEngine(.ollama); openOllamaDownload() }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "arrow.down.circle").font(.system(size: 14))
-                            Text("Download Ollama").font(.custom("Nunito", size: 14)).fontWeight(.semibold)
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 12)
-                        .background(Color(red: 0.10, green: 0.10, blue: 0.12))
-                        .cornerRadius(4)
-                    }
-                    .buttonStyle(NextButtonStyle())
-                    Button(action: { setupState.selectEngine(.lmstudio); openLMStudioDownload() }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "arrow.down.circle").font(.system(size: 14))
-                            Text("Download LM Studio").font(.custom("Nunito", size: 14)).fontWeight(.semibold)
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 12)
-                        .background(Color(red: 0.12, green: 0.29, blue: 0.65))
-                        .cornerRadius(4)
-                    }
-                    .buttonStyle(NextButtonStyle())
+                HStack(alignment: .center, spacing: 12) {
+                    DayflowSurfaceButton(
+                        action: { setupState.selectEngine(.ollama); openOllamaDownload() },
+                        content: {
+                            AsyncImage(url: URL(string: "https://ollama.com/public/ollama.png")) { phase in
+                                switch phase {
+                                case .success(let image): image.resizable().scaledToFit()
+                                case .failure(_): Image(systemName: "shippingbox").resizable().scaledToFit().foregroundColor(.black.opacity(0.6))
+                                case .empty: ProgressView().scaleEffect(0.7)
+                                @unknown default: EmptyView()
+                                }
+                            }
+                            .frame(width: 18, height: 18)
+                            Text("Download Ollama")
+                                .font(.custom("Nunito", size: 14))
+                                .fontWeight(.semibold)
+                        },
+                        background: .white,
+                        foreground: .black,
+                        borderColor: .black.opacity(0.15),
+                        cornerRadius: 0
+                    )
+                    Text("or")
+                        .font(.custom("Nunito", size: 13))
+                        .foregroundColor(.black.opacity(0.5))
+                        .padding(.horizontal, 4)
+                    DayflowSurfaceButton(
+                        action: { setupState.selectEngine(.lmstudio); openLMStudioDownload() },
+                        content: {
+                            AsyncImage(url: URL(string: "https://lmstudio.ai/_next/image?url=%2F_next%2Fstatic%2Fmedia%2Flmstudio-app-logo.11b4d746.webp&w=96&q=75")) { phase in
+                                switch phase {
+                                case .success(let image): image.resizable().scaledToFit()
+                                case .failure(_): Image(systemName: "desktopcomputer").resizable().scaledToFit().foregroundColor(.black.opacity(0.6))
+                                case .empty: ProgressView().scaleEffect(0.7)
+                                @unknown default: EmptyView()
+                                }
+                            }
+                            .frame(width: 18, height: 18)
+                            Text("Download LM Studio")
+                                .font(.custom("Nunito", size: 14))
+                                .fontWeight(.semibold)
+                        },
+                        background: .white,
+                        foreground: .black,
+                        borderColor: .black.opacity(0.15),
+                        cornerRadius: 0
+                    )
                 }
                 Text("Already have a local server? Make sure it’s OpenAI-compatible. You can set a custom base URL in the next step.")
                     .font(.custom("Nunito", size: 13))
@@ -237,7 +224,7 @@ struct LLMProviderSetupView: View {
                     .fontWeight(.semibold)
                     .foregroundColor(.black.opacity(0.9))
                 if setupState.localEngine == .ollama {
-                    Text("Run this command in your terminal to download the model (≈3GB):")
+                    Text("After installing Ollama, run this in your terminal to download the model (≈3GB):")
                         .font(.custom("Nunito", size: 14))
                         .foregroundColor(.black.opacity(0.6))
                     TerminalCommandView(
@@ -247,12 +234,12 @@ struct LLMProviderSetupView: View {
                     )
                 } else if setupState.localEngine == .lmstudio {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("In LM Studio:")
+                        Text("After installing LM Studio:")
                             .font(.custom("Nunito", size: 16))
                             .fontWeight(.semibold)
                             .foregroundColor(.black.opacity(0.85))
                         Text("1. Open LM Studio → Models tab").font(.custom("Nunito", size: 14)).foregroundColor(.black.opacity(0.75))
-                        Text("2. Search for ‘Qwen2.5-VL-3B-Instruct’ and download it").font(.custom("Nunito", size: 14)).foregroundColor(.black.opacity(0.75))
+                        Text("2. Search for 'Qwen2.5-VL-3B' and install the Instruct variant").font(.custom("Nunito", size: 14)).foregroundColor(.black.opacity(0.75))
                         Text("3. Turn on ‘Local Server’ in LM Studio (default http://localhost:1234)").font(.custom("Nunito", size: 14)).foregroundColor(.black.opacity(0.75))
                     }
                 } else {
@@ -333,39 +320,75 @@ struct LLMProviderSetupView: View {
                         .font(.custom("Nunito", size: 24))
                         .fontWeight(.semibold)
                         .foregroundColor(.black.opacity(0.9))
-                    
-                    Text(description)
-                        .font(.custom("Nunito", size: 14))
-                        .foregroundColor(.black.opacity(0.6))
-                }
-                
-                // Test step handling per provider
-                if title == "Testing" || title == "Test Connection" {
-                    if providerType == "gemini" {
-                        TestConnectionView(
-                            onTestComplete: { success in
-                                setupState.hasTestedConnection = true
-                                setupState.testSuccessful = success
-                            }
-                        )
-                    } else {
-                        TerminalCommandView(
-                            title: "Try with curl:",
-                            subtitle: "This calls \(setupState.localModelId) via your local OpenAI-compatible server",
-                            command: setupState.localCurlCommand
-                        )
-                        LocalLLMTestView(
-                            baseURL: $setupState.localBaseURL,
-                            modelId: $setupState.localModelId,
-                            engine: setupState.localEngine,
-                            onTestComplete: { success in
-                                setupState.hasTestedConnection = true
-                                setupState.testSuccessful = success
-                            }
-                        )
+                    if !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(description)
+                            .font(.custom("Nunito", size: 14))
+                            .foregroundColor(.black.opacity(0.6))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(nil)
+                        // Additional guidance for the local intro step
+                        if step.id == "intro" {
+                            (
+                                Text("Advanced users can pick any ") +
+                                Text("vision-capable").fontWeight(.bold) +
+                                Text(" LLM, but we strongly recommend using Qwen 2.5-VL 3B based on our internal benchmarks.")
+                            )
+                            .font(.custom("Nunito", size: 14))
+                            .foregroundColor(.black.opacity(0.6))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .multilineTextAlignment(.leading)
+                        }
                     }
                 }
-                
+
+                // Content area scrolls if needed; Next stays visible below
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        if title == "Testing" || title == "Test Connection" {
+                            if providerType == "gemini" {
+                                TestConnectionView(
+                                    onTestComplete: { success in
+                                        setupState.hasTestedConnection = true
+                                        setupState.testSuccessful = success
+                                    }
+                                )
+                            } else {
+                                // Engine selection: Ollama, LM Studio, Other
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text("Which tool are you using?")
+                                        .font(.custom("Nunito", size: 14))
+                                        .foregroundColor(.black.opacity(0.65))
+                                    Picker("Engine", selection: $setupState.localEngine) {
+                                        Text("Ollama").tag(LocalEngine.ollama)
+                                        Text("LM Studio").tag(LocalEngine.lmstudio)
+                                        Text("Other").tag(LocalEngine.custom)
+                                    }
+                                    .pickerStyle(.segmented)
+                                    .frame(maxWidth: 380)
+                                }
+                                .onChange(of: setupState.localEngine) { _, newValue in
+                                    setupState.selectEngine(newValue)
+                                }
+
+                                LocalLLMTestView(
+                                    baseURL: $setupState.localBaseURL,
+                                    modelId: $setupState.localModelId,
+                                    engine: setupState.localEngine,
+                                    showInputs: setupState.localEngine == .custom,
+                                    onTestComplete: { success in
+                                        setupState.hasTestedConnection = true
+                                        setupState.testSuccessful = success
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.trailing, 2)
+                }
+                .frame(maxHeight: 420)
+
                 HStack {
                     Spacer()
                     nextButton
@@ -401,16 +424,8 @@ struct LLMProviderSetupView: View {
                                 .foregroundColor(Color(red: 1, green: 0.42, blue: 0.02))
                                 .underline()
                         }
-                        .onTapGesture {
-                            openGoogleAIStudio()
-                        }
-                        .onHover { hovering in
-                            if hovering {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
+                        .onTapGesture { openGoogleAIStudio() }
+                        .pointingHandCursor()
                     }
                     
                     HStack(alignment: .top, spacing: 12) {
@@ -439,34 +454,22 @@ struct LLMProviderSetupView: View {
                 
                 // Buttons row with Open Google AI Studio on left, Next on right
                 HStack {
-                    Button(action: openGoogleAIStudio) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "safari")
-                                .font(.system(size: 14))
-                            Text("Open Google AI Studio")
-                                .font(.custom("Nunito", size: 14))
-                                .fontWeight(.semibold)
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 13)
-                        .background(Color(red: 1, green: 0.42, blue: 0.02))
-                        .cornerRadius(4)
-                    }
-                    .buttonStyle(NextButtonStyle())
-                    .scaleEffect(googleButtonHovered ? 1.05 : 1.0)
-                    .animation(.timingCurve(0.2, 0.8, 0.4, 1.0, duration: 0.25), value: googleButtonHovered)
-                    .onHover { hovering in
-                        googleButtonHovered = hovering
-                        if hovering {
-                            NSCursor.pointingHand.push()
-                        } else {
-                            NSCursor.pop()
-                        }
-                    }
-                    
+                    DayflowSurfaceButton(
+                        action: openGoogleAIStudio,
+                        content: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "safari").font(.system(size: 14))
+                                Text("Open Google AI Studio").font(.custom("Nunito", size: 14)).fontWeight(.semibold)
+                            }
+                        },
+                        background: Color.white,
+                        foreground: .black,
+                        borderColor: Color.black.opacity(0.15),
+                        cornerRadius: 4,
+                        horizontalPadding: 24,
+                        verticalPadding: 13
+                    )
                     Spacer()
-                    
                     nextButton
                 }
             }
@@ -482,6 +485,15 @@ struct LLMProviderSetupView: View {
     }
     
     private func handleContinue() {
+        // Persist local config immediately after a successful local test when user advances
+        if providerType == "ollama" {
+            if case .information(let title, _) = setupState.currentStep.contentType,
+               (title == "Testing" || title == "Test Connection"),
+               setupState.testSuccessful {
+                persistLocalSettings()
+            }
+        }
+
         if setupState.isLastStep {
             saveConfiguration()
             onComplete()
@@ -499,15 +511,28 @@ struct LLMProviderSetupView: View {
         
         // Save local endpoint for local engine selection
         if providerType == "ollama" {
-            let endpoint = setupState.localBaseURL
-            let type = LLMProviderType.ollamaLocal(endpoint: endpoint)
-            if let encoded = try? JSONEncoder().encode(type) {
-                UserDefaults.standard.set(encoded, forKey: "llmProviderType")
-            }
+            persistLocalSettings()
         }
         
         // Mark setup as complete
         UserDefaults.standard.set(true, forKey: "\(providerType)SetupComplete")
+    }
+
+    // Persist provider choice + local settings without marking setup complete
+    private func persistLocalSettings() {
+        let endpoint = setupState.localBaseURL
+        let type = LLMProviderType.ollamaLocal(endpoint: endpoint)
+        if let encoded = try? JSONEncoder().encode(type) {
+            UserDefaults.standard.set(encoded, forKey: "llmProviderType")
+        }
+        // Store model id for local engines
+        UserDefaults.standard.set(setupState.localModelId, forKey: "llmLocalModelId")
+        // Store local engine selection for header/model defaults
+        UserDefaults.standard.set(setupState.localEngine.rawValue, forKey: "llmLocalEngine")
+        // Store selected provider key for robustness across relaunches
+        UserDefaults.standard.set("ollama", forKey: "selectedLLMProvider")
+        // Also store the endpoint explicitly for other parts of the app if needed
+        UserDefaults.standard.set(endpoint, forKey: "llmLocalBaseURL")
     }
     
     private func openGoogleAIStudio() {
@@ -564,17 +589,7 @@ class ProviderSetupState: ObservableObject {
         switch currentStep.contentType {
         case .apiKeyInput:
             return !apiKey.isEmpty && apiKey.count > 20
-        case .terminalCommand, .modelDownload, .localChoice, .localModelInstall:
-            // Allow users to continue after copying/running commands
-            // They're responsible for ensuring commands complete
-            return true
-        case .information(let title, _):
-            // For test connection step, require successful test
-            if title == "Testing" || title == "Test Connection" {
-                return testSuccessful
-            }
-            return true
-        default:
+        case .terminalCommand(_), .modelDownload(_), .localChoice, .localModelInstall, .information(_, _), .apiKeyInstructions:
             return true
         }
     }
@@ -586,6 +601,14 @@ class ProviderSetupState: ObservableObject {
     func configureSteps(for provider: String) {
         if provider == "ollama" {
             steps = [
+                SetupStep(
+                    id: "intro",
+                    title: "Before you begin",
+                    contentType: .information(
+                        "For experienced users",
+                        "This path is recommended only if you're comfortable running LLMs locally and debugging technical issues. If terms like vLLM or API endpoint don't ring a bell, we recommend going back and picking 'Bring your own API keys'. It's non-technical and takes about 30 seconds.\n\nFor local mode, Dayflow recommends Qwen 2.5-VL 3B as the core vision-language model."
+                    )
+                ),
                 SetupStep(id: "choose", title: "Choose engine", contentType: .localChoice),
                 SetupStep(id: "model", title: "Install model", contentType: .localModelInstall),
                 SetupStep(id: "test", title: "Test connection", contentType: .information("Test Connection", "Click the button below to verify your local server responds to a simple chat completion.")),
@@ -680,14 +703,7 @@ enum StepContentType {
     }
 }
 
-// MARK: - Button Style
-struct NextButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
-            .animation(.timingCurve(0.2, 0.8, 0.4, 1.0, duration: 0.15), value: configuration.isPressed)
-    }
-}
+// MARK: - Button Style removed in favor of DayflowSurfaceButton
 
 // MARK: - Local Engine Selection
 enum LocalEngine: String {
@@ -723,6 +739,7 @@ struct LocalLLMTestView: View {
     @Binding var baseURL: String
     @Binding var modelId: String
     let engine: LocalEngine
+    var showInputs: Bool = true
     let onTestComplete: (Bool) -> Void
     
     @State private var isTesting = false
@@ -731,41 +748,43 @@ struct LocalLLMTestView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Base URL")
-                    .font(.custom("Nunito", size: 13))
-                    .foregroundColor(.black.opacity(0.6))
-                TextField(engine == .lmstudio ? "http://localhost:1234" : "http://localhost:11434", text: $baseURL)
-                    .textFieldStyle(.roundedBorder)
-            }
-            
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Model ID")
-                    .font(.custom("Nunito", size: 13))
-                    .foregroundColor(.black.opacity(0.6))
-                TextField(engine == .lmstudio ? "qwen2.5-vl-3b-instruct" : "qwen2.5vl:3b", text: $modelId)
-                    .textFieldStyle(.roundedBorder)
-            }
-            
-            Button(action: runTest) {
-                HStack(spacing: 8) {
-                    if isTesting {
-                        ProgressView().scaleEffect(0.8)
-                    } else {
-                        Image(systemName: success ? "checkmark.circle.fill" : "bolt.fill")
-                            .font(.system(size: 14))
-                    }
-                    Text(isTesting ? "Testing..." : (success ? "Test Successful!" : "Test Local API"))
-                        .font(.custom("Nunito", size: 14))
-                        .fontWeight(.semibold)
+            if showInputs {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Base URL")
+                        .font(.custom("Nunito", size: 13))
+                        .foregroundColor(.black.opacity(0.6))
+                    TextField(engine == .lmstudio ? "http://localhost:1234" : "http://localhost:11434", text: $baseURL)
+                        .textFieldStyle(.roundedBorder)
                 }
-                .foregroundColor(success ? .black : .white)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 13)
-                .background(success ? Color(red: 0.34, green: 1, blue: 0.45).opacity(0.2) : Color(red: 1, green: 0.42, blue: 0.02))
-                .cornerRadius(4)
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Model ID")
+                        .font(.custom("Nunito", size: 13))
+                        .foregroundColor(.black.opacity(0.6))
+                    TextField(engine == .lmstudio ? "qwen2.5-vl-3b-instruct" : "qwen2.5vl:3b", text: $modelId)
+                        .textFieldStyle(.roundedBorder)
+                }
             }
-            .buttonStyle(NextButtonStyle())
+            
+            DayflowSurfaceButton(
+                action: runTest,
+                content: {
+                    HStack(spacing: 8) {
+                        if isTesting {
+                            ProgressView().scaleEffect(0.8)
+                        } else {
+                            Image(systemName: success ? "checkmark.circle.fill" : "bolt.fill").font(.system(size: 14))
+                        }
+                        Text(isTesting ? "Testing..." : (success ? "Test Successful!" : "Test Local API")).font(.custom("Nunito", size: 14)).fontWeight(.semibold)
+                    }
+                },
+                background: success ? Color(red: 0.34, green: 1, blue: 0.45).opacity(0.2) : Color(red: 1, green: 0.42, blue: 0.02),
+                foreground: success ? .black : .white,
+                borderColor: .clear,
+                cornerRadius: 4,
+                horizontalPadding: 24,
+                verticalPadding: 13
+            )
             .disabled(isTesting)
             
             if let msg = resultMessage {
@@ -773,6 +792,12 @@ struct LocalLLMTestView: View {
                     .font(.custom("Nunito", size: 13))
                     .foregroundColor(success ? .black.opacity(0.7) : Color(hex: "E91515"))
                     .padding(.vertical, 6)
+                if !success {
+                    Text("If you get stuck here, you can go back and choose the ‘Bring your own key’ option — it only takes a minute to set up.")
+                        .font(.custom("Nunito", size: 12))
+                        .foregroundColor(.black.opacity(0.55))
+                        .padding(.top, 2)
+                }
             }
         }
     }
@@ -813,11 +838,8 @@ struct LocalLLMTestView: View {
                     self.resultMessage = "No response"; self.isTesting = false; self.onTestComplete(false); return
                 }
                 if http.statusCode == 200 {
-                    if let txt = String(data: data, encoding: .utf8) {
-                        self.resultMessage = "OK: \(txt.prefix(200))…"
-                    } else {
-                        self.resultMessage = "Success"
-                    }
+                    // Success: don't print raw response body; keep UI clean
+                    self.resultMessage = nil
                     self.success = true
                     self.isTesting = false
                     self.onTestComplete(true)
