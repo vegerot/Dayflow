@@ -406,24 +406,18 @@ struct TimelineActivityCard: View {
     
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .top, spacing: 8) {
-                // Icon based on category
-                Text(iconForCategory(activity.category))
-                    .font(.system(size: 16))
+            VStack(alignment: .leading, spacing: 2) {
+                // Title
+                Text(activity.title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(height > 40 ? 2 : 1)
                 
-                VStack(alignment: .leading, spacing: 2) {
-                    // Title
-                    Text(activity.title)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.primary)
-                        .lineLimit(height > 40 ? 2 : 1)
-                    
-                    // Time range (only if card is tall enough)
-                    if height > 60 {
-                        Text("\(timeFormatter.string(from: activity.startTime)) to \(timeFormatter.string(from: activity.endTime))")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                    }
+                // Time range (only if card is tall enough)
+                if height > 60 {
+                    Text("\(timeFormatter.string(from: activity.startTime)) to \(timeFormatter.string(from: activity.endTime))")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
                 }
                 
                 Spacer()
@@ -441,16 +435,6 @@ struct TimelineActivityCard: View {
         .buttonStyle(PlainButtonStyle())
     }
     
-    private func iconForCategory(_ category: String) -> String {
-        switch category.lowercased() {
-        case "productive work", "work", "research", "coding", "writing", "learning":
-            return "🧠"
-        case "distraction", "entertainment", "social media":
-            return "😑"
-        default:
-            return "⏰"
-        }
-    }
     
     private var backgroundGradient: some View {
         Group {
