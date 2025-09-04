@@ -6,3 +6,5 @@ Dayflow/build*
 xcuserdata/
 LLMEvalScript.swift
 Dayflow/eval/
+evals/
+build/
