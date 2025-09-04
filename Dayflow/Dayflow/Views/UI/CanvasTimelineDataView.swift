@@ -52,13 +52,20 @@ struct CanvasTimelineDataView: View {
     @State private var selectedCardId: UUID? = nil
     @State private var positionedActivities: [CanvasPositionedActivity] = []
     @State private var refreshTimer: Timer?
+    @State private var didInitialScrollInView: Bool = false
 
     private let storageManager = StorageManager.shared
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
+                // Place anchor at ScrollView content level for reliable targeting
                 ZStack(alignment: .topLeading) {
+                    // Invisible anchor positioned for "now" scroll target
+                    nowAnchorView()
+                        .zIndex(-1) // Behind other content
+                    
+                    // Main content ZStack
                 // Horizontal lines that extend past the vertical separator
                 VStack(spacing: 0) {
                     ForEach(0..<(CanvasConfig.endHour - CanvasConfig.startHour), id: \.self) { _ in
@@ -78,14 +85,19 @@ struct CanvasTimelineDataView: View {
                         // Time labels column
                         VStack(spacing: 0) {
                         ForEach(CanvasConfig.startHour..<CanvasConfig.endHour, id: \.self) { hour in
+                            let hourIndex = hour - CanvasConfig.startHour
                             Text(formatHour(hour))
                                 .font(.custom("Figtree", size: 13))
                                 .foregroundColor(Color(hex: "594838"))
                                 .padding(.trailing, 5)
                                 .frame(width: CanvasConfig.timeColumnWidth, alignment: .trailing)
                                 .multilineTextAlignment(.trailing)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.95)
+                                .allowsTightening(true)
                                 .frame(height: CanvasConfig.hourHeight, alignment: .top)
                                 .offset(y: -8)
+                                .id("hour-\(hourIndex)")
                         }
                     }
                     .frame(width: CanvasConfig.timeColumnWidth)
@@ -116,9 +128,6 @@ struct CanvasTimelineDataView: View {
                             .offset(y: item.yPosition)
                             }
 
-                            // Invisible anchor near "now" to enable programmatic scroll
-                            nowAnchorView()
-                                .id("nowAnchor")
                         }
                         .clipped() // Prevent shadows/animations from affecting scroll geometry
                         // Allow timeline column to shrink under narrow widths
@@ -127,9 +136,58 @@ struct CanvasTimelineDataView: View {
                 }
                 .frame(height: CGFloat(CanvasConfig.endHour - CanvasConfig.startHour) * CanvasConfig.hourHeight)
             }
+            // Respond to external scroll nudges (initial or idle-triggered)
             .onChange(of: scrollToNowTick) { _ in
-                withAnimation(.easeInOut(duration: 0.35)) {
-                    proxy.scrollTo("nowAnchor", anchor: .top)
+                // Calculate which hour to scroll to for 80% positioning
+                let currentHour = Calendar.current.component(.hour, from: Date())
+                let hoursSince4AM = currentHour >= 4 ? currentHour - 4 : (24 - 4) + currentHour
+                let targetHourIndex = max(0, min(hoursSince4AM, 24) - 2) // 2 hours before current
+                
+                // Scroll to the hour marker with 30-minute offset for better positioning
+                proxy.scrollTo("hour-\(targetHourIndex)", anchor: UnitPoint(x: 0, y: 0.25))
+            }
+            // Scroll once right after activities are first loaded and laid out
+            .onChange(of: positionedActivities.count) { _ in
+                guard !didInitialScrollInView, Calendar.current.isDateInToday(selectedDate) else { return }
+                didInitialScrollInView = true
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    // Calculate which hour to scroll to for 80% positioning
+                    let currentHour = Calendar.current.component(.hour, from: Date())
+                    let hoursSince4AM = currentHour >= 4 ? currentHour - 4 : (24 - 4) + currentHour
+                    let targetHourIndex = max(0, hoursSince4AM - 2) // 2 hours before current for 80% positioning
+                    // 30-minute offset: y: 0.25 positions hour 25% down from top
+                    proxy.scrollTo("hour-\(targetHourIndex)", anchor: UnitPoint(x: 0, y: 0.25))
+                }
+            }
+            // Ensure we scroll on first appearance when viewing Today
+            .onAppear {
+                if Calendar.current.isDateInToday(selectedDate) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        // Calculate which hour to scroll to for 80% positioning
+                        let currentHour = Calendar.current.component(.hour, from: Date())
+                        let hoursSince4AM = currentHour >= 4 ? currentHour - 4 : (24 - 4) + currentHour
+                        let targetHourIndex = max(0, hoursSince4AM - 2) // 2 hours before current for 80% positioning
+                        // 30-minute offset: y: 0.25 positions hour 25% down from top
+                    proxy.scrollTo("hour-\(targetHourIndex)", anchor: UnitPoint(x: 0, y: 0.25))
+                    }
+                }
+            }
+            // When the selected date changes back to Today (e.g., after idle), also scroll
+            .onChange(of: selectedDate) { newDate in
+                if Calendar.current.isDateInToday(newDate) {
+                    didInitialScrollInView = false // allow the data-ready scroll to fire again
+                    // Give the layout a moment to update before scrolling
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        withAnimation(.easeInOut(duration: 0.35)) {
+                            // Calculate which hour to scroll to for 80% positioning
+                            let currentHour = Calendar.current.component(.hour, from: Date())
+                            let hoursSince4AM = currentHour >= 4 ? currentHour - 4 : (24 - 4) + currentHour
+                            let targetHourIndex = max(0, hoursSince4AM - 2) // 2 hours before current for 80% positioning
+                            // 30-minute offset: y: 0.25 positions hour 25% down from top
+                    proxy.scrollTo("hour-\(targetHourIndex)", anchor: UnitPoint(x: 0, y: 0.25))
+                        }
+                    }
                 }
             }
         }
@@ -332,14 +390,44 @@ extension CanvasTimelineDataView {
     // Places a hidden view at a position slightly above "now" so that scrolling reveals "now" plus more below
     @ViewBuilder
     private func nowAnchorView() -> some View {
-        let buffer: CGFloat = 200 // pixels of extra space below current time
+        // Position anchor ABOVE current time for 80% down viewport positioning
         let yNow = calculateYPosition(for: Date())
-        let anchorY = max(0, yNow - buffer)
+        
+        // Place anchor ~6 hours above current time
+        // When scrolled to .top, this positions current time at ~80% down the viewport  
+        // Adjust hoursAbove to fine-tune: 5 = current time appears higher, 7 = lower
+        let hoursAbove: CGFloat = 6
+        let anchorY = yNow - (hoursAbove * CanvasConfig.hourHeight)
+        
+        // Create a frame that spans the full timeline height
+        // Then position the anchor absolutely within it
         Color.clear
-            .frame(height: 1)
-            .offset(y: anchorY)
+            .frame(width: 1, height: CGFloat(CanvasConfig.endHour - CanvasConfig.startHour) * CanvasConfig.hourHeight)
+            .overlay(
+                Rectangle()
+                    .fill(Color.red.opacity(0.001))
+                    .frame(width: 10, height: 20)
+                    .position(x: 5, y: anchorY)
+                    .id("nowAnchor"),
+                alignment: .topLeading
+            )
             .allowsHitTesting(false)
             .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Hour Index Helper
+extension CanvasTimelineDataView {
+    fileprivate func currentHourIndex() -> Int {
+        let cal = Calendar.current
+        let h = cal.component(.hour, from: Date())
+        let idx: Int
+        if h >= CanvasConfig.startHour {
+            idx = h - CanvasConfig.startHour
+        } else {
+            idx = (24 - CanvasConfig.startHour) + h
+        }
+        return max(0, min(idx, (CanvasConfig.endHour - CanvasConfig.startHour) - 1))
     }
 }
 
