@@ -112,6 +112,7 @@ struct MainView: View {
                                 // Left column: chips row at top, timeline below
                                 VStack(alignment: .leading, spacing: 12) {
                                     TabFilterBar()
+                                        .padding(.leading, -13) // nudge chips 13px left
                                         .opacity(contentOpacity)
 
                                     CanvasTimelineDataView(
@@ -447,8 +448,11 @@ struct ActivityCard: View {
             }
             .padding(20)
             .background(Color.white)
-            .cornerRadius(20)
-            .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 5)
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color(hex: "E5E5E5"), lineWidth: 1)
+            )
             .if(maxHeight != nil) { view in
                 view.frame(maxHeight: maxHeight!)
             }
@@ -456,19 +460,19 @@ struct ActivityCard: View {
             // Empty state
             VStack {
                 Spacer()
-                Image(systemName: "hand.tap")
-                    .font(.system(size: 48))
-                    .foregroundColor(.gray.opacity(0.3))
                 Text("Select an activity to view details")
-                    .font(.headline)
+                    .font(.custom("Nunito", size: 15))
+                    .fontWeight(.regular)
                     .foregroundColor(.gray.opacity(0.5))
-                    .padding(.top)
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.white)
-            .cornerRadius(20)
-            .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 5)
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color(hex: "E5E5E5"), lineWidth: 1)
+            )
             .if(maxHeight != nil) { view in
                 view.frame(maxHeight: maxHeight!)
             }
