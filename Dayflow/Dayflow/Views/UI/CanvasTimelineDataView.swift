@@ -19,7 +19,6 @@ private struct CanvasPositionedActivity: Identifiable {
     let height: CGFloat
     let title: String
     let timeLabel: String
-    let icon: String
     let color: CardColor
 }
 
@@ -108,7 +107,6 @@ struct CanvasTimelineDataView: View {
 
                             ForEach(positionedActivities) { item in
                             CanvasActivityCard(
-                                icon: item.icon,
                                 title: item.title,
                                 time: item.timeLabel,
                                 height: item.height,
@@ -236,7 +234,6 @@ struct CanvasTimelineDataView: View {
                     height: height,
                     title: activity.title,
                     timeLabel: formatRange(start: activity.startTime, end: activity.endTime),
-                    icon: iconForCategory(activity.category),
                     color: colorForCategory(activity.category)
                 )
             }
@@ -360,27 +357,19 @@ struct CanvasTimelineDataView: View {
         return "\(s) - \(e)"
     }
 
-    private func iconForCategory(_ category: String) -> String {
-        switch category.lowercased() {
-        case "productive work", "work", "research", "coding", "writing", "learning":
-            return "🧠"
-        case "distraction", "entertainment", "social media":
-            return "😑"
-        default:
-            return "⏰"
-        }
-    }
 
     private func colorForCategory(_ category: String) -> CardColor {
-        switch category.lowercased() {
-        case let cat where cat.contains("work") || cat.contains("productive") || cat.contains("coding") || cat.contains("research"):
-            return .blue  // Will map to teal gradient
-        case let cat where cat.contains("distraction") || cat.contains("entertainment") || cat.contains("social"):
-            return .red   // Will map to terracotta gradient
-        case let cat where cat.contains("learning") || cat.contains("studying") || cat.contains("personal"):
-            return .orange  // Will map to purple gradient
+        let key = category.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch key {
+        case "work":
+            return .orange   // Work → Orange
+        case "personal":
+            return .blue     // Personal → Blue
+        case "distraction":
+            return .red
         default:
-            return .orange  // Default warm gray
+            // If upstream sends unexpected labels, keep a safe default
+            return .orange
         }
     }
 }
@@ -433,7 +422,6 @@ extension CanvasTimelineDataView {
 
 // MARK: - Canvas Activity Card (visuals preserved from Canvas)
 struct CanvasActivityCard: View {
-    let icon: String
     let title: String
     let time: String
     let height: CGFloat
@@ -478,10 +466,7 @@ struct CanvasActivityCard: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Text(icon)
-                .font(.system(size: 16))
-
+        HStack(alignment: .top, spacing: 8) {
             Text(title)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(Color(red: 0.25, green: 0.25, blue: 0.30))
@@ -499,59 +484,77 @@ struct CanvasActivityCard: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .topLeading)
         .background(
-            LinearGradient(
-                colors: gradientColors(for: cardColor),
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
-        .overlay(
-            Group {
-                // Subtle border based on card type
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .stroke(borderColor(for: cardColor), lineWidth: 1)
-
-                // Highlight overlay
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(isSelected ? 0.25 : 0.08),
-                        Color.clear
-                    ],
-                    startPoint: .top,
-                    endPoint: UnitPoint(x: 0.5, y: 0.15)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+            GeometryReader { geo in
+                let size = geo.size
+                Group {
+                    if let imageName = chooseBackgroundImageName(for: cardColor, cardSize: size),
+                       let nsImg = NSImage(named: imageName) {
+                        Image(nsImage: nsImg)
+                            .resizable()
+                            .interpolation(.high)
+                            .frame(width: size.width, height: size.height)
+                            .clipped()
+                    } else {
+                        LinearGradient(
+                            colors: gradientColors(for: cardColor),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    }
+                }
             }
         )
-        .shadow(
-            color: isSelected ? Color.black.opacity(0.1) : .clear,
-            radius: isSelected ? 2 : 0,
-            x: 0,
-            y: isSelected ? 1 : 0
-        )
-        .shadow(
-            color: isSelected ? SelectionEffectConstants.shadowColor(for: cardColor) : .clear,
-            radius: isSelected ? SelectionEffectConstants.shadowRadius : 0,
-            x: isSelected ? SelectionEffectConstants.shadowOffset.width : 0,
-            y: isSelected ? SelectionEffectConstants.shadowOffset.height : 0
-        )
-        .brightness(isSelected ? 0.06 : 0.02)
-        .offset(y: isSelected ? -2 : 0)
-        .zIndex(isSelected ? 10 : 0)
-        .animation(
-            .interactiveSpring(
-                response: SelectionEffectConstants.springResponse,
-                dampingFraction: SelectionEffectConstants.springDampingFraction,
-                blendDuration: SelectionEffectConstants.springBlendDuration
-            ),
-            value: isSelected
-        )
+        // Remove explicit corner radius and strokes; images include any rounding baked-in
         .padding(.horizontal, 6)
         .contentShape(Rectangle())
         .onTapGesture { onTap() }
+    }
+
+    // MARK: - Background asset selection (aspect‑ratio based)
+    private func smallImageName(for color: CardColor) -> String {
+        switch color { case .blue: return "BlueCard"; case .orange: return "OrangeCard"; case .red: return "RedCard" }
+    }
+    private func largeImageName(for color: CardColor) -> String {
+        switch color { case .blue: return "LargeBlueCard"; case .orange: return "LargeOrangeCard"; case .red: return "LargeRedCard" }
+    }
+
+    private func chooseBackgroundImageName(for color: CardColor, cardSize: CGSize) -> String? {
+        let small = smallImageName(for: color)
+        let large = largeImageName(for: color)
+
+        let cardAR = safeAspect(width: cardSize.width, height: cardSize.height)
+        let smallAR = imageAspectRatio(named: small)
+        let largeAR = imageAspectRatio(named: large)
+
+        switch (smallAR, largeAR) {
+        case let (s?, l?):
+            let errS = abs(cardAR - s)
+            let errL = abs(cardAR - l)
+            return errL < errS ? large : small
+        case let (s?, nil):
+            return small
+        case let (nil, l?):
+            return large
+        default:
+            return nil
+        }
+    }
+
+    private func safeAspect(width: CGFloat, height: CGFloat) -> CGFloat {
+        let w = max(width, 1)
+        let h = max(height, 1)
+        return w / h
+    }
+
+    private static var aspectCache: [String: CGFloat] = [:]
+    private func imageAspectRatio(named name: String) -> CGFloat? {
+        if let cached = Self.aspectCache[name] { return cached }
+        guard let img = NSImage(named: name), img.size.width > 0, img.size.height > 0 else { return nil }
+        let ar = img.size.width / img.size.height
+        Self.aspectCache[name] = ar
+        return ar
     }
 }
 
