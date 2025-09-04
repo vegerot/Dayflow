@@ -221,20 +221,26 @@ struct CanvasTimelineDataView: View {
             let timelineCards = storageManager.fetchTimelineCards(forDay: dayString)
             let activities = processTimelineCards(timelineCards, for: logicalDate)
 
-            let positioned = activities.map { activity -> CanvasPositionedActivity in
-                let y = calculateYPosition(for: activity.startTime)
+            // Mitigation transform: resolve visual overlaps by trimming larger cards
+            // so that smaller cards "win". This is a display-only fix to handle
+            // upstream card-generation overlap bugs without touching stored data.
+            let segments = resolveOverlapsForDisplay(activities)
+
+            let positioned = segments.map { seg -> CanvasPositionedActivity in
+                let y = calculateYPosition(for: seg.start)
                 // Preserve Canvas spacing: -4 total (2px top + 2px bottom)
-                let rawHeight = calculateHeight(for: activity)
+                let durationMinutes = max(0, seg.end.timeIntervalSince(seg.start) / 60)
+                let rawHeight = CGFloat(durationMinutes) * CanvasConfig.pixelsPerMinute
                 let height = max(10, rawHeight - 4)
 
                 return CanvasPositionedActivity(
-                    id: activity.id,
-                    activity: activity,
+                    id: seg.activity.id,
+                    activity: seg.activity,
                     yPosition: y + 2, // 2px top spacing like original Canvas
                     height: height,
-                    title: activity.title,
-                    timeLabel: formatRange(start: activity.startTime, end: activity.endTime),
-                    color: colorForCategory(activity.category)
+                    title: seg.activity.title,
+                    timeLabel: formatRange(start: seg.start, end: seg.end),
+                    color: colorForCategory(seg.activity.category)
                 )
             }
 
@@ -304,6 +310,101 @@ struct CanvasTimelineDataView: View {
                 screenshot: nil
             )
         }
+    }
+
+    // MARK: - Overlap Resolution (Display-only)
+    // Trims larger overlapping cards so smaller cards keep their full range.
+    // This is a mitigation transform for occasional upstream timeline card overlap bugs.
+    private struct DisplaySegment {
+        let activity: TimelineActivity
+        var start: Date
+        var end: Date
+    }
+
+    private func resolveOverlapsForDisplay(_ activities: [TimelineActivity]) -> [DisplaySegment] {
+        // Start with raw segments mirroring activity times
+        var segments = activities.map { DisplaySegment(activity: $0, start: $0.startTime, end: $0.endTime) }
+        guard segments.count > 1 else { return segments }
+
+        // Sort by start time for deterministic processing
+        segments.sort { $0.start < $1.start }
+
+        // Iteratively resolve overlaps until stable, with a safety cap
+        var changed = true
+        var passes = 0
+        let maxPasses = 8
+        while changed && passes < maxPasses {
+            changed = false
+            passes += 1
+
+            // Compare each pair that could overlap (sweep-style)
+            var i = 0
+            while i < segments.count {
+                var j = i + 1
+                while j < segments.count {
+                    // Early exit if no chance to overlap (since sorted by start)
+                    if segments[j].start >= segments[i].end { break }
+
+                    // Compute overlap window
+                    let s1 = segments[i]
+                    let s2 = segments[j]
+                    let overlapStart = max(s1.start, s2.start)
+                    let overlapEnd = min(s1.end, s2.end)
+
+                    if overlapEnd > overlapStart {
+                        // There is overlap — decide small vs big by duration
+                        let d1 = s1.end.timeIntervalSince(s1.start)
+                        let d2 = s2.end.timeIntervalSince(s2.start)
+                        let smallIdx = d1 <= d2 ? i : j
+                        let bigIdx   = d1 <= d2 ? j : i
+
+                        // Reload references after indices chosen
+                        let small = segments[smallIdx]
+                        var big = segments[bigIdx]
+
+                        // Cases
+                        if big.start < small.start && small.end < big.end {
+                            // Small fully inside big — keep the longer side of big
+                            let left  = small.start.timeIntervalSince(big.start)
+                            let right = big.end.timeIntervalSince(small.end)
+                            if right >= left {
+                                big.start = small.end
+                            } else {
+                                big.end = small.start
+                            }
+                        } else if small.start <= big.start && big.start < small.end {
+                            // Overlap at big start — trim big.start to small.end
+                            big.start = small.end
+                        } else if small.start < big.end && big.end <= small.end {
+                            // Overlap at big end — trim big.end to small.start
+                            big.end = small.start
+                        }
+
+                        // Validate and apply change
+                        if big.end <= big.start {
+                            // Trimmed away — remove big
+                            segments.remove(at: bigIdx)
+                            changed = true
+                            // Restart inner loop from j = i+1 since indices shifted
+                            j = i + 1
+                            continue
+                        } else if big.start != segments[bigIdx].start || big.end != segments[bigIdx].end {
+                            segments[bigIdx] = big
+                            changed = true
+                            // Resort local order if start changed
+                            segments.sort { $0.start < $1.start }
+                            // Restart scanning from current i
+                            j = i + 1
+                            continue
+                        }
+                    }
+                    j += 1
+                }
+                i += 1
+            }
+        }
+
+        return segments
     }
 
     // MARK: - Timers
