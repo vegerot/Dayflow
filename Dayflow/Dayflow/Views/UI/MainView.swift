@@ -104,20 +104,27 @@ struct MainView: View {
                                 }
                             }
                         }
+                        .padding(.leading, 10)
 
-                        // Tab filters
-                        TabFilterBar()
-                            .opacity(contentOpacity)
-
-                        // Content area with timeline and activity card (always side-by-side; both shrink)
+                        // Content area: Left (chips + timeline) and Right (summary)
                         GeometryReader { geo in
                             HStack(alignment: .top, spacing: 20) {
-                                // Timeline area - Canvas look wired to data
-                                CanvasTimelineDataView(selectedDate: $selectedDate, selectedActivity: $selectedActivity, scrollToNowTick: $scrollToNowTick)
+                                // Left column: chips row at top, timeline below
+                                VStack(alignment: .leading, spacing: 12) {
+                                    TabFilterBar()
+                                        .opacity(contentOpacity)
+
+                                    CanvasTimelineDataView(
+                                        selectedDate: $selectedDate,
+                                        selectedActivity: $selectedActivity,
+                                        scrollToNowTick: $scrollToNowTick
+                                    )
                                     .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
                                     .opacity(contentOpacity)
+                                }
+                                .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-                                // Activity detail card — constrained height with internal scrolling for summary
+                                // Right column: activity detail card — constrained height with internal scrolling for summary
                                 ActivityCard(activity: selectedActivity, maxHeight: geo.size.height, scrollSummary: true)
                                     .frame(minWidth: 260, idealWidth: 380, maxWidth: 420)
                                     .opacity(contentOpacity)
@@ -125,7 +132,7 @@ struct MainView: View {
                             .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
                         }
                     }
-                    .padding(30)
+                    .padding(15)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -136,7 +143,6 @@ struct MainView: View {
             .clipShape(RoundedRectangle(cornerRadius: 14.72286, style: .continuous))
             // No outline stroke — clean white panel
         }
-        .padding(.leading, 10)
         .padding(.trailing, 20)
         .padding(.bottom, 20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -244,20 +250,7 @@ struct SidebarView: View {
                 .frame(width: 40, height: 40)
             }
         }
-        .padding(9.88329)
-        .frame(width: 59.29975, alignment: .center)
-        .background(.white.opacity(0.3))
-        .clipShape(RoundedRectangle(cornerRadius: 72, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 72, style: .continuous)
-                .stroke(DayflowAngularGradient.gradient, lineWidth: 0.61771)
-        )
-        .shadow(
-            color: Color.black.opacity(0.25),
-            radius: 25.94,
-            x: -7.74,
-            y: 37.55
-        )
+        // Outer rounded container removed per design
     }
 }
 
@@ -324,6 +317,7 @@ struct TabFilterBar: View {
 
             Spacer()
         }
+        .padding(.leading, 15)
     }
 }
 
@@ -347,6 +341,9 @@ extension MainView {
         selectedActivity = nil
         // Nudge timeline to scroll to now after it reloads
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            #if DEBUG
+            print("[MainView] performIdleResetAndScroll -> nudging scrollToNowTick")
+            #endif
             withAnimation(.easeInOut(duration: 0.35)) {
                 scrollToNowTick &+= 1
             }
@@ -368,8 +365,14 @@ extension MainView {
         didInitialScroll = true
         
         // Wait for layout to settle after animations complete
-        // (0.2s for content opacity + 0.5s buffer for layout)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+        // Increased delay to ensure ScrollView is fully ready on cold start
+        #if DEBUG
+        print("[MainView] performInitialScrollIfNeeded scheduled with 1.5s delay")
+        #endif
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            #if DEBUG
+            print("[MainView] performInitialScrollIfNeeded firing -> nudging scrollToNowTick")
+            #endif
             withAnimation(.easeInOut(duration: 0.35)) {
                 scrollToNowTick &+= 1
             }
