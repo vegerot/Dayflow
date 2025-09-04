@@ -145,6 +145,7 @@ final class GeminiDirectProvider: LLMProvider {
         3. **Only split when context changes for 2-3+ minutes** - Quick checks don't count as context switches
         4. **Combine related activities** - Multiple videos on the same topic = one segment
         5. **Think in terms of "sessions"** - What would you tell a friend you spent time doing?
+        6. **Idle detection** - if the screen stays exactly the same for 5+ minutes, make sure to note that within the observation that the user was idle during that period and not performing and actions, but still be specific about what's currently on the screen.
 
         ## When to create a new segment:
         Only when the user switches to a COMPLETELY different purpose for MORE than 2-3 minutes:
@@ -348,20 +349,31 @@ final class GeminiDirectProvider: LLMProvider {
         Group Thematically: Group activities that share a common purpose or topic. If extending would require fundamentally changing the card's title or theme, create a new card instead. Acknowledge the messy reality of multitasking within the summary.
         Tell a Story: The title and summary of each card should tell a coherent story. How did the session start? Where did it pivot? What was the user's apparent goal or rabbit hole?
         Title guidelines:
-        Write titles like you're texting a friend about what you did. Natural, conversational, direct.
+        Write titles like you're texting a friend about what you did. Natural, conversational, direct, specific.
 
         Rules:
         - Be specific and clear (not creative or vague)
         - Keep it short - aim for 5-10 words
         - Don't reference other cards or assume context
         - Include main activity + distraction if relevant
+        - Include specific app/tool names, not generic activities
+        - Use specific verbs: "Debugged Python" not "Worked on project"
 
         Good examples:
-        - "Edited photos in Lightroom"
-        - "Python tutorial on Codecademy"
-        - "Watched 3 episodes on Netflix"
-        - "Wrote blog post, kept checking Instagram"
-        - "Researched flights to Tokyo"
+        WORK:
+        - "Debugged auth flow in React"
+        - "Excel budget analysis for Q4 report"
+        - "Zoom call with design team"
+
+        PERSONAL:
+        - "Booked flights on Expedia for Denver trip"
+        - "Watched Succession finale on HBO"
+        - "Grocery list and meal prep research"
+
+        DISTRACTION:
+        - "Reddit rabbit hole about conspiracy theories"
+        - "Random YouTube shorts for 30 minutes"
+        - "Instagram reels and Twitter scrolling"
 
         Bad examples:
         - "Early morning digital drift" (too vague/poetic)
@@ -369,6 +381,9 @@ final class GeminiDirectProvider: LLMProvider {
         - "Extended Browsing Session" (too formal)
         - "Random browsing and activities" (not specific)
         - "Continuing from earlier" (references other cards)
+        - "Worked on DayFlow project" (too generic - what specifically?)
+        - "Browsed social media and shopped" (which platforms? for what?)
+        - "Refined UI and prompts" (which tools? what UI?)
 
         Summary guidelines:
         Write brief factual summaries optimized for quick scanning. First person perspective without "I".
@@ -412,6 +427,32 @@ final class GeminiDirectProvider: LLMProvider {
 
         "Began by reviewing the codebase and then dove deep into implementing new features. The work involved multiple context switches between different parts of the application."
         (All filler, no actual information)
+        
+        
+        CATEGORY CLASSIFICATION:
+        Assign category based on intent and relevance to professional goals:
+
+        WORK: Activities directly related to school, job, career, or professional development
+        - Coding, debugging, work emails, Slack, client meetings, studying, research
+        - Learning work-related skills (YouTube coding tutorial, Coursera course)
+        - Job searching, networking, portfolio work
+
+        PERSONAL: Intentional non-work activities for personal needs/interests  
+        - Entertainment, social media for connecting with friends
+        - Personal research (travel, shopping with intent)
+        - Hobbies, side projects for fun, personal finance
+
+        DISTRACTION: Aimless, compulsive, or unintentional time-wasters
+        - YouTube cat videos, TikTok scrolling, Reddit rabbit holes  
+        - Compulsive email/notification checking
+        - Random browsing without clear purpose
+        
+        IDLE: User is idle for the majority of the duration.
+
+        Same app, different category based on use:
+        - YouTube: coding tutorial = Work, music playlist = Personal, cat videos = Distraction
+        - Twitter: following industry news = Work, chatting with friends = Personal, doom-scrolling = Distraction
+        - Shopping: buying work equipment = Work, planned purchase = Personal, window shopping = Distraction
 
         YOUR MENTAL MODEL (How to Decide):
         Before making a decision, ask yourself these questions in order:
@@ -433,7 +474,7 @@ final class GeminiDirectProvider: LLMProvider {
                   {
                     "startTime": "1:12 AM",
                     "endTime": "1:30 AM",
-                    "category": "Productive Work",
+                    "category": "Work",
                     "subcategory": "Coding",
                     "title": "Working on auth bug in Dayflow",
                     "summary": "Fixed authentication bug in the login flow and added error handling",
