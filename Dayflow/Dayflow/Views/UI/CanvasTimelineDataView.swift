@@ -28,6 +28,8 @@ private struct CanvasPositionedActivity: Identifiable {
     let title: String
     let timeLabel: String
     let color: CardColor
+    let faviconPrimaryHost: String?
+    let faviconSecondaryHost: String?
 }
 
 // MARK: - Selection Effect Constants (file-local)
@@ -131,7 +133,9 @@ struct CanvasTimelineDataView: View {
                                         selectedCardId = item.id
                                         selectedActivity = item.activity
                                     }
-                                }
+                                },
+                                faviconPrimaryHost: item.faviconPrimaryHost,
+                                faviconSecondaryHost: item.faviconSecondaryHost
                             )
                             .frame(height: item.height)
                             .offset(y: item.yPosition)
@@ -245,6 +249,8 @@ struct CanvasTimelineDataView: View {
                 let durationMinutes = max(0, seg.end.timeIntervalSince(seg.start) / 60)
                 let rawHeight = CGFloat(durationMinutes) * CanvasConfig.pixelsPerMinute
                 let height = max(10, rawHeight - 4)
+                let primaryHost = normalizeHost(seg.activity.appSites?.primary)
+                let secondaryHost = normalizeHost(seg.activity.appSites?.secondary)
 
                 return CanvasPositionedActivity(
                     id: seg.activity.id,
@@ -253,7 +259,9 @@ struct CanvasTimelineDataView: View {
                     height: height,
                     title: seg.activity.title,
                     timeLabel: formatRange(start: seg.start, end: seg.end),
-                    color: colorForCategory(seg.activity.category)
+                    color: colorForCategory(seg.activity.category),
+                    faviconPrimaryHost: primaryHost,
+                    faviconSecondaryHost: secondaryHost
                 )
             }
 
@@ -261,6 +269,23 @@ struct CanvasTimelineDataView: View {
                 self.positionedActivities = positioned
             }
         }
+    }
+
+    // Normalize a domain or URL-like string to just the host
+    private func normalizeHost(_ site: String?) -> String? {
+        guard var site = site, !site.isEmpty else { return nil }
+        site = site.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let url = URL(string: site), url.host != nil {
+            return url.host
+        }
+        if site.contains("://") {
+            if let url = URL(string: site), let host = url.host { return host }
+        } else if site.contains("/") {
+            if let url = URL(string: "https://" + site), let host = url.host { return host }
+        } else {
+            return site
+        }
+        return nil
     }
 
     private func processTimelineCards(_ cards: [TimelineCard], for date: Date) -> [TimelineActivity] {
@@ -320,7 +345,8 @@ struct CanvasTimelineDataView: View {
                 subcategory: card.subcategory,
                 distractions: card.distractions,
                 videoSummaryURL: card.videoSummaryURL,
-                screenshot: nil
+                screenshot: nil,
+                appSites: card.appSites
             )
         }
     }
@@ -544,6 +570,8 @@ struct CanvasActivityCard: View {
     let cardColor: CardColor
     let isSelected: Bool
     let onTap: () -> Void
+    let faviconPrimaryHost: String?
+    let faviconSecondaryHost: String?
     
     // Helper function to get gradient colors based on card type
     private func gradientColors(for color: CardColor) -> [Color] {
@@ -588,6 +616,10 @@ struct CanvasActivityCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
+            // Favicon or fallback ✨
+            FaviconOrSparkleView(primaryHost: faviconPrimaryHost, secondaryHost: faviconSecondaryHost)
+                .frame(width: 16, height: 16)
+
             Text(title)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(cardColor == .idle ? Color.gray : Color(red: 0.25, green: 0.25, blue: 0.30))
@@ -717,4 +749,38 @@ struct CanvasActivityCard: View {
         }
     }
     return PreviewWrapper()
+}
+
+// MARK: - FaviconOrSparkleView
+private struct FaviconOrSparkleView: View {
+    let primaryHost: String?
+    let secondaryHost: String?
+    @State private var image: NSImage? = nil
+    @State private var didStart = false
+
+    var body: some View {
+        Group {
+            if let img = image {
+                Image(nsImage: img)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 16, height: 16)
+                    .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+            } else {
+                Text("✨")
+                    .font(.system(size: 12))
+                    .frame(width: 16, height: 16, alignment: .center)
+            }
+        }
+        .onAppear {
+            guard !didStart else { return }
+            didStart = true
+            Task { @MainActor in
+                if let img = await FaviconService.shared.fetchFavicon(primary: primaryHost, secondary: secondaryHost) {
+                    self.image = img
+                }
+            }
+        }
+    }
 }
