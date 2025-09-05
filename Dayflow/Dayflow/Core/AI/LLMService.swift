@@ -267,7 +267,8 @@ final class LLMService: LLMServicing {
                         title: card.title,
                         summary: card.summary,
                         detailedSummary: card.detailedSummary,
-                        distractions: card.distractions
+                        distractions: card.distractions,
+                        appSites: card.appSites
                     )
                 }
                 
@@ -304,7 +305,8 @@ final class LLMService: LLMServicing {
                             title: card.title,
                             summary: card.summary,
                             detailedSummary: card.detailedSummary,
-                            distractions: card.distractions
+                            distractions: card.distractions,
+                            appSites: card.appSites
                         )
                     },
                     batchId: batchId
@@ -418,7 +420,8 @@ final class LLMService: LLMServicing {
             title: "Processing failed",
             summary: "Failed to process \(duration) minutes of recording from \(startTimeStr) to \(endTimeStr). \(humanError) Your recording is safe and can be reprocessed.",
             detailedSummary: "Error details: \(error.localizedDescription)\n\nThis recording batch (ID: \(batchId)) failed during AI processing. The original video files are preserved and can be reprocessed by retrying from Settings. Common causes include network issues, API rate limits, or temporary service outages.",
-            distractions: nil
+            distractions: nil,
+            appSites: nil
         )
     }
     

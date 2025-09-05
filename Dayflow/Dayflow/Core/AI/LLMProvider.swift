@@ -26,6 +26,11 @@ enum LLMProviderType: Codable {
 
 // MARK: - Data Models
 
+struct AppSites: Codable {
+    let primary: String
+    let secondary: String?
+}
+
 struct ActivityCardData: Codable {
     let startTime: String
     let endTime: String
@@ -35,6 +40,7 @@ struct ActivityCardData: Codable {
     let summary: String
     let detailedSummary: String
     let distractions: [Distraction]?
+    let appSites: AppSites?
 }
 
 // Distraction is defined in StorageManager.swift
