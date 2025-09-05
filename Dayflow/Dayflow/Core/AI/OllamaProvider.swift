@@ -93,7 +93,8 @@ final class OllamaProvider: LLMProvider {
             title: titleSummary.title,
             summary: titleSummary.summary,
             detailedSummary: "",
-            distractions: nil
+            distractions: nil,
+            appSites: nil
         )
         
         var allCards = context.existingCards
@@ -185,7 +186,8 @@ final class OllamaProvider: LLMProvider {
                         title: d.title,
                         summary: d.summary
                     )
-                }
+                },
+                appSites: nil
             )
         }
         
@@ -822,7 +824,8 @@ final class OllamaProvider: LLMProvider {
             title: merged.title,
             summary: merged.summary,
             detailedSummary: previousCard.detailedSummary,
-            distractions: previousCard.distractions
+            distractions: previousCard.distractions,
+            appSites: previousCard.appSites
         )
         
         
