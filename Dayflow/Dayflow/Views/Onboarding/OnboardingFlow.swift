@@ -18,7 +18,7 @@ struct OnboardingFlow: View {
     @State private var timelineOffset: CGFloat = 300 // Start below screen
     @State private var textOpacity: Double = 0
     @AppStorage("selectedLLMProvider") private var selectedProvider: String = "gemini" // Persist across sessions
-    private let fullText = "Stop wondering where your day went.\nStart understanding it."
+    private let fullText = "Your day has a story. Let's uncover it together."
     
     @ViewBuilder
     var body: some View {
