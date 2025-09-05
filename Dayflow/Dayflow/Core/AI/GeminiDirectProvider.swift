@@ -454,6 +454,31 @@ final class GeminiDirectProvider: LLMProvider {
         - Twitter: following industry news = Work, chatting with friends = Personal, doom-scrolling = Distraction
         - Shopping: buying work equipment = Work, planned purchase = Personal, window shopping = Distraction
 
+        APP SITES (Website Logos)
+        Identify the main app or website used for each card and include an appSites object.
+
+        Rules:
+        - primary: The canonical domain (or canonical product path) of the main app used in the card.
+        - secondary: Another meaningful app used during this session OR the enclosing app (e.g., browser), if relevant.
+        - Format: lower-case, no protocol, no query or fragments. Use product subdomains/paths when they are canonical (e.g., docs.google.com for Google Docs).
+        - Be specific: prefer product domains over generic ones (docs.google.com over google.com).
+        - If you cannot determine a secondary, omit it.
+        - Do not invent brands; rely on evidence from observations.
+
+        Canonical examples:
+        - Figma → figma.com
+        - Notion → notion.so
+        - Google Docs → docs.google.com
+        - Gmail → mail.google.com
+        - Google Sheets → sheets.google.com
+        - Zoom → zoom.us
+        - ChatGPT → chatgpt.com
+        - VS Code → code.visualstudio.com
+        - Xcode → developer.apple.com/xcode
+        - Chrome → google.com/chrome
+        - Safari → apple.com/safari
+        - Twitter/X → x.com
+
         YOUR MENTAL MODEL (How to Decide):
         Before making a decision, ask yourself these questions in order:
 
@@ -486,7 +511,11 @@ final class GeminiDirectProvider: LLMProvider {
                         "title": "Twitter",
                         "summary": "Checked notifications and scrolled feed"
                       }
-                    ]
+                    ],
+                    "appSites": {
+                      "primary": "figma.com",
+                      "secondary": "google.com/chrome"
+                    }
                   }
                 ]
         """
@@ -1027,15 +1056,26 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             "required": ["startTime", "endTime", "title", "summary"], "propertyOrdering": ["startTime", "endTime", "title", "summary"]
         ]
         
+        let appSitesSchema: [String: Any] = [
+            "type": "OBJECT",
+            "properties": [
+                "primary": ["type": "STRING"],
+                "secondary": ["type": "STRING"]
+            ],
+            "required": [],
+            "propertyOrdering": ["primary", "secondary"]
+        ]
+        
         let cardSchema: [String: Any] = [
             "type": "ARRAY", "items": [
                 "type": "OBJECT", "properties": [
                     "startTime": ["type": "STRING"], "endTime": ["type": "STRING"], "category": ["type": "STRING"],
                     "subcategory": ["type": "STRING"], "title": ["type": "STRING"], "summary": ["type": "STRING"],
-                    "detailedSummary": ["type": "STRING"], "distractions": ["type": "ARRAY", "items": distractionSchema]
+                    "detailedSummary": ["type": "STRING"], "distractions": ["type": "ARRAY", "items": distractionSchema],
+                    "appSites": appSitesSchema
                 ],
                 "required": ["startTime", "endTime", "category", "subcategory", "title", "summary", "detailedSummary"],
-                "propertyOrdering": ["startTime", "endTime", "category", "subcategory", "title", "summary", "detailedSummary", "distractions"]
+                "propertyOrdering": ["startTime", "endTime", "category", "subcategory", "title", "summary", "detailedSummary", "distractions", "appSites"]
             ]
         ]
         
@@ -1297,6 +1337,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             let summary: String
             let detailedSummary: String
             let distractions: [GeminiDistraction]?
+            let appSites: AppSites?
             
             // Make distractions optional with default nil
             init(from decoder: Decoder) throws {
@@ -1309,6 +1350,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                 summary = try container.decode(String.self, forKey: .summary)
                 detailedSummary = try container.decode(String.self, forKey: .detailedSummary)
                 distractions = try container.decodeIfPresent([GeminiDistraction].self, forKey: .distractions)
+                appSites = try container.decodeIfPresent(AppSites.self, forKey: .appSites)
             }
         }
         
@@ -1345,7 +1387,8 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                         title: d.title,
                         summary: d.summary
                     )
-                }
+                },
+                appSites: geminiCard.appSites
             )
         }
     }
