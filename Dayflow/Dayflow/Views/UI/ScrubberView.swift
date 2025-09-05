@@ -140,133 +140,119 @@ struct ScrubberView: View {
     @State private var isDragging: Bool = false
 
     private let frameCount = 12
-    private let baselineHeight: CGFloat = 10
-    private let playheadDiameter: CGFloat = 12
     private let filmstripHeight: CGFloat = 64
-    private let spacingBetween: CGFloat = 10
     private let aspect: CGFloat = 16.0/9.0
     private let zoom: CGFloat = 1.2 // 20% zoom
+    private let chipRowHeight: CGFloat = 28
+    private let chipSpacing: CGFloat = 0  // no gap; chip overlaps filmstrip slightly via offset below
+    private let sideGutter: CGFloat = 30  // outer gutters left/right of the strip
+    // Total height = chip row + spacing + filmstrip
+    private var totalHeight: CGFloat { chipRowHeight + chipSpacing + filmstripHeight }
 
     var body: some View {
         GeometryReader { outer in
+            // Shared x-position for playhead based on full width
+            let stripWidth = max(1, outer.size.width - sideGutter * 2)
+            let xInsideRaw = xFor(time: currentTime, width: stripWidth)
+            // Snap to device pixels to avoid shimmer
+            let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+            let xInside = (xInsideRaw * scale).rounded() / scale
+            let x = sideGutter + xInside
+
             ZStack(alignment: .topLeading) {
-                VStack(spacing: spacingBetween) {
-                    GeometryReader { geometry in
-                        ZStack(alignment: .topLeading) {
-                            // Baseline track
-                            Capsule()
-                                .fill(Color.white.opacity(0.25))
-                                .frame(height: 4)
-                                .offset(y: (baselineHeight - 4) / 2)
-
-                    // Playhead + time chip
-                    let x = xFor(time: currentTime, width: geometry.size.width)
-                    Group {
-                        // Time chip above playhead
-                        Text(timeLabel(for: currentTime))
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(Color.black.opacity(0.7))
-                            .cornerRadius(10)
-                            .offset(x: x - 24, y: -24)
-
-                        Circle()
-                            .fill(Color.white)
-                            .frame(width: playheadDiameter, height: playheadDiameter)
-                            .shadow(color: .black.opacity(0.4), radius: 2, x: 0, y: 1)
-                            .offset(x: x - playheadDiameter/2, y: (baselineHeight - playheadDiameter)/2)
-                    }
+            VStack(spacing: chipSpacing) {
+                // Time chip row (pill above filmstrip)
+                ZStack(alignment: .topLeading) {
+                    Color.clear.frame(height: chipRowHeight)
+                    Text(timeLabel(for: currentTime))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)  // minus 2px each side from 10
+                        .padding(.vertical, 4)    // minus 2px each side from 6
+                        .background(Color.black.opacity(0.85))
+                        .cornerRadius(12)
+                        .scaleEffect(0.8) // shrink ~20%
+                        .position(x: x, y: chipRowHeight/2) // lowered by ~3px
                 }
-                .frame(height: baselineHeight)
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            if !isDragging { isDragging = true; onScrubStateChange(true) }
-                            let pct = max(0, min(1, value.location.x / geometry.size.width))
-                            onSeek(pct * max(duration, 0.0001))
-                        }
-                        .onEnded { value in
-                            isDragging = false
-                            onScrubStateChange(false)
-                        }
-                )
-                }
-                    .frame(height: baselineHeight + 10)
+                .zIndex(1) // ensure chip renders above the playhead bar
 
-                // Filmstrip
-                let tileWidth = filmstripHeight * aspect
-                let columnsNeeded = max(1, Int(ceil(outer.size.width / tileWidth)))
-                HStack(spacing: 0) {
-                    if images.count == columnsNeeded {
-                        ForEach(0..<images.count, id: \.self) { idx in
-                            Image(nsImage: images[idx])
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .scaleEffect(zoom, anchor: .center)
+                // Filmstrip with white background, square corners, no border
+                ZStack(alignment: .topLeading) {
+                    Rectangle()
+                        .fill(Color.white)
+
+                    // Thumbnails row
+                    let tileWidth = filmstripHeight * aspect
+                    let columnsNeeded = max(1, Int(ceil(stripWidth / tileWidth)))
+                    HStack(spacing: 0) {
+                        if images.count == columnsNeeded {
+                            ForEach(0..<images.count, id: \.self) { idx in
+                                Image(nsImage: images[idx])
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .scaleEffect(zoom, anchor: .center)
+                                    .frame(width: tileWidth, height: filmstripHeight)
+                                    .clipped()
+                            }
+                        } else if images.isEmpty {
+                            ForEach(0..<columnsNeeded, id: \.self) { _ in
+                                Rectangle()
+                                    .fill(Color.black.opacity(0.06))
+                                    .frame(width: tileWidth, height: filmstripHeight)
+                            }
+                        } else {
+                            ForEach(0..<columnsNeeded, id: \.self) { i in
+                                let img: NSImage? = i < images.count ? images[i] : nil
+                                Group {
+                                    if let img = img {
+                                        Image(nsImage: img)
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                            .scaleEffect(zoom, anchor: .center)
+                                    } else {
+                                        Rectangle().fill(Color.black.opacity(0.06))
+                                    }
+                                }
                                 .frame(width: tileWidth, height: filmstripHeight)
                                 .clipped()
-                        }
-                    } else if images.isEmpty {
-                        // Lightweight placeholders while generating
-                        ForEach(0..<columnsNeeded, id: \.self) { _ in
-                            Rectangle()
-                                .fill(Color.white.opacity(0.08))
-                                .frame(width: tileWidth, height: filmstripHeight)
-                        }
-                    } else {
-                        // If counts mismatch (resize), prefer newly computed count as placeholders
-                        ForEach(0..<columnsNeeded, id: \.self) { i in
-                            let img: NSImage? = i < images.count ? images[i] : nil
-                            Group {
-                                if let img = img {
-                                    Image(nsImage: img)
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                        .scaleEffect(zoom, anchor: .center)
-                                } else {
-                                    Rectangle().fill(Color.white.opacity(0.08))
-                                }
                             }
-                            .frame(width: tileWidth, height: filmstripHeight)
-                            .clipped()
                         }
                     }
-                }
-                .frame(width: outer.size.width, alignment: .leading)
-                .clipped()
-                .onChange(of: columnsNeeded) { newValue in
-                    generateFilmstripIfNeeded(count: newValue)
-                }
-                .onAppear {
-                    generateFilmstripIfNeeded(count: columnsNeeded)
-                }
-            }
+                    .frame(width: stripWidth, alignment: .leading)
+                    .clipped() // cut last thumbnail at bounds
+                    .onChange(of: columnsNeeded) { newValue in
+                        generateFilmstripIfNeeded(count: newValue)
+                    }
+                    .onAppear { generateFilmstripIfNeeded(count: columnsNeeded) }
 
-                // Vertical playhead line overlay (from just under the dot through filmstrip)
-                GeometryReader { geometry in
-                    let x = xFor(time: currentTime, width: geometry.size.width)
-                    let topOffset = baselineHeight / 2 + playheadDiameter / 2 + 1
-                    let totalHeight = baselineHeight + spacingBetween + filmstripHeight
-                    let lineHeight = max(0, totalHeight - topOffset)
-
-                    RoundedRectangle(cornerRadius: 1.5)
+                    // Vertical playhead bar with black outline; extend ~3px into chip row
+                    let barHeight = filmstripHeight + 3 // extend slightly into chip area
+                    Rectangle()
+                        .fill(Color.black)
+                        .frame(width: 5, height: barHeight)
+                        .shadow(color: .black.opacity(0.25), radius: 1.0, x: 0, y: 0)
+                        .offset(x: xInside - 2.5, y: -3)
+                        .allowsHitTesting(false)
+                    Rectangle()
                         .fill(Color.white)
-                        .frame(width: 3, height: lineHeight)
-                        .shadow(color: .black.opacity(0.25), radius: 1.5, x: 0, y: 0)
-                        .offset(x: x - 1.5, y: topOffset)
+                        .frame(width: 3, height: barHeight)
+                        .offset(x: xInside - 1.5, y: -3)
                         .allowsHitTesting(false)
                 }
+                .frame(width: stripWidth, height: filmstripHeight)
+                .padding(.horizontal, sideGutter) // create outer gutters
+            }
             }
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         if !isDragging { isDragging = true; onScrubStateChange(true) }
-                        let pct = max(0, min(1, value.location.x / outer.size.width))
-                        onSeek(pct * max(duration, 0.0001))
+                        // Map global x → inner filmstrip x (accounting for outer gutters)
+                        let stripWidth = max(1, outer.size.width - sideGutter * 2)
+                        let xLocal = (value.location.x - sideGutter).clamped(to: 0, stripWidth)
+                        let pct = xLocal / stripWidth
+                        onSeek(Double(pct) * max(duration, 0.0001))
                     }
                     .onEnded { _ in
                         isDragging = false
@@ -274,6 +260,7 @@ struct ScrubberView: View {
                     }
             )
         }
+        .frame(height: totalHeight)
         .onAppear { /* filmstrip generation handled above */ }
     }
 
