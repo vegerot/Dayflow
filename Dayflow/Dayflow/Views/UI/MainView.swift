@@ -10,7 +10,7 @@ import AVKit
 import AVFoundation
 
 struct MainView: View {
-    @State private var selectedIcon: SidebarIcon = .analytics
+    @State private var selectedIcon: SidebarIcon = .timeline
     @State private var selectedDate = Date()
     @State private var showDatePicker = false
     @State private var selectedActivity: TimelineActivity? = nil
@@ -61,9 +61,16 @@ struct MainView: View {
 
             // Right column: Main white panel including header + content
             ZStack {
-                if selectedIcon == .settings {
+                switch selectedIcon {
+                case .settings:
                     SettingsView()
-                } else {
+                case .dashboard:
+                    DashboardView()
+                        .padding(15)
+                case .journal:
+                    JournalView()
+                        .padding(15)
+                case .timeline:
                     VStack(alignment: .leading, spacing: 20) {
                         // Header: Timeline title + Date navigation (now inside white panel)
                         HStack {
@@ -220,19 +227,24 @@ struct MainView: View {
 
 // MARK: - Sidebar
 enum SidebarIcon: CaseIterable {
-    case grid
-    case analytics
-    case document
+    case timeline
+    case dashboard
+    case journal
     case settings
-    case bug
-    
-    var systemName: String {
+
+    var assetName: String? {
         switch self {
-        case .grid: return "square.grid.2x2"
-        case .analytics: return "chart.line.uptrend.xyaxis"
-        case .document: return "doc"
+        case .timeline: return "TimelineIcon"
+        case .dashboard: return "DashboardIcon"
+        case .journal: return "JournalIcon"
+        case .settings: return nil
+        }
+    }
+
+    var systemNameFallback: String? {
+        switch self {
         case .settings: return "gearshape"
-        case .bug: return "ladybug"
+        default: return nil
         }
     }
 }
@@ -264,15 +276,28 @@ struct SidebarIconButton: View {
         Button(action: action) {
             ZStack {
                 if isSelected {
-                    Circle()
-                        .fill(Color(red: 1, green: 0.85, blue: 0.7).opacity(0.3))
+                    Image("IconBackground")
+                        .resizable()
+                        .interpolation(.high)
+                        .renderingMode(.original)
+                        .aspectRatio(contentMode: .fit)
                         .frame(width: 40, height: 40)
                 }
-                
-                Image(systemName: icon.systemName)
-                    .font(.system(size: 18))
-                    .foregroundColor(isSelected ? Color(red: 1, green: 0.54, blue: 0.02) : Color(red: 0.6, green: 0.4, blue: 0.3))
-                    .frame(width: 40, height: 40)
+
+                if let asset = icon.assetName {
+                    Image(asset)
+                        .resizable()
+                        .interpolation(.high)
+                        .renderingMode(.template)
+                        .foregroundColor(isSelected ? Color(hex: "F96E00") : Color(red: 0.6, green: 0.4, blue: 0.3))
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 20, height: 20)
+                } else if let sys = icon.systemNameFallback {
+                    Image(systemName: sys)
+                        .font(.system(size: 18))
+                        .foregroundColor(isSelected ? Color(hex: "F96E00") : Color(red: 0.6, green: 0.4, blue: 0.3))
+                        .frame(width: 40, height: 40)
+                }
             }
         }
         .buttonStyle(PlainButtonStyle())
