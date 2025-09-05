@@ -182,6 +182,7 @@ struct TimelineCard: Codable, Sendable, Identifiable {
     let distractions: [Distraction]?
     let videoSummaryURL: String? // Optional link to primary video summary
     let otherVideoSummaryURLs: [String]? // For merged cards, subsequent video URLs
+    let appSites: AppSites?
 }
 
 /// Metadata about a single LLM request/response cycle
@@ -224,8 +225,15 @@ struct TimelineCardShell: Sendable {
     let summary: String
     let detailedSummary: String
     let distractions: [Distraction]? // Keep this, it's part of the initial save
+    let appSites: AppSites?
     // No videoSummaryURL here, as it's added later
     // No batchId here, as it's passed as a separate parameter to the save function
+}
+
+// New metadata envelope to support multiple fields under one JSON column
+private struct TimelineMetadata: Codable {
+    let distractions: [Distraction]?
+    let appSites: AppSites?
 }
 
 // Extended TimelineCard with timestamp fields for internal use
@@ -553,14 +561,10 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         
         try? db.write {
             db in
-            var distractionsString: String? = nil
-            if let distractions = card.distractions, !distractions.isEmpty {
-                if let jsonData = try? encoder.encode(distractions) {
-                    distractionsString = String(data: jsonData, encoding: .utf8)
-                }
-            }
+            // Encode metadata as an object for forward-compatibility
+            let meta = TimelineMetadata(distractions: card.distractions, appSites: card.appSites)
+            let metadataString: String? = (try? encoder.encode(meta)).flatMap { String(data: $0, encoding: .utf8) }
 
-            
             // Calculate the day string from the start timestamp
             let dayString = self.dateFormatter.string(from: startDate)
             
@@ -573,7 +577,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
                 batchId, card.startTimestamp, card.endTimestamp, startTs, endTs, dayString, card.title,
-                card.summary, card.category, card.subcategory, card.detailedSummary, distractionsString
+                card.summary, card.category, card.subcategory, card.detailedSummary, metadataString
             ])
             lastId = db.lastInsertedRowID
         }
@@ -596,9 +600,15 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         return (try? db.read { db in
             try Row.fetchAll(db, sql: "SELECT * FROM timeline_cards WHERE batch_id = ? ORDER BY start ASC", arguments: [batchId]).map { row in
                 var distractions: [Distraction]? = nil
+                var appSites: AppSites? = nil
                 if let metadataString: String = row["metadata"],
                    let jsonData = metadataString.data(using: .utf8) {
-                    distractions = try? decoder.decode([Distraction].self, from: jsonData)
+                    if let meta = try? decoder.decode(TimelineMetadata.self, from: jsonData) {
+                        distractions = meta.distractions
+                        appSites = meta.appSites
+                    } else if let legacy = try? decoder.decode([Distraction].self, from: jsonData) {
+                        distractions = legacy
+                    }
                 }
                 return TimelineCard(
                     startTimestamp: row["start"] ?? "",
@@ -611,7 +621,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     day: row["day"],
                     distractions: distractions,
                     videoSummaryURL: row["video_summary_url"],
-                    otherVideoSummaryURLs: nil
+                    otherVideoSummaryURLs: nil,
+                    appSites: appSites
                 )
             }
         }) ?? []
@@ -665,11 +676,17 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 ORDER BY start_ts ASC, start ASC
             """, arguments: [startTs, endTs])
             .map { row in
-                // Decode distractions from metadata JSON
+                // Decode metadata JSON (supports object or legacy array)
                 var distractions: [Distraction]? = nil
+                var appSites: AppSites? = nil
                 if let metadataString: String = row["metadata"],
                    let jsonData = metadataString.data(using: .utf8) {
-                    distractions = try? decoder.decode([Distraction].self, from: jsonData)
+                    if let meta = try? decoder.decode(TimelineMetadata.self, from: jsonData) {
+                        distractions = meta.distractions
+                        appSites = meta.appSites
+                    } else if let legacy = try? decoder.decode([Distraction].self, from: jsonData) {
+                        distractions = legacy
+                    }
                 }
 
                 // Create TimelineCard instance using renamed columns
@@ -684,7 +701,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     day: row["day"],
                     distractions: distractions,
                     videoSummaryURL: row["video_summary_url"],
-                    otherVideoSummaryURLs: nil
+                    otherVideoSummaryURLs: nil,
+                    appSites: appSites
                 )
             }
         }
@@ -705,11 +723,17 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 ORDER BY start_ts ASC
             """, arguments: [toTs, fromTs, fromTs, toTs])
             .map { row in
-                // Decode distractions from metadata JSON
+                // Decode metadata JSON (supports object or legacy array)
                 var distractions: [Distraction]? = nil
+                var appSites: AppSites? = nil
                 if let metadataString: String = row["metadata"],
                    let jsonData = metadataString.data(using: .utf8) {
-                    distractions = try? decoder.decode([Distraction].self, from: jsonData)
+                    if let meta = try? decoder.decode(TimelineMetadata.self, from: jsonData) {
+                        distractions = meta.distractions
+                        appSites = meta.appSites
+                    } else if let legacy = try? decoder.decode([Distraction].self, from: jsonData) {
+                        distractions = legacy
+                    }
                 }
 
                 // Create TimelineCard instance using renamed columns
@@ -724,7 +748,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     day: row["day"],
                     distractions: distractions,
                     videoSummaryURL: row["video_summary_url"],
-                    otherVideoSummaryURLs: nil
+                    otherVideoSummaryURLs: nil,
+                    appSites: appSites
                 )
             }
         }
@@ -745,7 +770,11 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             var distractions: [Distraction]? = nil
             if let metadataString: String = row["metadata"],
                let jsonData = metadataString.data(using: .utf8) {
-                distractions = try? decoder.decode([Distraction].self, from: jsonData)
+                if let meta = try? decoder.decode(TimelineMetadata.self, from: jsonData) {
+                    distractions = meta.distractions
+                } else if let legacy = try? decoder.decode([Distraction].self, from: jsonData) {
+                    distractions = legacy
+                }
             }
             
             return TimelineCardWithTimestamps(
@@ -825,12 +854,9 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             
             // Insert new cards
             for card in newCards {
-                var distractionsString: String? = nil
-                if let distractions = card.distractions, !distractions.isEmpty {
-                    if let jsonData = try? encoder.encode(distractions) {
-                        distractionsString = String(data: jsonData, encoding: .utf8)
-                    }
-                }
+                // Encode metadata object with distractions and appSites
+                let meta = TimelineMetadata(distractions: card.distractions, appSites: card.appSites)
+                let metadataString: String? = (try? encoder.encode(meta)).flatMap { String(data: $0, encoding: .utf8) }
                 
                 // Parse clock times to Unix timestamps
                 // Since we don't have the day anymore, we need to infer it from the time range
@@ -886,7 +912,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [
                     batchId, card.startTimestamp, card.endTimestamp, startTs, endTs, dayString, card.title,
-                    card.summary, card.category, card.subcategory, card.detailedSummary, distractionsString
+                    card.summary, card.category, card.subcategory, card.detailedSummary, metadataString
                 ])
                 
                 // Capture the ID of the inserted card
