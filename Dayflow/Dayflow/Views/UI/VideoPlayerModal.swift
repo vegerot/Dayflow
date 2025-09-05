@@ -7,6 +7,7 @@
 
 import SwiftUI
 import AVKit
+import AppKit
 
 // MARK: - Custom Button Style
 struct ScaleButtonStyle: ButtonStyle {
@@ -73,6 +74,10 @@ class VideoPlayerViewModel: ObservableObject {
     @Published var isDragging: Bool = false
     @Published var hoverTime: Double? = nil
     @Published var timelineOffset: CGFloat = 0
+    @Published var videoAspect: CGFloat = 16.0/9.0
+
+    // Playback speed options shown in the chip (mapped to 20x, 40x, 60x labels)
+    let speedOptions: [Float] = [1.0, 2.0, 3.0]
     
     var player: AVPlayer?
     private var timeObserver: Any?
@@ -80,17 +85,27 @@ class VideoPlayerViewModel: ObservableObject {
     func setupPlayer(url: URL) {
         player = AVPlayer(url: url)
         
-        // Get video duration
-        player?.currentItem?.asset.loadValuesAsynchronously(forKeys: ["duration"]) { [weak self] in
-            guard let duration = self?.player?.currentItem?.asset.duration else { return }
+        // Get video duration and aspect
+        player?.currentItem?.asset.loadValuesAsynchronously(forKeys: ["duration", "tracks"]) { [weak self] in
+            guard let asset = self?.player?.currentItem?.asset else { return }
+            let duration = asset.duration
             DispatchQueue.main.async {
                 self?.duration = CMTimeGetSeconds(duration)
+                if let track = asset.tracks(withMediaType: .video).first {
+                    let natural = track.naturalSize
+                    let transform = track.preferredTransform
+                    let transformed = natural.applying(transform)
+                    let w = abs(transformed.width) > 0 ? abs(transformed.width) : max(1, natural.width)
+                    let h = abs(transformed.height) > 0 ? abs(transformed.height) : max(1, natural.height)
+                    let aspect = max(0.1, CGFloat(w / h))
+                    self?.videoAspect = aspect
+                }
                 self?.loadSegments()
             }
         }
         
         // Observe playback time
-        let interval = CMTime(seconds: 0.03, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
+        let interval = CMTime(seconds: 1.0/60.0, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
         timeObserver = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             guard let self = self, !self.isDragging else { return }
             self.currentTime = CMTimeGetSeconds(time)
@@ -129,6 +144,15 @@ class VideoPlayerViewModel: ObservableObject {
             player?.rate = speed
         }
     }
+
+    func cycleSpeed() {
+        guard let idx = speedOptions.firstIndex(of: playbackSpeed) else {
+            setPlaybackSpeed(speedOptions.first ?? 1.0)
+            return
+        }
+        let next = speedOptions[(idx + 1) % speedOptions.count]
+        setPlaybackSpeed(next)
+    }
     
     private func updateCurrentSegment() {
         currentSegment = segments.first { segment in
@@ -154,75 +178,154 @@ class VideoPlayerViewModel: ObservableObject {
 // MARK: - Main Player View
 struct VideoPlayerModal: View {
     let videoURL: String
+    var title: String? = nil
+    var startTime: Date? = nil
+    var endTime: Date? = nil
+    var containerSize: CGSize? = nil
     @Environment(\.dismiss) var dismiss
     @StateObject private var viewModel = VideoPlayerViewModel()
     @State private var showControls = true
     @State private var controlsTimer: Timer?
+    @State private var keyMonitor: Any?
+    @State private var isHoveringVideo = false
     
     var body: some View {
-        ZStack {
-            Color.black
-            
-            VStack(spacing: 0) {
-                // Video player area
-                ZStack {
-                    if let player = viewModel.player {
-                        VideoPlayer(player: player)
-                            .disabled(true) // Disable default controls
-                            .onTapGesture {
-                                viewModel.togglePlayPause()
-                            }
-                    } else {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                    }
-                    
-                    // Close button overlay
-                    VStack {
-                        HStack {
-                            Spacer()
-                            Button(action: { dismiss() }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 24))
-                                    .foregroundColor(.white.opacity(0.8))
-                                    .background(Circle().fill(Color.black.opacity(0.3)))
-                            }
-                            .buttonStyle(ScaleButtonStyle())
-                            .padding()
+        VStack(spacing: 0) {
+            // Header
+            if title != nil || (startTime != nil && endTime != nil) {
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let title = title {
+                            Text(title)
+                                .font(.title3)
+                                .fontWeight(.semibold)
                         }
-                        Spacer()
+                        if let startTime = startTime, let endTime = endTime {
+                            Text("\(timeFormatter.string(from: startTime)) to \(timeFormatter.string(from: endTime))")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
+                    Spacer()
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(Color.black.opacity(0.5))
+                    }
+                    .buttonStyle(ScaleButtonStyle())
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                
-                // Custom scrubber below the video
-                VStack(spacing: 12) {
-                    if let url = scrubberURL {
-                        ScrubberView(
-                            url: url,
-                            duration: max(0.001, viewModel.duration),
-                            currentTime: viewModel.currentTime,
-                            onSeek: { t in viewModel.seek(to: t) },
-                            onScrubStateChange: { dragging in viewModel.isDragging = dragging }
-                        )
-                        .padding(.horizontal)
-                        .padding(.bottom, 12)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(Color.white)
+                .overlay(
+                    Rectangle().stroke(Color.gray.opacity(0.25), lineWidth: 1)
+                )
+            }
+
+            // Video area + overlays sized by aspect (fill available height)
+            GeometryReader { geo in
+                let a = max(0.1, viewModel.videoAspect)
+                let h = geo.size.height
+                let wFitHeight = h * a
+                let fitsWidth = wFitHeight <= geo.size.width
+                let vw = fitsWidth ? wFitHeight : geo.size.width
+                let vh = fitsWidth ? h : (geo.size.width / a)
+
+                ZStack {
+                    Color.white
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        ZStack {
+                            if let _ = viewModel.player {
+                                WhiteBGVideoPlayer(player: viewModel.player)
+                                    .disabled(true)
+                            } else {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .gray))
+                            }
+
+                            // Center play/pause overlay relative to video frame
+                            if !viewModel.isPlaying {
+                                Button(action: { viewModel.togglePlayPause() }) {
+                                    ZStack {
+                                        Circle()
+                                            .strokeBorder(Color.white.opacity(0.9), lineWidth: 2)
+                                            .frame(width: 64, height: 64)
+                                            .background(Circle().fill(Color.black.opacity(0.35)))
+                                        Image(systemName: "play.fill")
+                                            .foregroundColor(.white)
+                                            .font(.system(size: 24, weight: .bold))
+                                    }
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                        .frame(width: vw, height: vh)
+                        .overlay(alignment: .bottomTrailing) {
+                            // Playback speed chip (bottom-right of the video frame)
+                            if isHoveringVideo {
+                                Button(action: { viewModel.cycleSpeed() }) {
+                                    Text("\(Int(viewModel.playbackSpeed * 20))x")
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .background(Color.black.opacity(0.85))
+                                        .cornerRadius(2)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                                .padding(12)
+                                .accessibilityLabel("Playback speed")
+                            }
+                        }
+                        .onHover { hovering in isHoveringVideo = hovering }
+                        Spacer(minLength: 0)
                     }
+                    .contentShape(Rectangle())
+                    .onTapGesture { viewModel.togglePlayPause() }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // Scrubber
+            VStack(spacing: 12) {
+                if let url = scrubberURL {
+                    ScrubberView(
+                        url: url,
+                        duration: max(0.001, viewModel.duration),
+                        currentTime: viewModel.currentTime,
+                        onSeek: { t in viewModel.seek(to: t) },
+                        onScrubStateChange: { dragging in viewModel.isDragging = dragging },
+                        absoluteStart: startTime,
+                        absoluteEnd: endTime
+                    )
+                    .padding(.horizontal)
+                    .padding(.bottom, 12)
+                }
+            }
+            .background(Color.white) // underneath video area edge
         }
-        .frame(width: 800, height: 600)
+        // Size modal to 90% of the presenting window if available
+        .frame(
+            width: (containerSize?.width ?? 800) * 0.9,
+            height: (containerSize?.height ?? 600) * 0.9
+        )
         .onAppear {
             setupPlayer()
             startControlsTimer()
+            // Capture spacebar to toggle play/pause while the modal is active
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                // 49 is the keyCode for Space on macOS
+                if event.keyCode == 49 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty {
+                    viewModel.togglePlayPause()
+                    return nil // swallow the event
+                }
+                return event
+            }
         }
         .onDisappear {
             viewModel.cleanup()
-        }
-        .onHover { isHovering in
-            if isHovering {
-                showControlsTemporarily()
-            }
+            if let monitor = keyMonitor { NSEvent.removeMonitor(monitor); keyMonitor = nil }
         }
     }
     
@@ -254,5 +357,14 @@ struct VideoPlayerModal: View {
     private func showControlsTemporarily() {
         showControls = true
         startControlsTimer()
+    }
+}
+
+// MARK: - Helpers
+extension VideoPlayerModal {
+    private var timeFormatter: DateFormatter {
+        let f = DateFormatter()
+        f.dateFormat = "h:mm a"
+        return f
     }
 }
