@@ -23,6 +23,7 @@ struct TimelineActivity: Identifiable {
     let distractions: [Distraction]?
     let videoSummaryURL: String?
     let screenshot: NSImage?
+    let appSites: AppSites?
 }
 
 // MARK: - Grid Timeline Models
