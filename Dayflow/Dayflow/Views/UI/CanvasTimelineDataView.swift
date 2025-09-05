@@ -2,6 +2,14 @@ import SwiftUI
 import AppKit
 import Foundation
 
+// MARK: - Card Color Enum
+enum CardColor: String, CaseIterable {
+    case blue = "BlueTimelineCard"
+    case orange = "OrangeTimelineCard"
+    case red = "RedTimelineCard"
+    case idle = "IdleCard"
+}
+
 // MARK: - Canvas Config (preserve Canvas look)
 private struct CanvasConfig {
     static let hourHeight: CGFloat = 120           // 120px per hour (Canvas look)
@@ -39,6 +47,7 @@ private struct SelectionEffectConstants {
         case .blue: return blueShadowColor
         case .orange: return orangeShadowColor
         case .red: return redShadowColor
+        case .idle: return Color.gray.opacity(0.2) // Subtle shadow for idle
         }
     }
 }
@@ -60,6 +69,8 @@ struct CanvasTimelineDataView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 // Place anchor at ScrollView content level for reliable targeting
                 ZStack(alignment: .topLeading) {
+                    // White background for the entire content area
+                    Color.white
                     // Invisible anchor positioned for "now" scroll target
                     nowAnchorView()
                         .zIndex(-1) // Behind other content
@@ -133,7 +144,9 @@ struct CanvasTimelineDataView: View {
                     }
                 }
                 .frame(height: CGFloat(CanvasConfig.endHour - CanvasConfig.startHour) * CanvasConfig.hourHeight)
+                .background(Color.white)
             }
+            .background(Color.white)
             // Respond to external scroll nudges (initial or idle-triggered)
             .onChange(of: scrollToNowTick) { _ in
                 // Calculate which hour to scroll to for 80% positioning
@@ -189,7 +202,7 @@ struct CanvasTimelineDataView: View {
                 }
             }
         }
-        .background(Color.clear)
+        .background(Color.white)
         .onAppear {
             loadActivities()
             startRefreshTimer()
@@ -468,6 +481,8 @@ struct CanvasTimelineDataView: View {
             return .blue     // Personal → Blue
         case "distraction":
             return .red
+        case "idle", "idle time":
+            return .idle     // Idle → Gray dotted border
         default:
             // If upstream sends unexpected labels, keep a safe default
             return .orange
@@ -551,6 +566,9 @@ struct CanvasActivityCard: View {
                 Color(red: 0.92, green: 0.88, blue: 0.95), // #EBE0F2 - Soft lavender
                 Color(red: 0.95, green: 0.92, blue: 0.97)  // #F2EBF7 - Lighter lavender
             ]
+        case .idle:
+            // Idle: White background (no gradient)
+            return [Color.white, Color.white]
         }
     }
     
@@ -563,6 +581,8 @@ struct CanvasActivityCard: View {
             return Color(red: 0.95, green: 0.75, blue: 0.70).opacity(0.5) // Soft coral border
         case .orange:
             return Color(red: 0.82, green: 0.75, blue: 0.88).opacity(0.5) // Soft lavender border
+        case .idle:
+            return Color(red: 0.6, green: 0.6, blue: 0.6).opacity(0.8) // Gray border for idle
         }
     }
 
@@ -570,7 +590,7 @@ struct CanvasActivityCard: View {
         HStack(alignment: .top, spacing: 8) {
             Text(title)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(Color(red: 0.25, green: 0.25, blue: 0.30))
+                .foregroundColor(cardColor == .idle ? Color.gray : Color(red: 0.25, green: 0.25, blue: 0.30))
 
             Spacer()
 
@@ -579,7 +599,7 @@ struct CanvasActivityCard: View {
                     Font.custom("Nunito", size: 10)
                         .weight(.medium)
                 )
-                .foregroundColor(Color(red: 0.35, green: 0.35, blue: 0.40).opacity(0.8))
+                .foregroundColor(cardColor == .idle ? Color.gray.opacity(0.8) : Color(red: 0.35, green: 0.35, blue: 0.40).opacity(0.8))
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
@@ -590,7 +610,10 @@ struct CanvasActivityCard: View {
             GeometryReader { geo in
                 let size = geo.size
                 Group {
-                    if let imageName = chooseBackgroundImageName(for: cardColor, cardSize: size),
+                    if cardColor == .idle {
+                        // Idle cards: white background only
+                        Color.white
+                    } else if let imageName = chooseBackgroundImageName(for: cardColor, cardSize: size),
                        let nsImg = NSImage(named: imageName) {
                         Image(nsImage: nsImg)
                             .resizable()
@@ -607,6 +630,19 @@ struct CanvasActivityCard: View {
                 }
             }
         )
+        .overlay(
+            // Add dotted border for idle cards
+            cardColor == .idle ?
+                RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(
+                        style: StrokeStyle(
+                            lineWidth: 1,
+                            dash: [4, 4]
+                        )
+                    )
+                    .foregroundColor(borderColor(for: cardColor))
+            : nil
+        )
         // Remove explicit corner radius and strokes; images include any rounding baked-in
         .padding(.horizontal, 6)
         .contentShape(Rectangle())
@@ -615,10 +651,20 @@ struct CanvasActivityCard: View {
 
     // MARK: - Background asset selection (aspect‑ratio based)
     private func smallImageName(for color: CardColor) -> String {
-        switch color { case .blue: return "BlueCard"; case .orange: return "OrangeCard"; case .red: return "RedCard" }
+        switch color { 
+            case .blue: return "BlueCard"
+            case .orange: return "OrangeCard"
+            case .red: return "RedCard"
+            case .idle: return "" // No image for idle cards
+        }
     }
     private func largeImageName(for color: CardColor) -> String {
-        switch color { case .blue: return "LargeBlueCard"; case .orange: return "LargeOrangeCard"; case .red: return "LargeRedCard" }
+        switch color { 
+            case .blue: return "LargeBlueCard"
+            case .orange: return "LargeOrangeCard"
+            case .red: return "LargeRedCard"
+            case .idle: return "" // No image for idle cards
+        }
     }
 
     private func chooseBackgroundImageName(for color: CardColor, cardSize: CGSize) -> String? {
