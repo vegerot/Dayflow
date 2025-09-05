@@ -396,11 +396,8 @@ struct ActivityCard: View {
     var body: some View {
         if let activity = activity {
             VStack(alignment: .leading, spacing: 16) {
-                // Header
+                // Header (icon removed by request)
                 HStack {
-                    Image(systemName: iconForActivity(activity))
-                        .foregroundColor(colorForActivity(activity))
-                        .font(.title2)
                     Text(activity.title)
                         .font(.title3)
                         .fontWeight(.semibold)
@@ -413,7 +410,12 @@ struct ActivityCard: View {
                 
                 // Video thumbnail placeholder
                 if let videoURL = activity.videoSummaryURL {
-                    VideoThumbnailView(videoURL: videoURL)
+                    VideoThumbnailView(
+                        videoURL: videoURL,
+                        title: activity.title,
+                        startTime: activity.startTime,
+                        endTime: activity.endTime
+                    )
                         .id(videoURL)
                         .frame(height: 200)
                 } else {
@@ -494,7 +496,7 @@ struct ActivityCard: View {
                 .fixedSize(horizontal: false, vertical: true)
             
             if !activity.detailedSummary.isEmpty && activity.detailedSummary != activity.summary {
-                Text("DETAILS")
+                Text("DETAILED SUMMARY")
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
