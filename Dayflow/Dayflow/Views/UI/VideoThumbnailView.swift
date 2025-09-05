@@ -11,9 +11,13 @@ import AVFoundation
 
 struct VideoThumbnailView: View {
     let videoURL: String
+    var title: String? = nil
+    var startTime: Date? = nil
+    var endTime: Date? = nil
     @State private var thumbnail: NSImage?
     @State private var showVideoPlayer = false
     @State private var requestId: Int = 0
+    @State private var hostWindowSize: CGSize = .zero
     
     var body: some View {
         GeometryReader { geometry in
@@ -37,21 +41,30 @@ struct VideoThumbnailView: View {
                         )
                 }
                 
-                // Play button overlay (custom asset)
-                Button(action: {
-                    showVideoPlayer = true
-                }) {
-                    Image("VideoPlayButton")
-                        .resizable()
-                        .renderingMode(.original)
-                        .interpolation(.high)
-                        .frame(width: 64, height: 64)
-                        .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 2)
-                        .accessibilityLabel("Play video summary")
+                // Play button overlay (match timelapse viewer style)
+                Button(action: { showVideoPlayer = true }) {
+                    ZStack {
+                        Circle()
+                            .strokeBorder(Color.white.opacity(0.9), lineWidth: 2)
+                            .frame(width: 64, height: 64)
+                            .background(Circle().fill(Color.black.opacity(0.35)))
+                        Image(systemName: "play.fill")
+                            .foregroundColor(.white)
+                            .font(.system(size: 24, weight: .bold))
+                    }
+                    .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 2)
+                    .accessibilityLabel("Play video summary")
                 }
                 .buttonStyle(PlainButtonStyle())
             }
+            // Also open the viewer when clicking anywhere on the preview area
+            .contentShape(Rectangle())
+            .onTapGesture { showVideoPlayer = true }
             .id(videoURL)
+            // Track containing window size to size the sheet at 90%
+            .background(WindowSizeReader { size in
+                self.hostWindowSize = size
+            })
             .onAppear { fetchViaCache(size: geometry.size) }
             // Ensure thumbnail updates when a new video URL is provided
             .onChange(of: videoURL) { _ in
@@ -63,7 +76,13 @@ struct VideoThumbnailView: View {
                 fetchViaCache(size: geometry.size)
             }
             .sheet(isPresented: $showVideoPlayer) {
-                VideoPlayerModal(videoURL: videoURL)
+                VideoPlayerModal(
+                    videoURL: videoURL,
+                    title: title,
+                    startTime: startTime,
+                    endTime: endTime,
+                    containerSize: hostWindowSize
+                )
             }
         }
     }
