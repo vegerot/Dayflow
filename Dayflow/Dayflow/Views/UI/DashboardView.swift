@@ -38,7 +38,7 @@ struct DashboardView: View {
                 .padding(.horizontal, 18)
                 .padding(.vertical, 14)
                 .background(Color.white.opacity(0.96))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
                 .shadow(color: Color.black.opacity(0.10), radius: 10, x: 0, y: 6)
             }
             .frame(maxWidth: .infinity, minHeight: 260)
