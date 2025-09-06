@@ -15,57 +15,43 @@ struct HowItWorksCard: View {
     @State private var isHovered = false
     
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            // Icon container
-            HStack(alignment: .center, spacing: 5.37353) {
-                Image(iconImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 24, height: 24)
-            }
-            .padding(6.44824)
-            .frame(width: 40.84961, height: 40.84961, alignment: .center)
-            .background(.white.opacity(0.6))
-            .cornerRadius(5.83566)
-            .shadow(color: Color(red: 1, green: 0.42, blue: 0.02).opacity(0.3), radius: 0.53735, x: -0.53735, y: 1.07471)
-            .overlay(
-                RoundedRectangle(cornerRadius: 5.83566)
-                    .inset(by: 0.12)
-                    .stroke(.white.opacity(0.87), lineWidth: 0.24991)
-            )
+        HStack(alignment: .top, spacing: 16) {
+            // Icon
+            Image(iconImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 40, height: 40)
             
             // Text content
             VStack(alignment: .leading, spacing: 4) {
                 // Heading
                 Text(title)
-                    .font(.custom("Nunito", size: 20))
+                    .font(.custom("Nunito", size: 16))
                     .fontWeight(.semibold)
-                    .foregroundColor(Color(red: 0.54, green: 0.22, blue: 0.05))
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .foregroundColor(.black.opacity(0.85))
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
                 
                 // Body
                 Text(description)
                     .font(.custom("Nunito", size: 14))
-                    .fontWeight(.medium)
-                    .foregroundColor(Color(red: 0.18, green: 0.18, blue: 0.18))
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .fontWeight(.regular)
+                    .foregroundColor(.black.opacity(0.6))
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(nil)
             }
+            Spacer(minLength: 0)
         }
         .padding(16)
-        .frame(maxWidth: 600, minHeight: 100)
-        .background(.white.opacity(isHovered ? 0.75 : 0.66))
-        .cornerRadius(16)
-        .shadow(color: Color(red: 1, green: 0.42, blue: 0.02).opacity(isHovered ? 0.16 : 0.11), radius: isHovered ? 6 : 4.5, x: -3, y: 4)
+        .frame(width: 580, alignment: .topLeading)
+        .background(.white.opacity(0.3))
+        .cornerRadius(5)
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .inset(by: 1)
-                .stroke(Color(red: 1, green: 0.54, blue: 0.02).opacity(isHovered ? 0.7 : 0.5), lineWidth: 2)
+            RoundedRectangle(cornerRadius: 5)
+                .inset(by: 0.5)
+                .stroke(.black.opacity(0.06), lineWidth: 1)
         )
-        .scaleEffect(isHovered ? 1.02 : 1.0)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
-        .onHover { hovering in
-            isHovered = hovering
-        }
     }
 }
 
