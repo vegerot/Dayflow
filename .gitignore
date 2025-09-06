@@ -9,3 +9,5 @@ Dayflow/eval/
 evals/
 build/
 .claude/
+scripts/release.env
+signed/
