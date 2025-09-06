@@ -27,6 +27,7 @@ struct FlexibleProviderCard: View {
     let isSelected: Bool
     let buttonMode: ProviderCardButtonMode
     let showCurrentlySelected: Bool
+    let onSelect: (() -> Void)?
     
     private let isComingSoon: Bool
     
@@ -39,7 +40,8 @@ struct FlexibleProviderCard: View {
         features: [(text: String, isAvailable: Bool)],
         isSelected: Bool,
         buttonMode: ProviderCardButtonMode,
-        showCurrentlySelected: Bool = false
+        showCurrentlySelected: Bool = false,
+        onSelect: (() -> Void)? = nil
     ) {
         self.id = id
         self.title = title
@@ -50,6 +52,7 @@ struct FlexibleProviderCard: View {
         self.isSelected = isSelected
         self.buttonMode = buttonMode
         self.showCurrentlySelected = showCurrentlySelected
+        self.onSelect = onSelect
         self.isComingSoon = id == "dayflow"
     }
     
@@ -93,7 +96,8 @@ struct FlexibleProviderCard: View {
     private var shouldShowPointer: Bool {
         switch buttonMode {
         case .onboarding:
-            return !isComingSoon
+            // Show pointer cursor for selectable cards
+            return !isComingSoon && !isSelected
         case .settings:
             return false
         }
@@ -101,9 +105,10 @@ struct FlexibleProviderCard: View {
     
     private func handleCardTap() {
         switch buttonMode {
-        case .onboarding(let onProceed):
-            if !isComingSoon {
-                onProceed()
+        case .onboarding:
+            // In onboarding, clicking the card selects it
+            if !isComingSoon && !isSelected {
+                onSelect?()
             }
         case .settings:
             break // No tap action in settings mode
@@ -187,13 +192,15 @@ struct FlexibleProviderCard: View {
             },
             background: buttonBackgroundColor,
             foreground: buttonForegroundColor,
-            borderColor: isSelected ? .clear : .black.opacity(0.2),
-            cornerRadius: 4,
+            borderColor: .clear,
+            cornerRadius: 8,
             horizontalPadding: 24,
-            verticalPadding: 13,
-            minWidth: nil
+            verticalPadding: 12,
+            minWidth: nil,
+            showOverlayStroke: true
         )
         .disabled(isButtonDisabled)
+        .opacity(isComingSoon ? 0.4 : 1.0)
         .padding(.horizontal, 24)
         .padding(.bottom, 24)
         .frame(height: 60, alignment: .center)
@@ -235,23 +242,11 @@ struct FlexibleProviderCard: View {
     }
     
     private var buttonForegroundColor: Color {
-        if isComingSoon {
-            return .black.opacity(0.4)
-        } else if isSelected {
-            return .white
-        } else {
-            return .black.opacity(0.85)
-        }
+        return .white
     }
     
     private var buttonBackgroundColor: Color {
-        if isComingSoon {
-            return Color.gray.opacity(0.08)
-        } else if isSelected {
-            return Color(red: 0.25, green: 0.17, blue: 0)
-        } else {
-            return Color.white
-        }
+        return Color(red: 0.25, green: 0.17, blue: 0)
     }
     
     @ViewBuilder
@@ -290,10 +285,9 @@ struct BadgeView: View {
     var body: some View {
         HStack(spacing: 4) {
             Text(text)
-                .font(.custom("Nunito", size: 11))
-                .fontWeight(.bold)
-                .foregroundColor(.white)
-                .textCase(.uppercase)
+                .font(Font.custom("Nunito", size: 10).weight(textWeight))
+                .kerning(kerningValue)
+                .foregroundColor(textColor)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
@@ -301,6 +295,35 @@ struct BadgeView: View {
         .cornerRadius(2)
         .modifier(BadgeShadowModifier(shadowColor: shadowColor))
         .overlay(badgeOverlay)
+    }
+    
+    private var textWeight: Font.Weight {
+        switch type {
+        case .green:
+            return .semibold
+        case .orange, .blue:
+            return .bold
+        }
+    }
+    
+    private var kerningValue: CGFloat {
+        switch type {
+        case .green:
+            return 0.5
+        case .orange, .blue:
+            return 0.7
+        }
+    }
+    
+    private var textColor: Color {
+        switch type {
+        case .green:
+            return Color(red: 0.13, green: 0.7, blue: 0.23)
+        case .orange:
+            return Color(red: 0.91, green: 0.34, blue: 0.16)
+        case .blue:
+            return Color(red: 0.19, green: 0.39, blue: 0.8)
+        }
     }
     
     private var badgeBackground: some View {
