@@ -118,12 +118,13 @@ struct LLMProviderSetupView: View {
                         Text("Complete Setup").font(.custom("Nunito", size: 14)).fontWeight(.semibold)
                     }
                 },
-                background: Color(red: 1, green: 0.42, blue: 0.02),
+                background: Color(red: 0.25, green: 0.17, blue: 0),
                 foreground: .white,
                 borderColor: .clear,
-                cornerRadius: 4,
+                cornerRadius: 8,
                 horizontalPadding: 24,
-                verticalPadding: 13
+                verticalPadding: 12,
+                showOverlayStroke: true
             )
         } else {
             DayflowSurfaceButton(
@@ -136,12 +137,13 @@ struct LLMProviderSetupView: View {
                         }
                     }
                 },
-                background: .white,
-                foreground: .black,
-                borderColor: Color.black.opacity(0.15),
-                cornerRadius: 4,
+                background: Color(red: 0.25, green: 0.17, blue: 0),
+                foreground: .white,
+                borderColor: .clear,
+                cornerRadius: 8,
                 horizontalPadding: 24,
-                verticalPadding: 13
+                verticalPadding: 12,
+                showOverlayStroke: true
             )
             .disabled(!setupState.canContinue)
             .opacity(!setupState.canContinue ? 0.5 : 1.0)
@@ -171,7 +173,7 @@ struct LLMProviderSetupView: View {
                             AsyncImage(url: URL(string: "https://ollama.com/public/ollama.png")) { phase in
                                 switch phase {
                                 case .success(let image): image.resizable().scaledToFit()
-                                case .failure(_): Image(systemName: "shippingbox").resizable().scaledToFit().foregroundColor(.black.opacity(0.6))
+                                case .failure(_): Image(systemName: "shippingbox").resizable().scaledToFit().foregroundColor(.white.opacity(0.6))
                                 case .empty: ProgressView().scaleEffect(0.7)
                                 @unknown default: EmptyView()
                                 }
@@ -181,10 +183,11 @@ struct LLMProviderSetupView: View {
                                 .font(.custom("Nunito", size: 14))
                                 .fontWeight(.semibold)
                         },
-                        background: .white,
-                        foreground: .black,
-                        borderColor: .black.opacity(0.15),
-                        cornerRadius: 0
+                        background: Color(red: 0.25, green: 0.17, blue: 0),
+                        foreground: .white,
+                        borderColor: .clear,
+                        cornerRadius: 8,
+                        showOverlayStroke: true
                     )
                     Text("or")
                         .font(.custom("Nunito", size: 13))
@@ -196,7 +199,7 @@ struct LLMProviderSetupView: View {
                             AsyncImage(url: URL(string: "https://lmstudio.ai/_next/image?url=%2F_next%2Fstatic%2Fmedia%2Flmstudio-app-logo.11b4d746.webp&w=96&q=75")) { phase in
                                 switch phase {
                                 case .success(let image): image.resizable().scaledToFit()
-                                case .failure(_): Image(systemName: "desktopcomputer").resizable().scaledToFit().foregroundColor(.black.opacity(0.6))
+                                case .failure(_): Image(systemName: "desktopcomputer").resizable().scaledToFit().foregroundColor(.white.opacity(0.6))
                                 case .empty: ProgressView().scaleEffect(0.7)
                                 @unknown default: EmptyView()
                                 }
@@ -206,10 +209,11 @@ struct LLMProviderSetupView: View {
                                 .font(.custom("Nunito", size: 14))
                                 .fontWeight(.semibold)
                         },
-                        background: .white,
-                        foreground: .black,
-                        borderColor: .black.opacity(0.15),
-                        cornerRadius: 0
+                        background: Color(red: 0.25, green: 0.17, blue: 0),
+                        foreground: .white,
+                        borderColor: .clear,
+                        cornerRadius: 8,
+                        showOverlayStroke: true
                     )
                 }
                 Text("Already have a local server? Make sure it’s OpenAI-compatible. You can set a custom base URL in the next step.")
@@ -462,12 +466,13 @@ struct LLMProviderSetupView: View {
                                 Text("Open Google AI Studio").font(.custom("Nunito", size: 14)).fontWeight(.semibold)
                             }
                         },
-                        background: Color.white,
-                        foreground: .black,
-                        borderColor: Color.black.opacity(0.15),
-                        cornerRadius: 4,
+                        background: Color(red: 0.25, green: 0.17, blue: 0),
+                        foreground: .white,
+                        borderColor: .clear,
+                        cornerRadius: 8,
                         horizontalPadding: 24,
-                        verticalPadding: 13
+                        verticalPadding: 12,
+                        showOverlayStroke: true
                     )
                     Spacer()
                     nextButton
@@ -778,12 +783,13 @@ struct LocalLLMTestView: View {
                         Text(isTesting ? "Testing..." : (success ? "Test Successful!" : "Test Local API")).font(.custom("Nunito", size: 14)).fontWeight(.semibold)
                     }
                 },
-                background: success ? Color(red: 0.34, green: 1, blue: 0.45).opacity(0.2) : Color(red: 1, green: 0.42, blue: 0.02),
+                background: success ? Color(red: 0.34, green: 1, blue: 0.45).opacity(0.2) : Color(red: 0.25, green: 0.17, blue: 0),
                 foreground: success ? .black : .white,
-                borderColor: .clear,
-                cornerRadius: 4,
+                borderColor: success ? Color(red: 0.34, green: 1, blue: 0.45).opacity(0.3) : .clear,
+                cornerRadius: 8,
                 horizontalPadding: 24,
-                verticalPadding: 13
+                verticalPadding: 12,
+                showOverlayStroke: !success
             )
             .disabled(isTesting)
             
