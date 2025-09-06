@@ -116,12 +116,22 @@ struct OnboardingLLMSelectionView: View {
                 ],
                 isSelected: selectedProvider == "ollama",
                 buttonMode: .onboarding(onProceed: {
+                    // Only proceed if this provider is selected
+                    if selectedProvider == "ollama" {
+                        saveProviderSelection()
+                        onNext("ollama")
+                    } else {
+                        // Select the card first
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                            selectedProvider = "ollama"
+                        }
+                    }
+                }),
+                onSelect: {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
                         selectedProvider = "ollama"
                     }
-                    saveProviderSelection()
-                    onNext("ollama")
-                })
+                }
             ),
             
             // Bring your own API card (selected by default)
@@ -139,12 +149,22 @@ struct OnboardingLLMSelectionView: View {
                 ],
                 isSelected: selectedProvider == "gemini",
                 buttonMode: .onboarding(onProceed: {
+                    // Only proceed if this provider is selected
+                    if selectedProvider == "gemini" {
+                        saveProviderSelection()
+                        onNext("gemini")
+                    } else {
+                        // Select the card first
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                            selectedProvider = "gemini"
+                        }
+                    }
+                }),
+                onSelect: {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
                         selectedProvider = "gemini"
                     }
-                    saveProviderSelection()
-                    onNext("gemini")
-                })
+                }
             ),
             
             // Dayflow Pro card
@@ -164,12 +184,22 @@ struct OnboardingLLMSelectionView: View {
                 ],
                 isSelected: selectedProvider == "dayflow",
                 buttonMode: .onboarding(onProceed: {
+                    // Only proceed if this provider is selected
+                    if selectedProvider == "dayflow" {
+                        saveProviderSelection()
+                        onNext("dayflow")
+                    } else {
+                        // Select the card first
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                            selectedProvider = "dayflow"
+                        }
+                    }
+                }),
+                onSelect: {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
                         selectedProvider = "dayflow"
                     }
-                    saveProviderSelection()
-                    onNext("dayflow")
-                })
+                }
             )
         ]
     }
