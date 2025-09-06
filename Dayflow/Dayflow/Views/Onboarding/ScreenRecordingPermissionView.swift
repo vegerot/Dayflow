@@ -2,58 +2,111 @@
 //  ScreenRecordingPermissionView.swift
 //  Dayflow
 //
-//  Screen recording permission request with visual guide
+//  Screen recording permission request using idiomatic ScreenCaptureKit approach
 //
 
 import SwiftUI
 import ScreenCaptureKit
+import CoreGraphics
 
 struct ScreenRecordingPermissionView: View {
     var onBack: () -> Void
     var onNext: () -> Void
     
-    @State private var hasPermission = false
-    @State private var checkTimer: Timer?
+    @State private var permissionState: PermissionState = .notChecked
+    @State private var isCheckingPermission = false
+    
+    enum PermissionState {
+        case notChecked
+        case granted
+        case denied
+    }
     
     var body: some View {
         HStack(spacing: 60) {
-            // Left side - Instructions
+            // Left side - text and controls
             VStack(alignment: .leading, spacing: 24) {
                 Text("Let's configure essential settings to get\nthe most out of Dayflow.")
                     .font(.custom("Nunito", size: 20))
                     .foregroundColor(.black.opacity(0.7))
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.bottom, 40)
+                    .padding(.bottom, 20)
                 
                 Text("Screen Recording")
-                    .font(.custom("InstrumentSerif-Regular", size: 32))
+                    .font(.custom("Nunito", size: 32))
+                    .fontWeight(.bold)
                     .foregroundColor(.black.opacity(0.9))
                 
-                Text("We'll need permission to see which apps you're using (no content is captured).")
+                Text("Screen recordings are stored locally on your Mac and can be processed entirely on-device using local AI models.")
                     .font(.custom("Nunito", size: 16))
                     .foregroundColor(.black.opacity(0.6))
                     .fixedSize(horizontal: false, vertical: true)
                 
-                // Show restart message if permission was granted
-                if hasPermission {
-                    Text("Great! Please restart Dayflow to continue.")
-                        .font(.custom("Nunito", size: 14))
-                        .foregroundColor(.green)
-                        .padding(.top, 8)
+                // State-based messaging
+                Group {
+                    switch permissionState {
+                    case .notChecked:
+                        EmptyView()
+                    case .granted:
+                        Text("✓ Permission granted! Click Next to continue.")
+                            .font(.custom("Nunito", size: 14))
+                            .foregroundColor(.green)
+                    case .denied:
+                        Text("Please grant permission in System Settings.")
+                            .font(.custom("Nunito", size: 14))
+                            .foregroundColor(.orange)
+                    }
                 }
+                .padding(.top, 8)
                 
-                // Open Settings button
-                DayflowSurfaceButton(
-                    action: openScreenRecordingSettings,
-                    content: { Text("Open System Settings").font(.custom("Nunito", size: 16)).fontWeight(.medium) },
-                    background: Color.blue,
-                    foreground: .white,
-                    borderColor: .clear,
-                    cornerRadius: 8,
-                    horizontalPadding: 24,
-                    verticalPadding: 12
-                )
+                // Action button
+                Group {
+                    switch permissionState {
+                    case .notChecked:
+                        DayflowSurfaceButton(
+                            action: { checkPermission() },
+                            content: { 
+                                HStack {
+                                    if isCheckingPermission {
+                                        ProgressView()
+                                            .scaleEffect(0.8)
+                                            .progressViewStyle(CircularProgressViewStyle())
+                                    }
+                                    Text(isCheckingPermission ? "Checking..." : "Grant Permission")
+                                        .font(.custom("Nunito", size: 16))
+                                        .fontWeight(.medium)
+                                }
+                            },
+                            background: Color(red: 0.25, green: 0.17, blue: 0),
+                            foreground: .white,
+                            borderColor: .clear,
+                            cornerRadius: 8,
+                            horizontalPadding: 24,
+                            verticalPadding: 12,
+                            showOverlayStroke: true
+                        )
+                        .disabled(isCheckingPermission)
+                    case .denied:
+                        DayflowSurfaceButton(
+                            action: openSystemSettings,
+                            content: { 
+                                Text("Open System Settings")
+                                    .font(.custom("Nunito", size: 16))
+                                    .fontWeight(.medium)
+                            },
+                            background: Color(red: 0.25, green: 0.17, blue: 0),
+                            foreground: .white,
+                            borderColor: .clear,
+                            cornerRadius: 8,
+                            horizontalPadding: 24,
+                            verticalPadding: 12,
+                            showOverlayStroke: true
+                        )
+                    case .granted:
+                        EmptyView()
+                    }
+                }
                 .padding(.top, 16)
                 
                 // Navigation buttons
@@ -62,25 +115,31 @@ struct ScreenRecordingPermissionView: View {
                         action: onBack,
                         content: { Text("Back").font(.custom("Nunito", size: 14)).fontWeight(.semibold) },
                         background: .white,
-                        foreground: .black,
-                        borderColor: Color.black.opacity(0.15),
+                        foreground: Color(red: 0.25, green: 0.17, blue: 0),
+                        borderColor: .clear,
                         cornerRadius: 8,
                         horizontalPadding: 20,
                         verticalPadding: 12,
-                        minWidth: 120
+                        minWidth: 120,
+                        isSecondaryStyle: true
                     )
                     DayflowSurfaceButton(
-                        action: { if hasPermission { onNext() } },
+                        action: { 
+                            if permissionState == .granted {
+                                onNext()
+                            }
+                        },
                         content: { Text("Next").font(.custom("Nunito", size: 14)).fontWeight(.semibold) },
-                        background: hasPermission ? Color(red: 1, green: 0.42, blue: 0.02) : Color.white,
-                        foreground: hasPermission ? .white : .black.opacity(0.4),
-                        borderColor: hasPermission ? .clear : Color.black.opacity(0.1),
+                        background: permissionState == .granted ? Color(red: 0.25, green: 0.17, blue: 0) : Color(red: 0.25, green: 0.17, blue: 0).opacity(0.3),
+                        foreground: permissionState == .granted ? .white : .white.opacity(0.5),
+                        borderColor: .clear,
                         cornerRadius: 8,
                         horizontalPadding: 20,
                         verticalPadding: 12,
-                        minWidth: 120
+                        minWidth: 120,
+                        showOverlayStroke: permissionState == .granted
                     )
-                    .disabled(!hasPermission)
+                    .disabled(permissionState != .granted)
                 }
                 .padding(.top, 20)
                 
@@ -88,68 +147,56 @@ struct ScreenRecordingPermissionView: View {
             }
             .frame(maxWidth: 400)
             
-            // Right side - System Settings preview
-            if let image = NSImage(named: "ScreenRecordingSettings") {
+            // Right side - image
+            if let image = NSImage(named: "ScreenRecordingPermissions") {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: 600)
+                    .frame(maxWidth: 500)
                     .cornerRadius(12)
-                    .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
-            } else {
-                // Placeholder if image not found
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.gray.opacity(0.1))
-                    .frame(width: 600, height: 400)
-                    .overlay(
-                        Text("System Settings Preview")
-                            .foregroundColor(.gray)
-                    )
+                    .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
             }
         }
         .padding(60)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            checkPermission()
-            startPermissionMonitoring()
-        }
-        .onDisappear {
-            checkTimer?.invalidate()
-        }
-    }
-    
-    private func openScreenRecordingSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-            NSWorkspace.shared.open(url)
+            // Check permission status using preflight (won't trigger dialog)
+            if CGPreflightScreenCaptureAccess() {
+                permissionState = .granted
+            }
         }
     }
     
     private func checkPermission() {
+        guard !isCheckingPermission else { return }
+        isCheckingPermission = true
+        
         Task {
             do {
-                // Try to get available content - this will fail if we don't have permission
-                _ = try await SCShareableContent.current
+                // This is the idiomatic way - try to access content
+                // Will trigger system dialog if permission not granted
+                _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                
+                // If we get here, permission is granted
                 await MainActor.run {
-                    if !hasPermission {
-                        hasPermission = true
-                        // Auto-advance after a short delay
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            onNext()
-                        }
-                    }
+                    permissionState = .granted
+                    isCheckingPermission = false
                 }
             } catch {
+                // Permission denied or not granted
                 await MainActor.run {
-                    hasPermission = false
+                    permissionState = .denied
+                    isCheckingPermission = false
                 }
             }
         }
     }
     
-    private func startPermissionMonitoring() {
-        // Check every second for permission changes
-        checkTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            checkPermission()
+    private func openSystemSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+            // Don't change state - they might not grant permission
+            // Keep showing the instructions until they restart
         }
     }
 }
