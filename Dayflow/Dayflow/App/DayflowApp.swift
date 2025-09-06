@@ -21,7 +21,7 @@ struct DayflowApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @AppStorage("didOnboard") private var didOnboard = false
     @AppStorage("useBlankUI") private var useBlankUI = false
-    @State private var showVideoLaunch = false // TEMPORARILY DISABLED
+    @State private var showVideoLaunch = true
     
     init() {
         // Comment out for production - only use for testing onboarding
@@ -83,6 +83,10 @@ struct DayflowApp: App {
                 Button("Reset Onboarding") {
                     // Reset the onboarding flag
                     UserDefaults.standard.set(false, forKey: "didOnboard")
+                    // Reset the saved onboarding step to start from beginning
+                    UserDefaults.standard.set(0, forKey: "onboardingStep")
+                    // Reset the selected LLM provider to default
+                    UserDefaults.standard.set("gemini", forKey: "selectedLLMProvider")
                     // Force quit and restart the app to show onboarding
                     NSApp.terminate(nil)
                 }
