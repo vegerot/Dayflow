@@ -31,7 +31,7 @@ struct HowItWorksView: View {
          "Dayflow can run entirely on local AI models, which means your data never leaves your computer. And our code is public, so you don’t have to trust us – you can verify."),
         ("OnboardingUnderstanding",
          "Understand your Day",
-         "Smart context detection turns raw data into meaningful insights—see the difference between deep work and distraction.")
+         "Knows the difference between YouTube tutorials and YouTube rabbit holes. AI that actually gets what you're working on.")
     ]
 
     var body: some View {
@@ -73,12 +73,13 @@ struct HowItWorksView: View {
                         action: onBack,
                         content: { Text("Back").font(.custom("Nunito", size: 14)).fontWeight(.semibold) },
                         background: .white,
-                        foreground: .black,
-                        borderColor: Color.black.opacity(0.15),
+                        foreground: Color(red: 0.25, green: 0.17, blue: 0),
+                        borderColor: .clear,
                         cornerRadius: 8,
                         horizontalPadding: 20,
                         verticalPadding: 12,
-                        minWidth: 120
+                        minWidth: 120,
+                        isSecondaryStyle: true
                     )
                     
                     Spacer()
@@ -87,16 +88,17 @@ struct HowItWorksView: View {
                         action: { if let url = URL(string: "https://github.com/teleportlabs/Dayflow") { NSWorkspace.shared.open(url) } },
                         content: {
                             HStack(spacing: 12) {
-                                Image("GithubIcon").resizable().aspectRatio(contentMode: .fit).frame(width: 20, height: 20)
-                                Text("Read the code on GitHub").font(.custom("Nunito", size: 16)).fontWeight(.medium)
+                                Image("GithubIcon").resizable().aspectRatio(contentMode: .fit).frame(width: 20, height: 20).colorInvert()
+                                Text("Read the code on GitHub").font(.custom("Nunito", size: 14)).fontWeight(.medium)
                             }
                         },
-                        background: .white,
-                        foreground: .black,
-                        borderColor: Color.black.opacity(0.15),
+                        background: Color(red: 0.25, green: 0.17, blue: 0),
+                        foreground: .white,
+                        borderColor: .clear,
                         cornerRadius: 8,
                         horizontalPadding: 24,
-                        verticalPadding: 12
+                        verticalPadding: 12,
+                        showOverlayStroke: true
                     )
                     
                     Spacer()
@@ -104,13 +106,14 @@ struct HowItWorksView: View {
                     DayflowSurfaceButton(
                         action: onNext,
                         content: { Text("Next").font(.custom("Nunito", size: 14)).fontWeight(.semibold) },
-                        background: Color(red: 1, green: 0.42, blue: 0.02),
+                        background: Color(red: 0.25, green: 0.17, blue: 0),
                         foreground: .white,
                         borderColor: .clear,
                         cornerRadius: 8,
                         horizontalPadding: 20,
                         verticalPadding: 12,
-                        minWidth: 120
+                        minWidth: 120,
+                        showOverlayStroke: true
                     )
                 }
                 .frame(maxWidth: 600) // Match card width
@@ -133,9 +136,9 @@ private func clamp<T: Comparable>(_ value: T, _ limits: ClosedRange<T>) -> T {
 private extension HowItWorksView {
     func animateCards() {
         for idx in cards.indices {
-            // Each card appears 2 seconds after the previous one
-            // First card appears after 1 second, then 2 seconds between each
-            let delay = 1.0 + Double(idx) * 2.0
+            // Each card appears 1 second after the previous one
+            // First card appears after 1 second, then 1 second between each
+            let delay = 1.0 + Double(idx) * 1.0
             
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 withAnimation(.spring(response: 0.8,
@@ -147,8 +150,8 @@ private extension HowItWorksView {
             }
         }
         
-        // Animate buttons 2 seconds after the last card
-        let buttonsDelay = 1.0 + Double(cards.count) * 2.0
+        // Animate buttons 1 second after the last card
+        let buttonsDelay = 1.0 + Double(cards.count) * 1.0
         DispatchQueue.main.asyncAfter(deadline: .now() + buttonsDelay) {
             withAnimation(.easeInOut(duration: 0.6)) {
                 buttonsOpacity = 1
