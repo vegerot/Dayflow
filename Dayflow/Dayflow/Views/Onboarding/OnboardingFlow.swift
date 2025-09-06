@@ -39,7 +39,10 @@ struct OnboardingFlow: View {
                 
             case .howItWorks:
                 HowItWorksView(
-                    onBack: { step.prev() },
+                    onBack: { 
+                        step.prev()
+                        savedStepRawValue = step.rawValue
+                    },
                     onNext: { advance() }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -49,7 +52,10 @@ struct OnboardingFlow: View {
                 
             case .screen:
                 ScreenRecordingPermissionView(
-                    onBack: { step.prev() },
+                    onBack: { 
+                        step.prev()
+                        savedStepRawValue = step.rawValue
+                    },
                     onNext: { advance() }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -59,7 +65,10 @@ struct OnboardingFlow: View {
                 
             case .llmSelection:
                 OnboardingLLMSelectionView(
-                    onBack: { step.prev() },
+                    onBack: { 
+                        step.prev()
+                        savedStepRawValue = step.rawValue
+                    },
                     onNext: { provider in
                         selectedProvider = provider
                         if provider == "dayflow" {
@@ -130,9 +139,25 @@ struct OnboardingFlow: View {
             step.next()
             savedStepRawValue = step.rawValue
         case .screen:
-            Task { try? await requestScreenPerm() }
+            // Permission request is handled by ScreenRecordingPermissionView itself
             step.next()
             savedStepRawValue = step.rawValue
+            
+            // Try to start recording after permission granted
+            Task {
+                do {
+                    // Verify we have permission
+                    _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                    // Start recording
+                    await MainActor.run {
+                        AppState.shared.isRecording = true
+                    }
+                } catch {
+                    // Permission not granted yet, that's ok
+                    // It will start after restart
+                    print("Will start recording after restart")
+                }
+            }
         case .llmSelection:
             step.next()  // Move to llmSetup
             savedStepRawValue = step.rawValue
@@ -189,13 +214,14 @@ struct WelcomeView: View {
                         DayflowSurfaceButton(
                             action: onStart,
                             content: { Text("Start").font(.custom("Nunito", size: 16)).fontWeight(.semibold) },
-                            background: Color(red: 1, green: 0.42, blue: 0.02),
+                            background: Color(red: 0.25, green: 0.17, blue: 0),
                             foreground: .white,
                             borderColor: .clear,
-                            cornerRadius: 12,
+                            cornerRadius: 8,
                             horizontalPadding: 28,
-                            verticalPadding: 16,
-                            minWidth: 160
+                            verticalPadding: 14,
+                            minWidth: 160,
+                            showOverlayStroke: true
                         )
                             .opacity(textOpacity)
                             .animation(.easeIn(duration: 0.3).delay(0.4), value: textOpacity)
@@ -282,7 +308,8 @@ struct CompletionView: View {
                 cornerRadius: 8,
                 horizontalPadding: 40,
                 verticalPadding: 14,
-                minWidth: 200
+                minWidth: 200,
+                showOverlayStroke: true
             )
         }
         .padding(48)
