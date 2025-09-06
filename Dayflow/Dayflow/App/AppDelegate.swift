@@ -7,6 +7,7 @@
 
 import AppKit
 import ServiceManagement
+import ScreenCaptureKit
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -15,7 +16,40 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ note: Notification) {
         statusBar = StatusBarController()   // safe: AppKit is ready, main thread
-        recorder  = ScreenRecorder()        // hooks into AppState
+        
+        // Check if we've passed the screen recording permission step
+        let onboardingStep = UserDefaults.standard.integer(forKey: "onboardingStep")
+        let didOnboard = UserDefaults.standard.bool(forKey: "didOnboard")
+        
+        // Initialize recorder but control when it starts
+        recorder = ScreenRecorder(autoStart: false)
+        
+        // Only attempt to start recording if we're past the screen step or fully onboarded
+        // Steps: 0=welcome, 1=howItWorks, 2=screen, 3=llmSelection, 4=llmSetup, 5=done
+        if didOnboard || onboardingStep > 2 {
+            // Try to start recording, but handle permission failures gracefully
+            Task {
+                do {
+                    // Check if we have permission by trying to access content
+                    _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                    // Permission granted, start recording
+                    await MainActor.run {
+                        AppState.shared.isRecording = true
+                    }
+                } catch {
+                    // No permission or error - don't start recording
+                    // User will need to grant permission in onboarding
+                    await MainActor.run {
+                        AppState.shared.isRecording = false
+                    }
+                    print("Screen recording permission not granted, skipping auto-start")
+                }
+            }
+        } else {
+            // Still in early onboarding, don't attempt recording
+            AppState.shared.isRecording = false
+        }
+        
         try? SMAppService.mainApp.register()// autostart at login
         
         // Start the Gemini analysis background job

@@ -17,5 +17,7 @@
 	<string>https://yourdomain.com/dayflow/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>YOUR_PUBLIC_KEY_HERE</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Dayflow uses screen access to create your timeline. Recordings stay on your Mac and you can pause or delete them anytime.</string>
 </dict>
 </plist>
