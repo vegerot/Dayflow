@@ -8,13 +8,33 @@
 import AppKit
 import ServiceManagement
 import ScreenCaptureKit
+import PostHog
+import Combine
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBar: StatusBarController!
     private var recorder : ScreenRecorder!
+    private var analyticsSub: AnyCancellable?
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        // Configure analytics (prod only; default opt-in ON)
+        let POSTHOG_API_KEY = "phc_ZcdmHw9O27WB4ex9YGb6hcKSyGmrvgnBYq97SV1CXt"
+        let POSTHOG_HOST = "https://us.i.posthog.com"
+        AnalyticsService.shared.start(apiKey: POSTHOG_API_KEY, host: POSTHOG_HOST)
+
+        // App opened (cold start)
+        AnalyticsService.shared.capture("app_opened", ["cold_start": true])
+
+        // App updated check
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
+        let lastBuild = UserDefaults.standard.string(forKey: "lastRunBuild")
+        if let last = lastBuild, last != build {
+            let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+            AnalyticsService.shared.capture("app_updated", ["from_version": last, "to_version": "\(version) (\(build))"])        
+        }
+        UserDefaults.standard.set(build, forKey: "lastRunBuild")
+        
         statusBar = StatusBarController()   // safe: AppKit is ready, main thread
         
         // Check if we've passed the screen recording permission step
@@ -36,6 +56,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     await MainActor.run {
                         AppState.shared.isRecording = true
                     }
+                    AnalyticsService.shared.capture("recording_toggled", ["enabled": true, "reason": "auto"]) 
                 } catch {
                     // No permission or error - don't start recording
                     // User will need to grant permission in onboarding
@@ -57,6 +78,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Start inactivity monitoring for idle reset
         InactivityMonitor.shared.start()
+
+        // Observe recording state
+        analyticsSub = AppState.shared.$isRecording
+            .removeDuplicates()
+            .sink { enabled in
+                AnalyticsService.shared.capture("recording_toggled", ["enabled": enabled, "reason": "user"]) 
+                AnalyticsService.shared.setPersonProperties(["recording_enabled": enabled])
+            }
     }
     
     // Start Gemini analysis as a background task
@@ -65,6 +94,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             AnalysisManager.shared.startAnalysisJob()
             print("AppDelegate: Gemini analysis job started")
+            AnalyticsService.shared.capture("analysis_job_started", [
+                "provider": {
+                    if let data = UserDefaults.standard.data(forKey: "llmProviderType"),
+                       let providerType = try? JSONDecoder().decode(LLMProviderType.self, from: data) {
+                        switch providerType {
+                        case .geminiDirect: return "gemini"
+                        case .dayflowBackend: return "dayflow"
+                        case .ollamaLocal: return "ollama"
+                        }
+                    }
+                    return "unknown"
+                }()
+            ])
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // If onboarding not completed, mark abandoned with last step
+        let didOnboard = UserDefaults.standard.bool(forKey: "didOnboard")
+        if !didOnboard {
+            let stepIdx = UserDefaults.standard.integer(forKey: "onboardingStep")
+            let stepName: String = {
+                switch stepIdx { case 0: return "welcome"; case 1: return "how_it_works"; case 2: return "screen_recording"; case 3: return "llm_selection"; case 4: return "llm_setup"; default: return "unknown" }
+            }()
+            AnalyticsService.shared.capture("onboarding_abandoned", ["last_step": stepName])
+        }
+        AnalyticsService.shared.capture("app_terminated")
     }
 }
