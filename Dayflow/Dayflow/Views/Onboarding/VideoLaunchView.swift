@@ -13,6 +13,10 @@ struct VideoLaunchView: View {
     @State private var player: AVPlayer?
     @State private var hasCompleted = false
     @State private var playbackTimer: Timer?
+    @State private var timeObserverToken: Any?
+    @State private var endObserverToken: NSObjectProtocol?
+    @State private var rateObserverToken: NSObjectProtocol?
+    @State private var statusObservation: NSKeyValueObservation?
     private var onComplete: (() -> Void)?
     
     func onVideoComplete(_ completion: @escaping () -> Void) -> VideoLaunchView {
@@ -33,6 +37,9 @@ struct VideoLaunchView: View {
             setupVideo()
             // Focus the window
             NSApp.activate(ignoringOtherApps: true)
+        }
+        .onDisappear {
+            cleanup()
         }
     }
     
@@ -62,21 +69,21 @@ struct VideoLaunchView: View {
         
         // Monitor when we're near the end to start fade early
         let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
-        player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
+        timeObserverToken = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
             guard let duration = self.player?.currentItem?.duration,
                   duration.isValid && duration.isNumeric else { return }
             
             let currentSeconds = time.seconds
             let totalSeconds = duration.seconds
             
-            // Start fade 0.5 seconds before the end
-            if currentSeconds >= totalSeconds - 0.5 && currentSeconds < totalSeconds {
+            // Start transition 0.3 seconds before the end for smoother handoff
+            if currentSeconds >= totalSeconds - 0.3 && currentSeconds < totalSeconds {
                 self.completeVideo()
             }
         }
         
         // Also monitor actual completion as fallback
-        NotificationCenter.default.addObserver(
+        endObserverToken = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: playerItem,
             queue: .main
@@ -85,7 +92,7 @@ struct VideoLaunchView: View {
         }
         
         // Monitor for any pause events and force resume
-        NotificationCenter.default.addObserver(
+        rateObserverToken = NotificationCenter.default.addObserver(
             forName: Notification.Name("AVPlayerRateDidChangeNotification"),
             object: player,
             queue: .main
@@ -107,7 +114,7 @@ struct VideoLaunchView: View {
         }
         
         // Add observer for errors
-        playerItem.observe(\.status) { item, _ in
+        statusObservation = playerItem.observe(\.status) { item, _ in
             if item.status == .failed {
                 print("Video failed to load: \(item.error?.localizedDescription ?? "Unknown error")")
                 DispatchQueue.main.async {
@@ -125,11 +132,33 @@ struct VideoLaunchView: View {
         playbackTimer?.invalidate()
         playbackTimer = nil
         
-        // Clean up and notify immediately - let parent handle fade
+        // Pause but KEEP the last frame visible while the parent fades us out.
+        // Actual teardown happens onDisappear to avoid a jarring cut.
+        player?.pause()
+        onComplete?()
+    }
+
+    private func cleanup() {
+        // Remove periodic time observer if present
+        if let token = timeObserverToken {
+            player?.removeTimeObserver(token)
+            timeObserverToken = nil
+        }
+        // Remove NotificationCenter observers if present
+        if let token = endObserverToken {
+            NotificationCenter.default.removeObserver(token)
+            endObserverToken = nil
+        }
+        if let token = rateObserverToken {
+            NotificationCenter.default.removeObserver(token)
+            rateObserverToken = nil
+        }
+        // Release KVO observation
+        statusObservation = nil
+        
+        // Stop playback and release player
         player?.pause()
         player = nil
-        NotificationCenter.default.removeObserver(self)
-        onComplete?()
     }
 }
 
