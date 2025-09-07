@@ -22,6 +22,8 @@ struct DayflowApp: App {
     @AppStorage("didOnboard") private var didOnboard = false
     @AppStorage("useBlankUI") private var useBlankUI = false
     @State private var showVideoLaunch = true
+    @State private var contentOpacity = 0.0
+    @State private var contentScale = 0.98
     
     init() {
         // Comment out for production - only use for testing onboarding
@@ -34,27 +36,42 @@ struct DayflowApp: App {
     var body: some Scene {
         WindowGroup {
             ZStack {
-                // Main app UI or onboarding
-                if didOnboard {
-                    // Show UI after onboarding
-                    AppRootView()
-                } else {
-                    OnboardingFlow()
-                        .environmentObject(AppState.shared)
+                // Main app UI or onboarding with entrance animation
+                Group {
+                    if didOnboard {
+                        // Show UI after onboarding
+                        AppRootView()
+                    } else {
+                        OnboardingFlow()
+                            .environmentObject(AppState.shared)
+                    }
                 }
+                .opacity(contentOpacity)
+                .scaleEffect(contentScale)
+                .animation(.easeOut(duration: 0.3).delay(0.15), value: contentOpacity)
+                .animation(.easeOut(duration: 0.3).delay(0.15), value: contentScale)
 
-                // Video overlay on top
+                // Video overlay on top with scale + opacity exit
                 if showVideoLaunch {
                     VideoLaunchView()
                         .onVideoComplete {
-                            // Small delay before fade for smoother feel
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                withAnimation(.easeInOut(duration: 2.0)) {
+                            // Overlapping animations for smooth handoff
+                            withAnimation(.easeOut(duration: 0.25)) {
+                                // Start revealing content while video fades
+                                contentOpacity = 1.0
+                                contentScale = 1.0
+                            }
+                            
+                            // Slightly delayed video exit for overlap
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                withAnimation(.easeIn(duration: 0.2)) {
                                     showVideoLaunch = false
                                 }
                             }
                         }
-                        .transition(.opacity)
+                        .opacity(showVideoLaunch ? 1 : 0)
+                        .scaleEffect(showVideoLaunch ? 1 : 1.02)
+                        .animation(.easeIn(duration: 0.2), value: showVideoLaunch)
                 }
             }
             // Inline background behind the main app UI only
