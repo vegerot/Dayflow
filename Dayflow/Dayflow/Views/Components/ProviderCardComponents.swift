@@ -169,7 +169,7 @@ struct FlexibleProviderCard: View {
     }
     
     private var featuresScroll: some View {
-        ScrollView(.vertical, showsIndicators: true) {
+        ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(Array(features.enumerated()), id: \.offset) { _, feature in
                     FeatureRowView(feature: feature)
@@ -189,6 +189,7 @@ struct FlexibleProviderCard: View {
                     .font(.custom("Nunito", size: 14))
                     .fontWeight(.semibold)
                     .foregroundColor(buttonForegroundColor)
+                    .frame(maxWidth: .infinity)
             },
             background: buttonBackgroundColor,
             foreground: buttonForegroundColor,
@@ -201,6 +202,7 @@ struct FlexibleProviderCard: View {
         )
         .disabled(isButtonDisabled)
         .opacity(isComingSoon ? 0.4 : 1.0)
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, 24)
         .padding(.bottom, 24)
         .frame(height: 60, alignment: .center)
