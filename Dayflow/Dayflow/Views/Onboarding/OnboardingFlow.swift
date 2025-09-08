@@ -35,6 +35,13 @@ struct OnboardingFlow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .onAppear {
                     restoreSavedStep()
+                    // screen + start event
+                    AnalyticsService.shared.screen("onboarding_welcome")
+                    if !UserDefaults.standard.bool(forKey: "onboardingStarted") {
+                        AnalyticsService.shared.capture("onboarding_started")
+                        UserDefaults.standard.set(true, forKey: "onboardingStarted")
+                        AnalyticsService.shared.setPersonProperties(["onboarding_status": "in_progress"]) 
+                    }
                 }
                 
             case .howItWorks:
@@ -48,6 +55,7 @@ struct OnboardingFlow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .onAppear {
                     restoreSavedStep()
+                    AnalyticsService.shared.screen("onboarding_how_it_works")
                 }
                 
             case .screen:
@@ -61,6 +69,7 @@ struct OnboardingFlow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .onAppear {
                     restoreSavedStep()
+                    AnalyticsService.shared.screen("onboarding_screen_recording")
                 }
                 
             case .llmSelection:
@@ -71,6 +80,8 @@ struct OnboardingFlow: View {
                     },
                     onNext: { provider in
                         selectedProvider = provider
+                        AnalyticsService.shared.capture("llm_provider_selected", ["provider": provider])
+                        AnalyticsService.shared.setPersonProperties(["current_llm_provider": provider])
                         if provider == "dayflow" {
                             step = .done
                             savedStepRawValue = step.rawValue
@@ -82,6 +93,7 @@ struct OnboardingFlow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .onAppear {
                     restoreSavedStep()
+                    AnalyticsService.shared.screen("onboarding_llm_selection")
                 }
                 
             case .llmSetup:
@@ -99,6 +111,7 @@ struct OnboardingFlow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .onAppear {
                     restoreSavedStep()
+                    AnalyticsService.shared.screen("onboarding_llm_setup")
                 }
                 
             case .done:
@@ -106,11 +119,14 @@ struct OnboardingFlow: View {
                     onFinish: {
                         didOnboard = true
                         savedStepRawValue = 0
+                        AnalyticsService.shared.capture("onboarding_completed")
+                        AnalyticsService.shared.setPersonProperties(["onboarding_status": "completed"]) 
                     }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .onAppear {
                     restoreSavedStep()
+                    AnalyticsService.shared.screen("onboarding_completion")
                 }
             }
         }
@@ -131,15 +147,32 @@ struct OnboardingFlow: View {
     }
     
     private func advance() {
+        // Mark current step completed before advancing
+        func markStepCompleted(_ s: Step) {
+            let name: String
+            switch s {
+            case .welcome: name = "welcome"
+            case .howItWorks: name = "how_it_works"
+            case .screen: name = "screen_recording"
+            case .llmSelection: name = "llm_selection"
+            case .llmSetup: name = "llm_setup"
+            case .done: name = "completion"
+            }
+            AnalyticsService.shared.capture("onboarding_step_completed", ["step": name])
+        }
+
         switch step {
         case .welcome:      
+            markStepCompleted(step)
             step.next()
             savedStepRawValue = step.rawValue
         case .howItWorks:   
+            markStepCompleted(step)
             step.next()
             savedStepRawValue = step.rawValue
         case .screen:
             // Permission request is handled by ScreenRecordingPermissionView itself
+            markStepCompleted(step)
             step.next()
             savedStepRawValue = step.rawValue
             
@@ -159,9 +192,11 @@ struct OnboardingFlow: View {
                 }
             }
         case .llmSelection:
+            markStepCompleted(step)
             step.next()  // Move to llmSetup
             savedStepRawValue = step.rawValue
         case .llmSetup:
+            markStepCompleted(step)
             step.next()
             savedStepRawValue = step.rawValue
         case .done:         
