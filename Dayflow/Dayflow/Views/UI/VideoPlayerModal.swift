@@ -188,6 +188,7 @@ struct VideoPlayerModal: View {
     @State private var controlsTimer: Timer?
     @State private var keyMonitor: Any?
     @State private var isHoveringVideo = false
+    @State private var didStartPlay = false
     
     var body: some View {
         VStack(spacing: 0) {
@@ -294,7 +295,16 @@ struct VideoPlayerModal: View {
                         url: url,
                         duration: max(0.001, viewModel.duration),
                         currentTime: viewModel.currentTime,
-                        onSeek: { t in viewModel.seek(to: t) },
+                        onSeek: { t in
+                            let from = viewModel.currentTime
+                            AnalyticsService.shared.throttled("seek_event", minInterval: 0.5) {
+                                AnalyticsService.shared.capture("seek_performed", [
+                                    "from_s_bucket": AnalyticsService.shared.secondsBucket(from),
+                                    "to_s_bucket": AnalyticsService.shared.secondsBucket(t)
+                                ])
+                            }
+                            viewModel.seek(to: t)
+                        },
                         onScrubStateChange: { dragging in viewModel.isDragging = dragging },
                         absoluteStart: startTime,
                         absoluteEnd: endTime
@@ -311,6 +321,11 @@ struct VideoPlayerModal: View {
             height: (containerSize?.height ?? 600) * 0.9
         )
         .onAppear {
+            // Modal opened
+            AnalyticsService.shared.capture("video_modal_opened", [
+                "source": title != nil ? "activity_card" : "unknown",
+                "duration_bucket": AnalyticsService.shared.secondsBucket(max(0.0, viewModel.duration))
+            ])
             setupPlayer()
             startControlsTimer()
             // Capture spacebar to toggle play/pause while the modal is active
@@ -326,6 +341,33 @@ struct VideoPlayerModal: View {
         .onDisappear {
             viewModel.cleanup()
             if let monitor = keyMonitor { NSEvent.removeMonitor(monitor); keyMonitor = nil }
+            // Completion (approximate)
+            let pct = viewModel.duration > 0 ? (viewModel.currentTime / viewModel.duration) : 0
+            AnalyticsService.shared.capture("video_completed", [
+                "watch_time_bucket": AnalyticsService.shared.secondsBucket(viewModel.currentTime),
+                "completion_pct_bucket": AnalyticsService.shared.pctBucket(pct)
+            ])
+        }
+        .onChange(of: viewModel.isPlaying) { playing in
+            if playing {
+                if didStartPlay {
+                    AnalyticsService.shared.capture("video_resumed")
+                } else {
+                    AnalyticsService.shared.capture("video_play_started", [
+                        "speed": String(format: "%.1fx", viewModel.playbackSpeed)
+                    ])
+                    didStartPlay = true
+                }
+            } else {
+                if didStartPlay {
+                    AnalyticsService.shared.capture("video_paused")
+                }
+            }
+        }
+        .onChange(of: viewModel.playbackSpeed) { _ in
+            if didStartPlay {
+                AnalyticsService.shared.capture("video_playback_speed_changed", ["speed": String(format: "%.1fx", viewModel.playbackSpeed)])
+            }
         }
     }
     
