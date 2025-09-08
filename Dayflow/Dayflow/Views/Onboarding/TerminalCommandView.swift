@@ -79,6 +79,11 @@ struct TerminalCommandView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(command, forType: .string)
         
+        // Track copy (without sending command content)
+        AnalyticsService.shared.capture("terminal_command_copied", [
+            "title": title
+        ])
+
         // Show feedback
         withAnimation(.easeInOut(duration: 0.2)) {
             isCopied = true
