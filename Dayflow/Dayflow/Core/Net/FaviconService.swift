@@ -5,6 +5,8 @@ final class FaviconService {
     static let shared = FaviconService()
 
     private let cache = NSCache<NSString, NSImage>()
+    private var inFlight: [String: Task<NSImage?, Never>] = [:]
+    private let inFlightLock = NSLock()
 
     private init() {
         cache.countLimit = 256
@@ -22,36 +24,80 @@ final class FaviconService {
             return cached
         }
 
-        // Try site favicon first
-        if let img1 = await requestURL(buildSiteFaviconURL(for: host)) {
-            cache.setObject(img1, forKey: key)
-            return img1
+        // Deduplicate concurrent requests for the same host
+        if let existing = existingTask(for: host) {
+            if let img = await existing.value {
+                cache.setObject(img, forKey: key)
+            }
+            return await existing.value
         }
-        // Fallback to Google S2 aggregator
-        if let img2 = await requestURL(buildS2URL(for: host)) {
-            cache.setObject(img2, forKey: key)
-            return img2
+
+        // Create a new task for this host and store it in-flight
+        let task = Task<NSImage?, Never> { [weak self] in
+            guard let self = self else { return nil }
+            defer { self.removeTask(for: host) }
+
+            // Race Google S2 with direct site favicon (slight head-start to S2)
+            let siteURL = self.buildSiteFaviconURL(for: host)
+            let s2URL = self.buildS2URL(for: host)
+
+            let result = await withTaskGroup(of: NSImage?.self) { group -> NSImage? in
+                // Aggregator fetch first (preferred default)
+                group.addTask { [s2URL] in
+                    await self.requestURL(s2URL)
+                }
+                // Direct site fetch with a small delay
+                group.addTask { [siteURL] in
+                    // 150ms head-start for S2
+                    try? await Task.sleep(nanoseconds: 150_000_000)
+                    return await self.requestURL(siteURL)
+                }
+
+                for await img in group {
+                    if let img {
+                        group.cancelAll()
+                        return img
+                    }
+                }
+                return nil
+            }
+
+            if let result {
+                self.cache.setObject(result, forKey: key)
+            }
+            return result
         }
-        return nil
+
+        storeTask(task, for: host)
+        return await task.value
     }
 
     private func buildS2URL(for host: String) -> URL? {
-        var comps = URLComponents(string: "https://www.google.com/s2/favicons")
-        comps?.queryItems = [
+        var comps = URLComponents()
+        comps.scheme = "https"
+        comps.host = "www.google.com"
+        comps.path = "/s2/favicons"
+        comps.queryItems = [
+            // Use domain to avoid requiring scheme; sz kept modest since UI scales to 16
             URLQueryItem(name: "domain", value: host),
             URLQueryItem(name: "sz", value: "64")
         ]
-        return comps?.url
+        return comps.url
     }
 
     private func buildSiteFaviconURL(for host: String) -> URL? {
-        return URL(string: "https://\(host)/favicon.ico")
+        var comps = URLComponents()
+        comps.scheme = "https"
+        comps.host = host
+        comps.path = "/favicon.ico"
+        return comps.url
     }
 
     private func requestURL(_ url: URL?) async -> NSImage? {
         guard let url = url else { return nil }
         var req = URLRequest(url: url)
         req.timeoutInterval = 4
+        req.setValue("image/*", forHTTPHeaderField: "Accept")
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 4
         config.timeoutIntervalForResource = 6
@@ -66,5 +112,25 @@ final class FaviconService {
             return nil
         }
         return nil
+    }
+
+    // MARK: - In-flight task helpers
+    private func existingTask(for host: String) -> Task<NSImage?, Never>? {
+        inFlightLock.lock()
+        let task = inFlight[host]
+        inFlightLock.unlock()
+        return task
+    }
+
+    private func storeTask(_ task: Task<NSImage?, Never>, for host: String) {
+        inFlightLock.lock()
+        inFlight[host] = task
+        inFlightLock.unlock()
+    }
+
+    private func removeTask(for host: String) {
+        inFlightLock.lock()
+        inFlight[host] = nil
+        inFlightLock.unlock()
     }
 }
