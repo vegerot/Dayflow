@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var currentProvider: String = "gemini"
     @State private var setupModalProvider: String? = nil
     @State private var hasLoadedProvider: Bool = false
+    @State private var analyticsEnabled: Bool = AnalyticsService.shared.isOptedIn
     
     var body: some View {
         VStack(spacing: 0) {
@@ -24,6 +25,15 @@ struct SettingsView: View {
                 Text("Manage how Dayflow is run")
                     .font(.custom("Nunito", size: 14))
                     .foregroundColor(.black.opacity(0.6))
+                
+                // Analytics toggle (default ON)
+                Toggle(isOn: $analyticsEnabled) {
+                    Text("Share anonymous usage analytics")
+                        .font(.custom("Nunito", size: 13))
+                        .foregroundColor(.black.opacity(0.7))
+                }
+                .toggleStyle(.switch)
+                .frame(maxWidth: 340, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 40)
@@ -48,7 +58,15 @@ struct SettingsView: View {
         .frame(maxWidth: 1200)  // Reasonable max width for ultra-wide monitors
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .background(Color.white)
-        .onAppear { loadCurrentProvider() }
+        .onAppear {
+            loadCurrentProvider()
+            AnalyticsService.shared.capture("settings_opened")
+            analyticsEnabled = AnalyticsService.shared.isOptedIn
+        }
+        .onChange(of: analyticsEnabled) { enabled in
+            AnalyticsService.shared.setOptIn(enabled)
+            AnalyticsService.shared.capture("analytics_opt_in_changed", ["enabled": enabled])
+        }
         .sheet(item: Binding(
             get: { setupModalProvider.map { ProviderSetupWrapper(id: $0) } },
             set: { setupModalProvider = $0?.id }
@@ -154,6 +172,7 @@ struct SettingsView: View {
         }
         
         // Open setup flow for the selected provider
+        AnalyticsService.shared.capture("provider_switch_initiated", ["from": currentProvider, "to": providerId])
         setupModalProvider = providerId
     }
     
@@ -180,6 +199,8 @@ struct SettingsView: View {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
             currentProvider = providerId
         }
+        AnalyticsService.shared.capture("provider_setup_completed", ["provider": providerId])
+        AnalyticsService.shared.setPersonProperties(["current_llm_provider": providerId])
     }
 }
 
