@@ -33,12 +33,37 @@ enum LLMLogger {
         let latencyMs = Int(finishedAt.timeIntervalSince(ctx.startedAt) * 1000)
         let record = makeRecord(ctx: ctx, http: http, status: .success, latencyMs: latencyMs, error: nil)
         StorageManager.shared.insertLLMCall(record)
+        Task { @MainActor in
+            AnalyticsService.shared.withSampling(probability: 0.1) {
+                let ms = latencyMs
+                let bucket = ms < 500 ? "<500ms" : (ms < 1500 ? "0.5-1.5s" : ">=1.5s")
+                AnalyticsService.shared.capture("llm_api_call", [
+                    "provider": ctx.provider,
+                    "model": ctx.model ?? "unknown",
+                    "latency_ms_bucket": bucket,
+                    "outcome": "success"
+                ])
+            }
+        }
     }
 
     static func logFailure(ctx: LLMCallContext, http: LLMHTTPInfo?, finishedAt: Date, errorDomain: String?, errorCode: Int?, errorMessage: String?) {
         let latencyMs = Int(finishedAt.timeIntervalSince(ctx.startedAt) * 1000)
         let record = makeRecord(ctx: ctx, http: http, status: .failure, latencyMs: latencyMs, error: (errorDomain, errorCode, errorMessage))
         StorageManager.shared.insertLLMCall(record)
+        Task { @MainActor in
+            AnalyticsService.shared.withSampling(probability: 0.1) {
+                let ms = latencyMs
+                let bucket = ms < 500 ? "<500ms" : (ms < 1500 ? "0.5-1.5s" : ">=1.5s")
+                AnalyticsService.shared.capture("llm_api_call", [
+                    "provider": ctx.provider,
+                    "model": ctx.model ?? "unknown",
+                    "latency_ms_bucket": bucket,
+                    "outcome": "error",
+                    "error_code": errorCode ?? -1
+                ])
+            }
+        }
     }
 
     private static func makeRecord(ctx: LLMCallContext, http: LLMHTTPInfo?, status: LLMLogStatus, latencyMs: Int?, error: (String?, Int?, String?)?) -> LLMCallDBRecord {
@@ -109,4 +134,3 @@ enum LLMLogger {
         return nil
     }
 }
-
