@@ -11,8 +11,6 @@ protocol LLMProvider {
 }
 
 struct ActivityGenerationContext {
-    let userTaxonomy: String
-    let extractedTaxonomy: String
     let batchObservations: [Observation]
     let existingCards: [ActivityCardData]  // Cards that overlap with current analysis window
     let currentTime: Date  // Current time to prevent future timestamps

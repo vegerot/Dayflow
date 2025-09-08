@@ -273,12 +273,7 @@ final class LLMService: LLMServicing {
                 }
                 
                 // Prepare context for activity generation
-                let userTaxonomy = UserDefaults.standard.string(forKey: "userTaxonomy") ?? ""
-                let extractedTaxonomy = UserDefaults.standard.string(forKey: "extractedTaxonomy") ?? ""
-                
                 let context = ActivityGenerationContext(
-                    userTaxonomy: userTaxonomy,
-                    extractedTaxonomy: extractedTaxonomy,
                     batchObservations: observations,
                     existingCards: existingActivityCards,
                     currentTime: currentTime
@@ -325,23 +320,6 @@ final class LLMService: LLMServicing {
                 
                 // Mark batch as complete
                 StorageManager.shared.updateBatch(batchId, status: "analyzed")
-                
-                // Extract and save taxonomy
-                let allHighlights = cards.flatMap { card in
-                    // Extract key terms from summary and detailed summary
-                    let words = (card.summary + " " + card.detailedSummary)
-                        .components(separatedBy: .whitespacesAndNewlines)
-                        .filter { $0.count > 3 }
-                    return words
-                }
-                
-                let extractedTerms = Array(Set(allHighlights))
-                    .prefix(50)
-                    .joined(separator: ", ")
-                
-                if !extractedTerms.isEmpty {
-                    UserDefaults.standard.set(extractedTerms, forKey: "extractedTaxonomy")
-                }
                 
                 completion(.success(ProcessedBatchResult(cards: cards, cardIds: insertedCardIds)))
                 
