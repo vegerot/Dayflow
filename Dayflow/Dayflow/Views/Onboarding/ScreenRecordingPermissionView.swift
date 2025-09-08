@@ -182,12 +182,14 @@ struct ScreenRecordingPermissionView: View {
                     permissionState = .granted
                     isCheckingPermission = false
                 }
+                AnalyticsService.shared.capture("screen_permission_granted")
             } catch {
                 // Permission denied or not granted
                 await MainActor.run {
                     permissionState = .denied
                     isCheckingPermission = false
                 }
+                AnalyticsService.shared.capture("screen_permission_denied")
             }
         }
     }
