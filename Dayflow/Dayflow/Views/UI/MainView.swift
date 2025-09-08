@@ -28,6 +28,8 @@ struct MainView: View {
     
     // Track if we've performed the initial scroll to current time
     @State private var didInitialScroll = false
+    @State private var previousDate = Date()
+    @State private var lastDateNavMethod: String? = nil
     
     var body: some View {
         // Two-column layout: left logo + sidebar; right white panel with header, filters, timeline
@@ -85,14 +87,23 @@ struct MainView: View {
                             HStack(spacing: 12) {
                                 DayflowCircleButton {
                                     // Go to previous day
-                                    selectedDate = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
+                                    let from = selectedDate
+                                    let to = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
+                                    previousDate = selectedDate
+                                    selectedDate = to
+                                    lastDateNavMethod = "prev"
+                                    AnalyticsService.shared.capture("date_navigation", [
+                                        "method": "prev",
+                    						"from_day": dayString(from),
+                                        "to_day": dayString(to)
+                                    ])
                                 } content: {
                                     Image(systemName: "chevron.left")
                                         .font(.system(size: 14, weight: .medium))
                                         .foregroundColor(Color(red: 0.3, green: 0.3, blue: 0.3))
                                 }
 
-                                Button(action: { showDatePicker = true }) {
+                                Button(action: { showDatePicker = true; lastDateNavMethod = "picker" }) {
                                     DayflowPillButton(text: formatDateForDisplay(selectedDate))
                                 }
                                 .buttonStyle(PlainButtonStyle())
@@ -101,7 +112,15 @@ struct MainView: View {
                                     // Go to next day
                                     let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
                                     if tomorrow <= Date() {
+                                        let from = selectedDate
+                                        previousDate = selectedDate
                                         selectedDate = tomorrow
+                                        lastDateNavMethod = "next"
+                                        AnalyticsService.shared.capture("date_navigation", [
+                                            "method": "next",
+                                            "from_day": dayString(from),
+                                            "to_day": dayString(tomorrow)
+                                        ])
                                     }
                                 } content: {
                                     let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
@@ -160,6 +179,9 @@ struct MainView: View {
             DatePickerSheet(selectedDate: $selectedDate, isPresented: $showDatePicker)
         }
         .onAppear {
+            // screen viewed and initial timeline view
+            AnalyticsService.shared.screen("timeline")
+            AnalyticsService.shared.capture("timeline_viewed", ["date_bucket": dayString(selectedDate)])
             // Orchestrated entrance animations following Emil Kowalski principles
             // Fast, under 300ms, natural spring motion
             
@@ -198,6 +220,37 @@ struct MainView: View {
                 InactivityMonitor.shared.markHandledIfPending()
             }
         }
+        .onChange(of: selectedIcon) { newIcon in
+            // tab selected + screen viewed
+            let tabName: String
+            switch newIcon { case .timeline: tabName = "timeline"; case .dashboard: tabName = "dashboard"; case .journal: tabName = "journal"; case .settings: tabName = "settings" }
+            AnalyticsService.shared.capture("tab_selected", ["tab": tabName])
+            AnalyticsService.shared.screen(tabName)
+            if newIcon == .timeline {
+                AnalyticsService.shared.capture("timeline_viewed", ["date_bucket": dayString(selectedDate)])
+            }
+        }
+        .onChange(of: selectedDate) { newDate in
+            // If changed via picker, emit navigation now
+            if let method = lastDateNavMethod, method == "picker" {
+                AnalyticsService.shared.capture("date_navigation", [
+                    "method": method,
+                    "from_day": dayString(previousDate),
+                    "to_day": dayString(newDate)
+                ])
+            }
+            previousDate = newDate
+            AnalyticsService.shared.capture("timeline_viewed", ["date_bucket": dayString(newDate)])
+        }
+        .onChange(of: selectedActivity?.id) { _ in
+            guard let a = selectedActivity else { return }
+            let dur = a.endTime.timeIntervalSince(a.startTime)
+            AnalyticsService.shared.capture("activity_card_opened", [
+                "activity_type": a.category,
+                "duration_bucket": AnalyticsService.shared.secondsBucket(dur),
+                "has_video": a.videoSummaryURL != nil
+            ])
+        }
         // If user returns from Settings and a reset was pending, perform it once
         .onChange(of: selectedIcon) { newIcon in
             if newIcon != .settings, inactivity.pendingReset {
@@ -221,6 +274,12 @@ struct MainView: View {
             formatter.dateFormat = "E, MMM d"
         }
         
+        return formatter.string(from: date)
+    }
+
+    private func dayString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
     }
 }
