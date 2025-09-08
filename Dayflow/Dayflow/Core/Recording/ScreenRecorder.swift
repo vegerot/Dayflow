@@ -249,6 +249,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         try await s.startCapture()
         stream = s
         dbg("stream started")
+        AnalyticsService.shared.capture("recording_started")
     }
 
     private func stopStream() {
@@ -292,6 +293,18 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             inp.expectsMediaDataInRealTime = true
             guard w.canAdd(inp) else { throw RecorderError.badInput }
             w.add(inp); writer = w; input = inp
+
+            // Sampled chunk_created event (main actor)
+            Task { @MainActor in
+                AnalyticsService.shared.withSampling(probability: 0.01) {
+                    let gb = Double(self.recordingWidth * self.recordingHeight) / (1920.0 * 1080.0)
+                    let resBucket: String = gb >= 1.0 ? "~1080p+" : "<1080p"
+                    AnalyticsService.shared.capture("chunk_created", [
+                        "duration_bucket": AnalyticsService.shared.secondsBucket(C.chunk),
+                        "resolution_bucket": resBucket
+                    ])
+                }
+            }
 
             // auto-finish after C.chunk seconds
             let t = DispatchSource.makeTimerSource(queue: q)
@@ -403,23 +416,38 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         }
         
         stop()
-        
+
         // Check if this was a user-initiated stop
         if isUserInitiatedStop(err) {
             dbg("User stopped recording through system UI - updating app state")
             Task { @MainActor in
                 AppState.shared.isRecording = false
+                AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "user"]) 
             }
         } else if shouldRetry(err) {
             dbg("Retryable error - will restart if recording flag is set")
             Task { @MainActor in
-                if AppState.shared.isRecording { start() }
+                AnalyticsService.shared.capture("recording_error", [
+                    "code": scErr.code,
+                    "retryable": true
+                ])
+            }
+            Task { @MainActor in
+                if AppState.shared.isRecording {
+                    AnalyticsService.shared.capture("recording_auto_recovery", ["outcome": "restarted"]) 
+                    start()
+                }
             }
         } else {
             // Unknown or non-retryable error - update app state to stop
             dbg("Non-retryable error - stopping recording")
             Task { @MainActor in
                 AppState.shared.isRecording = false
+                AnalyticsService.shared.capture("recording_error", [
+                    "code": scErr.code,
+                    "retryable": false
+                ])
+                AnalyticsService.shared.capture("recording_auto_recovery", ["outcome": "gave_up"]) 
             }
         }
     }
@@ -438,6 +466,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 self.resumeAfterPause = AppState.shared.isRecording
             }
             self.stop()
+            Task { @MainActor in
+                AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "system_sleep"]) 
+            }
         }
 
         // -------- system did wake ------------
@@ -465,6 +496,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 self.resumeAfterPause = AppState.shared.isRecording
             }
             self.stop()
+            Task { @MainActor in
+                AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "lock"]) 
+            }
         }
 
         // -------- screen unlocked ----------
@@ -491,6 +525,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 self.resumeAfterPause = AppState.shared.isRecording
             }
             self.stop()
+            Task { @MainActor in
+                AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "screensaver"]) 
+            }
         }
 
         // -------- screensaver stopped ------

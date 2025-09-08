@@ -1261,7 +1261,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             do {
                 // Check current size
                 let currentSize = try self.fileMgr.allocatedSizeOfDirectory(at: self.root)
-                let sizeInGB = Double(currentSize) / (1024 * 1024 * 1024)
                 
                 // 3 days cutoff for all chunks
                 let cutoffDate = Date().addingTimeInterval(-3 * 24 * 60 * 60)
@@ -1314,7 +1313,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                             }
                         }
                         
-                        let freedGB = Double(freedSpace) / (1024 * 1024 * 1024)
+                        // freedGB retained for future use if needed
                     }
                 }
             } catch {
