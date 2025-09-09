@@ -30,8 +30,8 @@ struct DayflowApp: App {
         // UserDefaults.standard.set(false, forKey: "didOnboard")
     }
     
-    // Sparkle updater - disabled for now
-    // private let updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+    // Sparkle updater manager
+    private let updaterManager = UpdaterManager.shared
 
     var body: some Scene {
         WindowGroup {
@@ -41,9 +41,11 @@ struct DayflowApp: App {
                     if didOnboard {
                         // Show UI after onboarding
                         AppRootView()
+                            .environmentObject(updaterManager)
                     } else {
                         OnboardingFlow()
                             .environmentObject(AppState.shared)
+                            .environmentObject(updaterManager)
                     }
                 }
                 .opacity(contentOpacity)
@@ -110,12 +112,12 @@ struct DayflowApp: App {
                 .keyboardShortcut("R", modifiers: [.command, .shift])
             }
             
-            // Add Sparkle's update menu item - disabled for now
-            // CommandGroup(after: .appInfo) {
-            //     Button("Check for Updates...") {
-            //         updaterController.updater.checkForUpdates()
-            //     }
-            // }
+            // Add Sparkle's update menu item
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") {
+                    updaterManager.checkForUpdates(showUI: true)
+                }
+            }
         }
         .defaultSize(width: 1200, height: 800)
     }
