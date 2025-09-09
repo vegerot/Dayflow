@@ -6,14 +6,14 @@
     <item>
       <title>Version 1.0.5</title>
       <pubDate>Tue, 09 Sep 2025 19:16:55 +0000</pubDate>
-      <enclosure url="https://github.com/JerryZLiu/Dayflow/releases/download/untagged-04bce57a6b4239d721f6/Dayflow.dmg"
+      <enclosure url="https://github.com/JerryZLiu/Dayflow/releases/download/v1.0.5/Dayflow.dmg"
                  sparkle:version="6"
                  sparkle:shortVersionString="1.0.5"
                  length="26604211"
                  type="application/octet-stream"
                  sparkle:edSignature="a2QU/P0QdiSvkItSVRyxQ1dewl3prA2dIgsX8nx32N4OQyTKEfnd3O4jX7vW9hOeXewR63yg/NaB9p62ASF3Bw=="/>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <releaseNotesLink>https://github.com/JerryZLiu/Dayflow/releases/tag/untagged-04bce57a6b4239d721f6</releaseNotesLink>
+      <releaseNotesLink>https://github.com/JerryZLiu/Dayflow/releases/tag/v1.0.5</releaseNotesLink>
     </item>
   </channel>
   </rss>
