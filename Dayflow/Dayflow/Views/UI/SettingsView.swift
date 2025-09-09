@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @EnvironmentObject private var updater: UpdaterManager
     // State for current provider
     @State private var currentProvider: String = "gemini"
     @State private var setupModalProvider: String? = nil
@@ -15,17 +16,18 @@ struct SettingsView: View {
     @State private var analyticsEnabled: Bool = AnalyticsService.shared.isOptedIn
     
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 12) {
             // Header - left aligned
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 12) {
                 Text("Settings")
-                    .font(.custom("InstrumentSerif-Regular", size: 48))
+                    .font(.custom("InstrumentSerif-Regular", size: 42))
                     .foregroundColor(.black.opacity(0.9))
+                    .padding(.leading, 10)
                 
                 Text("Manage how Dayflow is run")
                     .font(.custom("Nunito", size: 14))
                     .foregroundColor(.black.opacity(0.6))
-                
+
                 // Analytics toggle (default ON)
                 Toggle(isOn: $analyticsEnabled) {
                     Text("Share anonymous usage analytics")
@@ -34,11 +36,36 @@ struct SettingsView: View {
                 }
                 .toggleStyle(.switch)
                 .frame(maxWidth: 340, alignment: .leading)
+
+                // Simple update status + action
+                HStack(spacing: 14) {
+                    let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+                    Text("Dayflow v\(version)")
+                        .font(.custom("Nunito", size: 13))
+                        .foregroundColor(.black.opacity(0.65))
+
+                    Text(updater.statusText.isEmpty ? "" : updater.statusText)
+                        .font(.custom("Nunito", size: 13))
+                        .foregroundColor(.black.opacity(0.45))
+
+                    Spacer()
+
+                    Button(action: { updater.checkForUpdates() }) {
+                        if updater.isChecking {
+                            ProgressView().scaleEffect(0.6)
+                        } else {
+                            Text("Check for updates")
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.black.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .frame(maxWidth: 520)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 40)
-            .padding(.top, 40)
-            .padding(.bottom, 32)
             
             // Provider Cards - centered within content area
             ScrollView {
@@ -49,15 +76,11 @@ struct SettingsView: View {
                             .frame(height: 420)
                     }
                 }
-                .frame(maxWidth: 1100)  // Container for cards
-                .padding(.horizontal, 40)
-                .padding(.bottom, 40)
+                
             }
             .frame(maxWidth: .infinity)  // Center the scrollview content
         }
-        .frame(maxWidth: 1200)  // Reasonable max width for ultra-wide monitors
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .background(Color.white)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             loadCurrentProvider()
             AnalyticsService.shared.capture("settings_opened")
@@ -190,7 +213,6 @@ struct SettingsView: View {
         default:
             return
         }
-        
         if let encoded = try? JSONEncoder().encode(providerType) {
             UserDefaults.standard.set(encoded, forKey: "llmProviderType")
         }
