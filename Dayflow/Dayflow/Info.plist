@@ -4,6 +4,18 @@
 <dict>
 	<key>ATSApplicationFontsPath</key>
 	<string>.</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.1</string>
+	<key>CFBundleVersion</key>
+	<string>2</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Dayflow uses screen access to create your timeline. Recordings stay on your Mac and you can pause or delete them anytime.</string>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://dayflow.so/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>lf33Kn/Gx26j9zfGtsNNc6Lk2QTBHyXkFxxwnsXmdYA=</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Nunito-VariableFont_wght.ttf</string>
@@ -13,11 +25,5 @@
 		<string>Figtree-VariableFont_wght.ttf</string>
 		<string>Figtree-Italic-VariableFont_wght.ttf</string>
 	</array>
-	<key>SUFeedURL</key>
-	<string>https://yourdomain.com/dayflow/appcast.xml</string>
-	<key>SUPublicEDKey</key>
-	<string>YOUR_PUBLIC_KEY_HERE</string>
-	<key>NSScreenCaptureUsageDescription</key>
-	<string>Dayflow uses screen access to create your timeline. Recordings stay on your Mac and you can pause or delete them anytime.</string>
 </dict>
 </plist>
