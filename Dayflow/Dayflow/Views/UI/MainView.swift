@@ -30,6 +30,11 @@ struct MainView: View {
     @State private var didInitialScroll = false
     @State private var previousDate = Date()
     @State private var lastDateNavMethod: String? = nil
+    // Minute tick to handle civil-day rollover (header updates + jump to today)
+    @State private var dayChangeTimer: Timer? = nil
+    @State private var lastObservedCivilDay: String = {
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"; return fmt.string(from: Date())
+    }()
     
     var body: some View {
         // Two-column layout: left logo + sidebar; right white panel with header, filters, timeline
@@ -66,6 +71,7 @@ struct MainView: View {
                 switch selectedIcon {
                 case .settings:
                     SettingsView()
+                        .padding(15)
                 case .dashboard:
                     DashboardView()
                         .padding(15)
@@ -212,6 +218,9 @@ struct MainView: View {
             if !didInitialScroll {
                 performInitialScrollIfNeeded()
             }
+
+            // Start minute-level tick to detect civil-day rollover (midnight)
+            startDayChangeTimer()
         }
         // Trigger reset when idle fired and timeline is visible
         .onChange(of: inactivity.pendingReset) { fired in
@@ -257,6 +266,10 @@ struct MainView: View {
                 performIdleResetAndScroll()
                 InactivityMonitor.shared.markHandledIfPending()
             }
+        }
+        .onDisappear {
+            // Safety: stop timer if view disappears
+            stopDayChangeTimer()
         }
     }
     
@@ -419,6 +432,37 @@ extension View {
 
 // MARK: - Idle Reset Helpers
 extension MainView {
+    // MARK: - Civil Day Change Timer
+    private func startDayChangeTimer() {
+        stopDayChangeTimer()
+        dayChangeTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { _ in
+            handleMinuteTickForDayChange()
+        }
+    }
+
+    private func stopDayChangeTimer() {
+        dayChangeTimer?.invalidate()
+        dayChangeTimer = nil
+    }
+
+    private func handleMinuteTickForDayChange() {
+        // Detect civil day rollover regardless of what day user is viewing
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+        let currentCivilDay = fmt.string(from: Date())
+        if currentCivilDay != lastObservedCivilDay {
+            lastObservedCivilDay = currentCivilDay
+
+            // Jump to current civil day and re-scroll near now
+            selectedDate = Date()
+            selectedActivity = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                withAnimation(.easeInOut(duration: 0.35)) {
+                    scrollToNowTick &+= 1
+                }
+            }
+        }
+    }
+
     private func performIdleResetAndScroll() {
         // Switch to today
         selectedDate = Date()
