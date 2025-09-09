@@ -165,7 +165,10 @@ fi
 
 echo "[7/7] Submitting DMG for notarization…"
 NOTARY_ARGS=("${DMG_NAME}")
-if [[ -n "${NOTARY_PROFILE:-}" ]]; then
+if [[ "${NO_NOTARIZE:-0}" == "1" ]]; then
+  echo "Skipping notarization: NO_NOTARIZE=1"
+  NOTARY_ARGS=()
+elif [[ -n "${NOTARY_PROFILE:-}" ]]; then
   echo "Using keychain profile: ${NOTARY_PROFILE}"
   NOTARY_ARGS=(submit "${DMG_NAME}" --keychain-profile "${NOTARY_PROFILE}" --wait)
 elif [[ -n "${NOTARY_APPLE_ID:-}" && -n "${NOTARY_TEAM_ID:-}" && -n "${NOTARY_APP_PASSWORD:-}" ]]; then
