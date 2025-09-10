@@ -12,12 +12,25 @@ import Sparkle
 final class UpdaterManager: NSObject, ObservableObject {
     static let shared = UpdaterManager()
 
-    lazy var controller: SPUStandardUpdaterController = {
+    private let userDriver = SilentUserDriver()
+    private lazy var updater: SPUUpdater = {
+        let u = SPUUpdater(hostBundle: .main,
+                           applicationBundle: .main,
+                           userDriver: userDriver,
+                           delegate: self)
+        // Prefer background checks and automatic downloads
+        u.automaticallyChecksForUpdates = true
+        u.automaticallyDownloadsUpdates = true
+        u.updateCheckInterval = TimeInterval(60 * 60 * 24)
+        return u
+    }()
+
+    // Fallback interactive updater for cases requiring authorization/UI
+    private lazy var interactiveController: SPUStandardUpdaterController = {
         let c = SPUStandardUpdaterController(startingUpdater: true,
                                              updaterDelegate: self,
                                              userDriverDelegate: nil)
-        // Prefer background checks and automatic downloads
-        c.updater.automaticallyChecksForUpdates = true
+        c.updater.automaticallyChecksForUpdates = false
         c.updater.automaticallyDownloadsUpdates = true
         c.updater.updateCheckInterval = TimeInterval(60 * 60 * 24)
         return c
@@ -34,15 +47,18 @@ final class UpdaterManager: NSObject, ObservableObject {
         // Initial status
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
         statusText = "v\(version)"
+        // Start updater immediately so background checks can run
+        try? updater.start()
     }
 
     func checkForUpdates(showUI: Bool = false) {
         isChecking = true
         statusText = "Checking…"
         if showUI {
-            controller.updater.checkForUpdates()
+            // Route interactive checks through the UI driver to allow auth prompts
+            interactiveController.updater.checkForUpdates()
         } else {
-            controller.updater.checkForUpdatesInBackground()
+            updater.checkForUpdatesInBackground()
         }
     }
 }
@@ -68,9 +84,25 @@ extension UpdaterManager: SPUUpdaterDelegate {
     }
 
     nonisolated func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        // If silent install failed due to requiring interaction (auth, permission),
+        // fall back to interactive flow so the user can authorize.
+        let nsError = error as NSError
+        let domain = nsError.domain
+        let code = nsError.code
+        let needsInteraction = (domain == "SUSparkleErrorDomain") && [
+            4001, // SUAuthenticationFailure
+            4008, // SUInstallationAuthorizeLaterError
+            4011, // SUInstallationRootInteractiveError
+            4012  // SUInstallationWriteNoPermissionError
+        ].contains(code)
+
         Task { @MainActor in
             self.isChecking = false
-            self.statusText = "Update check failed"
+            self.statusText = needsInteraction ? "Update needs authorization" : "Update check failed"
+            if needsInteraction {
+                // Trigger interactive updater; if a download already exists, Sparkle resumes and prompts
+                self.interactiveController.updater.checkForUpdates()
+            }
         }
     }
 }
