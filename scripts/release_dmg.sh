@@ -86,19 +86,76 @@ mkdir -p "${SANITIZED_DIR}"
 # Copy without extended attributes or resource forks
 ditto --noextattr --norsrc "${APP_PATH}" "${SANITIZED_APP}"
 
-echo "[4/7] Codesigning app with Hardened Runtime…"
+echo "[4/7] Codesigning (no --deep, proper Sparkle helpers)…"
 # Ensure any stray metadata is gone
 rm -f "${SANITIZED_APP}"/Icon? 2>/dev/null || true
 find -L "${SANITIZED_APP}" -name ".DS_Store" -delete || true
 if command -v xattr >/dev/null 2>&1; then
   xattr -rc "${SANITIZED_APP}" 2>/dev/null || true
 fi
-codesign -vvv --force --deep --strict \
+
+# Re-sign Sparkle helpers first per Sparkle sandboxing guide
+SPARKLE_DIR="${SANITIZED_APP}/Contents/Frameworks/Sparkle.framework/Versions/B"
+if [[ -d "${SPARKLE_DIR}" ]]; then
+  if [[ -d "${SPARKLE_DIR}/XPCServices/Installer.xpc" ]]; then
+    codesign -vvv --force -o runtime --sign "${SIGN_ID}" \
+      "${SPARKLE_DIR}/XPCServices/Installer.xpc"
+  fi
+  if [[ -d "${SPARKLE_DIR}/XPCServices/Downloader.xpc" ]]; then
+    # Preserve the XPC's own entitlements
+    codesign -vvv --force -o runtime --preserve-metadata=entitlements --sign "${SIGN_ID}" \
+      "${SPARKLE_DIR}/XPCServices/Downloader.xpc"
+  fi
+  if [[ -f "${SPARKLE_DIR}/Autoupdate" ]]; then
+    codesign -vvv --force -o runtime --sign "${SIGN_ID}" \
+      "${SPARKLE_DIR}/Autoupdate"
+  fi
+  if [[ -d "${SPARKLE_DIR}/Updater.app" ]]; then
+    codesign -vvv --force -o runtime --sign "${SIGN_ID}" \
+      "${SPARKLE_DIR}/Updater.app"
+  fi
+  # Finally sign the framework container itself
+  codesign -vvv --force -o runtime --sign "${SIGN_ID}" \
+    "${SPARKLE_DIR}/../../Current" 2>/dev/null || \
+  codesign -vvv --force -o runtime --sign "${SIGN_ID}" \
+    "${SPARKLE_DIR}"
+fi
+
+# Resolve $(PRODUCT_BUNDLE_IDENTIFIER) in entitlements before codesigning
+BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${SANITIZED_APP}/Contents/Info.plist" 2>/dev/null || true)
+RESOLVED_ENTS="${SANITIZED_DIR}/resolved.entitlements"
+if [[ -n "${BUNDLE_ID}" && -f "${ENTITLEMENTS}" ]]; then
+  cp "${ENTITLEMENTS}" "${RESOLVED_ENTS}"
+  # Force-set Sparkle's mach-lookup exceptions with the resolved bundle id
+  /usr/libexec/PlistBuddy -c "Delete :com.apple.security.temporary-exception.mach-lookup.global-name" "${RESOLVED_ENTS}" >/dev/null 2>&1 || true
+  /usr/libexec/PlistBuddy -c "Add :com.apple.security.temporary-exception.mach-lookup.global-name array" "${RESOLVED_ENTS}" >/dev/null 2>&1 || true
+  /usr/libexec/PlistBuddy -c "Add :com.apple.security.temporary-exception.mach-lookup.global-name:0 string ${BUNDLE_ID}-spks" "${RESOLVED_ENTS}" >/dev/null 2>&1 || true
+  /usr/libexec/PlistBuddy -c "Add :com.apple.security.temporary-exception.mach-lookup.global-name:1 string ${BUNDLE_ID}-spki" "${RESOLVED_ENTS}" >/dev/null 2>&1 || true
+else
+  cp "${ENTITLEMENTS}" "${RESOLVED_ENTS}"
+fi
+
+# Now sign the top-level app bundle (no --deep), using resolved entitlements
+codesign -vvv --force --strict \
   --options runtime \
   --timestamp \
-  --entitlements "${ENTITLEMENTS}" \
+  --entitlements "${RESOLVED_ENTS}" \
   --sign "${SIGN_ID}" \
   "${SANITIZED_APP}"
+
+# Sanity check: ensure mach-lookup exceptions are present
+if command -v rg >/dev/null 2>&1; then
+  ENT_DUMP=$(codesign -dv --entitlements :- "${SANITIZED_APP}" 2>&1 || true)
+  if ! printf "%s" "$ENT_DUMP" | rg -q "com.apple.security.temporary-exception.mach-lookup.global-name"; then
+    echo "WARNING: mach-lookup entitlement missing on app. Check entitlements substitution." >&2
+  fi
+  if ! printf "%s" "$ENT_DUMP" | rg -q "-spks|teleportlabs.com.Dayflow-spks"; then
+    echo "WARNING: Sparkle status mach service (-spks) not present in entitlements." >&2
+  fi
+  if ! printf "%s" "$ENT_DUMP" | rg -q "-spki|teleportlabs.com.Dayflow-spki"; then
+    echo "WARNING: Sparkle installer mach service (-spki) not present in entitlements." >&2
+  fi
+fi
 
 echo "[5/7] Verifying signature…"
 codesign --verify --deep --strict --verbose=2 "${SANITIZED_APP}"
