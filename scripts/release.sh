@@ -3,6 +3,8 @@ set -euo pipefail
 
 # One-button release script for Dayflow.
 # - Bumps version (minor by default; --major to bump major)
+#   - Updates Xcode target MARKETING_VERSION and CURRENT_PROJECT_VERSION
+#   - Keeps Info.plist values in sync
 # - Builds, signs, notarizes DMG
 # - Signs update (Sparkle) using Keychain-stored PEM
 # - Creates GitHub Release and uploads DMG (draft)
@@ -60,6 +62,8 @@ fi
 
 if [[ ! -f "$PLIST" ]]; then err "Info.plist not found at $PLIST"; fi
 
+PBP="$REPO_ROOT/Dayflow/Dayflow.xcodeproj/project.pbxproj"
+
 get_plist() { /usr/libexec/PlistBuddy -c "Print :$1" "$PLIST" 2>/dev/null || true; }
 set_plist() {
   local key="$1"; shift
@@ -69,18 +73,35 @@ set_plist() {
   fi
 }
 
-# Read versions from Info.plist first; fall back to Xcode project settings
-CURRENT_SHORT=$(get_plist CFBundleShortVersionString)
-CURRENT_BUILD=$(get_plist CFBundleVersion)
-if [[ -z "$CURRENT_SHORT" ]]; then
-  PBP="$REPO_ROOT/Dayflow/Dayflow.xcodeproj/project.pbxproj"
-  if [[ -f "$PBP" ]]; then
-    CURRENT_SHORT=$(grep -m1 -E "MARKETING_VERSION = " "$PBP" | sed -E 's/.*MARKETING_VERSION = ([^;]+);/\1/')
-    CURRENT_BUILD=$(grep -m1 -E "CURRENT_PROJECT_VERSION = " "$PBP" | sed -E 's/.*CURRENT_PROJECT_VERSION = ([^;]+);/\1/')
-  fi
+## Determine current versions
+# Prefer Xcode project (MARKETING_VERSION/CURRENT_PROJECT_VERSION),
+# which is what the built app uses when GENERATE_INFOPLIST_FILE is YES.
+if [[ -f "$PBP" ]]; then
+  CURRENT_SHORT=$(grep -m1 -E "MARKETING_VERSION = " "$PBP" | sed -E 's/.*MARKETING_VERSION = ([^;]+);/\1/')
+  CURRENT_BUILD=$(grep -m1 -E "CURRENT_PROJECT_VERSION = " "$PBP" | sed -E 's/.*CURRENT_PROJECT_VERSION = ([^;]+);/\1/')
+fi
+# Fall back to Info.plist if not present in project
+if [[ -z "${CURRENT_SHORT:-}" ]]; then
+  CURRENT_SHORT=$(get_plist CFBundleShortVersionString)
+fi
+if [[ -z "${CURRENT_BUILD:-}" ]]; then
+  CURRENT_BUILD=$(get_plist CFBundleVersion)
 fi
 [[ -n "$CURRENT_SHORT" ]] || err "Unable to determine marketing version (CFBundleShortVersionString or MARKETING_VERSION)"
 if [[ -z "$CURRENT_BUILD" ]]; then CURRENT_BUILD=0; fi
+
+# Ensure build number monotonically increases across releases by considering
+# the highest sparkle:version present in the existing appcast.
+APPCAST_PATH="$REPO_ROOT/docs/appcast.xml"
+if [[ -f "$APPCAST_PATH" ]]; then
+  APPCAST_MAX_BUILD=$(grep -Eo 'sparkle:version="[0-9]+"' "$APPCAST_PATH" | sed -E 's/[^0-9]//g' | sort -n | tail -1 || true)
+  if [[ -n "$APPCAST_MAX_BUILD" ]]; then
+    if [[ "$APPCAST_MAX_BUILD" -gt "$CURRENT_BUILD" ]]; then
+      echo "Note: Raising build from $CURRENT_BUILD to appcast max $APPCAST_MAX_BUILD to keep it monotonic."
+      CURRENT_BUILD=$APPCAST_MAX_BUILD
+    fi
+  fi
+fi
 
 IFS=. read -r MA MI PA <<<"${CURRENT_SHORT}"
 MA=${MA:-0}; MI=${MI:-0}; PA=${PA:-0}
@@ -100,11 +121,24 @@ if [[ $DRY_RUN -eq 1 ]]; then
   echo "Dry run. No changes made."; exit 0
 fi
 
-echo "[1/8] Bumping versions in Info.plist…"
+echo "[1/8] Bumping versions in project and Info.plist…"
+# First, update the Xcode project so UI reflects the correct version.
+if [[ -f "$PBP" ]]; then
+  if xcrun -f agvtool >/dev/null 2>&1; then
+    ( cd "$REPO_ROOT/Dayflow" && \
+      xcrun agvtool new-marketing-version "$NEW_SHORT" >/dev/null || true; \
+      xcrun agvtool new-version -all "$NEW_BUILD" >/dev/null || true )
+  fi
+  # Ensure values are updated even if agvtool didn't touch them
+  perl -pi -e "s/MARKETING_VERSION = [^;]+;/MARKETING_VERSION = $NEW_SHORT;/g" "$PBP"
+  perl -pi -e "s/CURRENT_PROJECT_VERSION = [^;]+;/CURRENT_PROJECT_VERSION = $NEW_BUILD;/g" "$PBP"
+fi
+
+# Keep Info.plist in sync regardless of GENERATE_INFOPLIST_FILE
 set_plist CFBundleShortVersionString "$NEW_SHORT"
 set_plist CFBundleVersion "$NEW_BUILD"
 
-git add "$PLIST"
+git add "$PLIST" "$PBP" 2>/dev/null || true
 git commit -m "release: bump to v$NEW_SHORT ($NEW_BUILD)" || true
 
 TAG="v$NEW_SHORT"
@@ -131,21 +165,27 @@ fi
 OWNER_REPO=$(git -C "$REPO_ROOT" remote get-url origin | sed -E 's#.*github.com[:/]([^/]+/[^.]+)(\.git)?#\1#')
 [[ -n "$OWNER_REPO" ]] || err "Unable to detect owner/repo from git remote"
 
-echo "[4/8] Creating draft GitHub release $TAG and uploading asset…"
 TITLE="$APP_NAME $NEW_SHORT"
 REL_ARGS=("$TAG" "$REPO_ROOT/$DMG_NAME" --title "$TITLE" --draft)
 if [[ -n "$NOTES_FILE" ]]; then REL_ARGS+=(--notes-file "$NOTES_FILE"); fi
-gh release create "${REL_ARGS[@]}"
+
+if gh release view "$TAG" >/dev/null 2>&1; then
+  echo "[4/8] Release $TAG already exists; uploading asset (clobber)…"
+  gh release upload "$TAG" "$REPO_ROOT/$DMG_NAME" --clobber >/dev/null
+else
+  echo "[4/8] Creating draft GitHub release $TAG and uploading asset…"
+  gh release create "${REL_ARGS[@]}"
+fi
 
 echo "[5/8] Publishing release (undraft)…"
-gh release edit "$TAG" --draft=false >/dev/null
+gh release edit "$TAG" --title "$TITLE" --draft=false >/dev/null
 
 echo "[6/8] Resolving canonical asset + release URLs…"
 # After publishing, the canonical browser_download_url contains /download/vX.Y.Z/
 ASSET_URL=""
 for i in {1..10}; do
   ASSET_URL=$(gh release view "$TAG" --json assets --jq \
-    ".assets[] | select(.name==\"$DMG_NAME\").browser_download_url" 2>/dev/null || true)
+    ".assets[] | select(.name==\"$DMG_NAME\").url" 2>/dev/null || true)
   [[ -n "$ASSET_URL" ]] && break
   sleep 2
 done
