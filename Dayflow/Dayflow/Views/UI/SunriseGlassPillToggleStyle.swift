@@ -2,8 +2,8 @@ import SwiftUI
 
 struct SunriseGlassPillToggleStyle: ToggleStyle {
     var onColors: [Color] = [
-        Color(red: 1.00, green: 0.88, blue: 0.78), // peach mist
-        Color(red: 1.00, green: 0.69, blue: 0.50)  // tangerine
+        Color(red: 1.00, green: 0.85, blue: 0.72), // slightly deeper peach
+        Color(hex: "FF7506")                       // darker brand orange
     ]
     var offColors: [Color] = [
         Color.white.opacity(0.92),
@@ -41,6 +41,11 @@ struct SunriseGlassPillToggleStyle: ToggleStyle {
                             .blendMode(.overlay)
                     )
                     .overlay(
+                        Capsule()
+                            .stroke(Color(hex: "E5E5E5"), lineWidth: 1)
+                            .opacity(0.9)
+                    )
+                    .overlay(
                         // Subtle top highlight to match chips/date pill gloss
                         Capsule()
                             .fill(.white.opacity(isOn ? 0.18 : 0.12))
@@ -51,8 +56,6 @@ struct SunriseGlassPillToggleStyle: ToggleStyle {
                     .background(
                         Capsule().fill(.ultraThinMaterial)
                     )
-                    .shadow(color: .black.opacity(isOn ? 0.12 : 0.06),
-                            radius: isOn ? 10 : 5, y: isOn ? 6 : 2)
                     .frame(width: trackWidth, height: trackHeight)
 
                 // Knob
@@ -66,7 +69,6 @@ struct SunriseGlassPillToggleStyle: ToggleStyle {
                     .overlay(
                         Circle().strokeBorder(.black.opacity(0.06), lineWidth: 0.75)
                     )
-                    .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
                     .frame(width: knobSize, height: knobSize)
                     .padding(2)
             }
