@@ -58,6 +58,7 @@ struct CanvasTimelineDataView: View {
     @Binding var selectedDate: Date
     @Binding var selectedActivity: TimelineActivity?
     @Binding var scrollToNowTick: Int
+    @Binding var hasAnyActivities: Bool
 
     @State private var selectedCardId: UUID? = nil
     @State private var positionedActivities: [CanvasPositionedActivity] = []
@@ -267,6 +268,7 @@ struct CanvasTimelineDataView: View {
 
             DispatchQueue.main.async {
                 self.positionedActivities = positioned
+                self.hasAnyActivities = !positioned.isEmpty
             }
         }
     }
@@ -744,7 +746,10 @@ struct CanvasActivityCard: View {
         @State private var selected: TimelineActivity? = nil
         @State private var tick: Int = 0
         var body: some View {
-            CanvasTimelineDataView(selectedDate: $date, selectedActivity: $selected, scrollToNowTick: $tick)
+            CanvasTimelineDataView(selectedDate: $date,
+                                   selectedActivity: $selected,
+                                   scrollToNowTick: $tick,
+                                   hasAnyActivities: .constant(true))
                 .frame(width: 800, height: 600)
         }
     }
