@@ -13,15 +13,24 @@ import Combine
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
+    // Controls whether the app is allowed to terminate.
+    // Default is false so Cmd+Q/Dock/App menu quit will be cancelled
+    // and the app will continue running in the background.
+    static var allowTermination: Bool = false
     private var statusBar: StatusBarController!
     private var recorder : ScreenRecorder!
     private var analyticsSub: AnyCancellable?
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        // Block termination by default; only specific flows enable it.
+        AppDelegate.allowTermination = false
         // Configure analytics (prod only; default opt-in ON)
-        let POSTHOG_API_KEY = "phc_ZcdmHw9O27WB4ex9YGb6hcKSyGmrvgnBYq97SV1CXt"
-        let POSTHOG_HOST = "https://us.i.posthog.com"
-        AnalyticsService.shared.start(apiKey: POSTHOG_API_KEY, host: POSTHOG_HOST)
+        let info = Bundle.main.infoDictionary
+        let POSTHOG_API_KEY = info?["PHPostHogApiKey"] as? String ?? ""
+        let POSTHOG_HOST = info?["PHPostHogHost"] as? String ?? "https://us.i.posthog.com"
+        if !POSTHOG_API_KEY.isEmpty {
+            AnalyticsService.shared.start(apiKey: POSTHOG_API_KEY, host: POSTHOG_HOST)
+        }
 
         // App opened (cold start)
         AnalyticsService.shared.capture("app_opened", ["cold_start": true])
@@ -41,8 +50,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let onboardingStep = UserDefaults.standard.integer(forKey: "onboardingStep")
         let didOnboard = UserDefaults.standard.bool(forKey: "didOnboard")
         
-        // Initialize recorder but control when it starts
-        recorder = ScreenRecorder(autoStart: false)
+        // Seed recording flag low, then create recorder so the first
+        // transition to true will reliably start capture.
+        AppState.shared.isRecording = false
+        recorder = ScreenRecorder(autoStart: true)
         
         // Only attempt to start recording if we're past the screen step or fully onboarded
         // Steps: 0=welcome, 1=howItWorks, 2=screen, 3=llmSelection, 4=llmSetup, 5=done
@@ -71,7 +82,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AppState.shared.isRecording = false
         }
         
-        try? SMAppService.mainApp.register()// autostart at login
+        // Register login item helper (Ventura+). Non-fatal if user disabled it.
+        if #available(macOS 13.0, *) {
+            do {
+                try SMAppService.loginItem(identifier: "teleportlabs.com.Dayflow.LoginItem").register()
+            } catch {
+                print("Login item register failed: \(error)")
+            }
+        }
         
         // Start the Gemini analysis background job
         setupGeminiAnalysis()
@@ -86,6 +104,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 AnalyticsService.shared.capture("recording_toggled", ["enabled": enabled, "reason": "user"]) 
                 AnalyticsService.shared.setPersonProperties(["recording_enabled": enabled])
             }
+    }
+    
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if Self.allowTermination {
+            return .terminateNow
+        }
+        NSApp.hide(nil)
+        return .terminateCancel
     }
     
     // Start Gemini analysis as a background task
