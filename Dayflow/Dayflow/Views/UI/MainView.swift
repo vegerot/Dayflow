@@ -10,11 +10,13 @@ import AVKit
 import AVFoundation
 
 struct MainView: View {
+    @EnvironmentObject private var appState: AppState
     @State private var selectedIcon: SidebarIcon = .timeline
     @State private var selectedDate = Date()
     @State private var showDatePicker = false
     @State private var selectedActivity: TimelineActivity? = nil
     @State private var scrollToNowTick: Int = 0
+    @State private var hasAnyActivities: Bool = true
     @ObservedObject private var inactivity = InactivityMonitor.shared
     
     // Animation states for orchestrated entrance - Emil Kowalski principles
@@ -80,7 +82,7 @@ struct MainView: View {
                         .padding(15)
                 case .timeline:
                     VStack(alignment: .leading, spacing: 20) {
-                        // Header: Timeline title + Date navigation (now inside white panel)
+                        // Header: Timeline title + Recording toggle (date controls moved to chips row)
                         HStack {
                             Text("Timeline")
                                 .font(.custom("InstrumentSerif-Regular", size: 42))
@@ -90,51 +92,11 @@ struct MainView: View {
 
                             Spacer()
 
-                            HStack(spacing: 12) {
-                                DayflowCircleButton {
-                                    // Go to previous day
-                                    let from = selectedDate
-                                    let to = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
-                                    previousDate = selectedDate
-                                    selectedDate = to
-                                    lastDateNavMethod = "prev"
-                                    AnalyticsService.shared.capture("date_navigation", [
-                                        "method": "prev",
-                    						"from_day": dayString(from),
-                                        "to_day": dayString(to)
-                                    ])
-                                } content: {
-                                    Image(systemName: "chevron.left")
-                                        .font(.system(size: 14, weight: .medium))
-                                        .foregroundColor(Color(red: 0.3, green: 0.3, blue: 0.3))
-                                }
-
-                                Button(action: { showDatePicker = true; lastDateNavMethod = "picker" }) {
-                                    DayflowPillButton(text: formatDateForDisplay(selectedDate))
-                                }
-                                .buttonStyle(PlainButtonStyle())
-
-                                DayflowCircleButton {
-                                    // Go to next day
-                                    let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
-                                    if tomorrow <= Date() {
-                                        let from = selectedDate
-                                        previousDate = selectedDate
-                                        selectedDate = tomorrow
-                                        lastDateNavMethod = "next"
-                                        AnalyticsService.shared.capture("date_navigation", [
-                                            "method": "next",
-                                            "from_day": dayString(from),
-                                            "to_day": dayString(tomorrow)
-                                        ])
-                                    }
-                                } content: {
-                                    let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 14, weight: .medium))
-                                        .foregroundColor(tomorrow > Date() ? Color.gray.opacity(0.3) : Color(red: 0.3, green: 0.3, blue: 0.3))
-                                }
-                            }
+                            // Recording toggle (replaces previous date controls spot)
+                            Toggle("Recording", isOn: $appState.isRecording)
+                                .labelsHidden()
+                                .toggleStyle(SunriseGlassPillToggleStyle())
+                                .accessibilityLabel(Text("Recording"))
                         }
                         .padding(.leading, 10)
 
@@ -143,14 +105,20 @@ struct MainView: View {
                             HStack(alignment: .top, spacing: 20) {
                                 // Left column: chips row at top, timeline below
                                 VStack(alignment: .leading, spacing: 12) {
-                                    TabFilterBar()
+                                    TabFilterBar(
+                                        selectedDate: $selectedDate,
+                                        showDatePicker: $showDatePicker,
+                                        lastDateNavMethod: $lastDateNavMethod,
+                                        previousDate: $previousDate
+                                    )
                                         .padding(.leading, -13) // nudge chips 13px left
                                         .opacity(contentOpacity)
 
                                     CanvasTimelineDataView(
                                         selectedDate: $selectedDate,
                                         selectedActivity: $selectedActivity,
-                                        scrollToNowTick: $scrollToNowTick
+                                        scrollToNowTick: $scrollToNowTick,
+                                        hasAnyActivities: $hasAnyActivities
                                     )
                                     .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
                                     .opacity(contentOpacity)
@@ -158,7 +126,12 @@ struct MainView: View {
                                 .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
                                 // Right column: activity detail card — constrained height with internal scrolling for summary
-                                ActivityCard(activity: selectedActivity, maxHeight: geo.size.height, scrollSummary: true)
+                                ActivityCard(
+                                    activity: selectedActivity,
+                                    maxHeight: geo.size.height,
+                                    scrollSummary: true,
+                                    hasAnyActivities: hasAnyActivities
+                                )
                                     .frame(minWidth: 260, idealWidth: 380, maxWidth: 420)
                                     .opacity(contentOpacity)
                             }
@@ -378,6 +351,11 @@ struct SidebarIconButton: View {
 
 // MARK: - Tab Filter Bar
 struct TabFilterBar: View {
+    @Binding var selectedDate: Date
+    @Binding var showDatePicker: Bool
+    @Binding var lastDateNavMethod: String?
+    @Binding var previousDate: Date
+
     var body: some View {
         HStack(spacing: 10) {
             // Work
@@ -414,8 +392,78 @@ struct TabFilterBar: View {
             .buttonStyle(PlainButtonStyle())
 
             Spacer()
+
+            // Date controls moved to the right of the chips row
+            HStack(spacing: 12) {
+                DayflowCircleButton {
+                    // Go to previous day
+                    let from = selectedDate
+                    let to = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
+                    previousDate = selectedDate
+                    selectedDate = to
+                    lastDateNavMethod = "prev"
+                    AnalyticsService.shared.capture("date_navigation", [
+                        "method": "prev",
+                        "from_day": dayString(from),
+                        "to_day": dayString(to)
+                    ])
+                } content: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Color(red: 0.3, green: 0.3, blue: 0.3))
+                }
+
+                Button(action: { showDatePicker = true; lastDateNavMethod = "picker" }) {
+                    DayflowPillButton(text: formatDateForDisplay(selectedDate))
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                DayflowCircleButton {
+                    // Go to next day
+                    let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
+                    if tomorrow <= Date() {
+                        let from = selectedDate
+                        previousDate = selectedDate
+                        selectedDate = tomorrow
+                        lastDateNavMethod = "next"
+                        AnalyticsService.shared.capture("date_navigation", [
+                            "method": "next",
+                            "from_day": dayString(from),
+                            "to_day": dayString(tomorrow)
+                        ])
+                    }
+                } content: {
+                    let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(tomorrow > Date() ? Color.gray.opacity(0.3) : Color(red: 0.3, green: 0.3, blue: 0.3))
+                }
+            }
         }
         .padding(.leading, 15)
+    }
+
+    private func formatDateForDisplay(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        let calendar = Calendar.current
+
+        if calendar.isDateInToday(date) {
+            formatter.dateFormat = "'Today,' MMM d"
+        } else if calendar.isDateInYesterday(date) {
+            formatter.dateFormat = "'Yesterday,' MMM d"
+        } else if calendar.isDateInTomorrow(date) {
+            formatter.dateFormat = "'Tomorrow,' MMM d"
+        } else {
+            formatter.dateFormat = "E, MMM d"
+        }
+
+        return formatter.string(from: date)
+    }
+
+    private func dayString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
     }
 }
 
@@ -514,6 +562,8 @@ struct ActivityCard: View {
     let activity: TimelineActivity?
     var maxHeight: CGFloat? = nil
     var scrollSummary: Bool = false
+    var hasAnyActivities: Bool = true
+    @EnvironmentObject private var appState: AppState
     
     private let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -588,12 +638,38 @@ struct ActivityCard: View {
             }
         } else {
             // Empty state
-            VStack {
+            VStack(spacing: 10) {
                 Spacer()
-                Text("Select an activity to view details")
-                    .font(.custom("Nunito", size: 15))
-                    .fontWeight(.regular)
-                    .foregroundColor(.gray.opacity(0.5))
+                if hasAnyActivities {
+                    Text("Select an activity to view details")
+                        .font(.custom("Nunito", size: 15))
+                        .fontWeight(.regular)
+                        .foregroundColor(.gray.opacity(0.5))
+                } else {
+                    if appState.isRecording {
+                        VStack(spacing: 6) {
+                            Text("No cards yet")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.gray.opacity(0.7))
+                            Text("Cards are generated about every 15 minutes. If Dayflow is on and no cards show up within 30 minutes, please report a bug.")
+                                .font(.custom("Nunito", size: 13))
+                                .foregroundColor(.gray.opacity(0.6))
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 16)
+                        }
+                    } else {
+                        VStack(spacing: 6) {
+                            Text("Recording is off")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.gray.opacity(0.7))
+                            Text("Dayflow recording is currently turned off, so cards aren’t being produced.")
+                                .font(.custom("Nunito", size: 13))
+                                .foregroundColor(.gray.opacity(0.6))
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 16)
+                        }
+                    }
+                }
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
