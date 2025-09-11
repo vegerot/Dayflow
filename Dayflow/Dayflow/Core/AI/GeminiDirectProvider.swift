@@ -9,6 +9,12 @@ final class GeminiDirectProvider: LLMProvider {
     private let apiKey: String
     private let genEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent"
     private let fileEndpoint = "https://generativelanguage.googleapis.com/upload/v1beta/files"
+    private let proModel = "gemini-2.5-pro"
+    private let flashModel = "gemini-2.5-flash"
+
+    private func endpointForModel(_ model: String) -> String {
+        return "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent"
+    }
     
     init(apiKey: String) {
         self.apiKey = apiKey
@@ -249,7 +255,7 @@ final class GeminiDirectProvider: LLMProvider {
         Remember: The goal is to tell the story of what someone accomplished, not log every click. Group aggressively and only split when they truly change what they're doing for an extended period. If an activity is less than 2-3 minutes, it almost never deserves its own segment.
         """
         
-        let response = try await geminiTranscribeRequest(
+        let (response, usedModel) = try await geminiTranscribeRequest(
             fileURI: fileURI,
             mimeType: mimeType,
             prompt: finalTranscriptionPrompt,
@@ -284,7 +290,7 @@ final class GeminiDirectProvider: LLMProvider {
                 endTs: Int(endDate.timeIntervalSince1970),
                 observation: chunk.description,
                 metadata: nil,
-                llmModel: "gemini-2.5-flash",
+                llmModel: usedModel,
                 createdAt: Date()
             )
         }
@@ -761,7 +767,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         return "UNKNOWN"
     }
     
-    private func geminiTranscribeRequest(fileURI: String, mimeType: String, prompt: String, batchId: Int64?) async throws -> String {
+    private func geminiTranscribeRequest(fileURI: String, mimeType: String, prompt: String, batchId: Int64?) async throws -> (String, String) {
         let transcriptionSchema: [String:Any] = [
           "type":"ARRAY",
           "items": [
@@ -791,13 +797,14 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             "generationConfig": generationConfig
         ]
         
-        // Retry logic with exponential backoff
+        // Retry logic with exponential backoff + per-call Pro→Flash fallback
         let maxRetries = 3
         var lastError: Error?
-        
+        var currentModel = proModel
+        var downgraded = false
         let callGroupId = UUID().uuidString
         for attempt in 0..<maxRetries {
-                let urlWithKey = genEndpoint + "?key=\(apiKey)"
+            let urlWithKey = endpointForModel(currentModel) + "?key=\(apiKey)"
             var request = URLRequest(url: URL(string: urlWithKey)!)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -855,7 +862,23 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                     if let bodyText = String(data: data, encoding: .utf8) {
                         print("   429 Response Body: \(truncate(bodyText, max: 1000))")
                     }
-                    
+                    // Per-call downgrade to Flash on first 429 from Pro
+                    if currentModel == proModel && !downgraded {
+                        print("↘️ Downgrading to \(flashModel) for this call after 429")
+                        // Analytics: record fallback
+                        Task { @MainActor in
+                            AnalyticsService.shared.capture("llm_model_fallback", [
+                                "provider": "gemini",
+                                "operation": "transcribe",
+                                "from_model": currentModel,
+                                "to_model": flashModel,
+                                "reason": "rate_limit_429"
+                            ])
+                        }
+                        currentModel = flashModel
+                        downgraded = true
+                        continue
+                    }
                     let delay = TimeInterval(retryAfter ?? "60") ?? 60
                     print("⏳ Rate limited, waiting \(delay)s...")
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
@@ -934,13 +957,13 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                     throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "Empty content - no parts array"])
                 }
                 
-                return text
+                return (text, currentModel)
                 
             } catch {
                 lastError = error
                 // Centralized LLM call logging (failure)
                 let modelName: String? = {
-                    if let u = URL(string: genEndpoint) {
+                    if let u = request.url {
                         let last = u.path.split(separator: "/").last.map(String.init)
                         return last?.split(separator: ":").first.map(String.init)
                     }
@@ -1091,13 +1114,15 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             "generationConfig": generationConfig
         ]
         
-        // Retry logic with exponential backoff
+        // Retry logic with exponential backoff + per-call Pro→Flash fallback
         let maxRetries = 3
         var lastError: Error?
         let callGroupId = UUID().uuidString
+        var currentModel = proModel
+        var downgraded = false
         
         for attempt in 0..<maxRetries {
-            let urlWithKey = genEndpoint + "?key=\(apiKey)"
+            let urlWithKey = endpointForModel(currentModel) + "?key=\(apiKey)"
             var request = URLRequest(url: URL(string: urlWithKey)!)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -1155,7 +1180,23 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                     if let bodyText = String(data: data, encoding: .utf8) {
                         print("   429 Response Body: \(truncate(bodyText, max: 1000))")
                     }
-                    
+                    // Per-call downgrade to Flash on first 429 from Pro
+                    if currentModel == proModel && !downgraded {
+                        print("↘️ Downgrading to \(flashModel) for this call after 429 (cards)")
+                        // Analytics: record fallback
+                        Task { @MainActor in
+                            AnalyticsService.shared.capture("llm_model_fallback", [
+                                "provider": "gemini",
+                                "operation": "generate_activity_cards",
+                                "from_model": currentModel,
+                                "to_model": flashModel,
+                                "reason": "rate_limit_429"
+                            ])
+                        }
+                        currentModel = flashModel
+                        downgraded = true
+                        continue
+                    }
                     let delay = TimeInterval(retryAfter ?? "60") ?? 60
                     print("⏳ Rate limited, waiting \(delay)s...")
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
@@ -1233,7 +1274,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             } catch {
                 lastError = error
                 let modelName: String? = {
-                    if let u = URL(string: genEndpoint) {
+                    if let u = request.url {
                         let last = u.path.split(separator: "/").last.map(String.init)
                         return last?.split(separator: ":").first.map(String.init)
                     }
