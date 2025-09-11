@@ -84,13 +84,22 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 }
             }
 
-        // Honor the current flag once (after subscription exists).
+        // Active display tracking
+        tracker = ActiveDisplayTracker()
+        activeDisplaySub = tracker.$activeDisplayID
+            .removeDuplicates()
+            .sink { [weak self] newID in
+                guard let self, let newID else { return }
+                self.q.async { [weak self] in self?.handleActiveDisplayChange(newID) }
+            }
+
+        // Honor the current flag once (after subscriptions exist).
         if autoStart, AppState.shared.isRecording { start() }
 
         registerForSleepAndLock()
     }
 
-        deinit { sub?.cancel(); dbg("deinit") }
+        deinit { sub?.cancel(); activeDisplaySub?.cancel(); dbg("deinit") }
 
     // MARK: private state ----------------------------------------------
     private let q = DispatchQueue(label: "com.dayflow.recorder", qos: .userInitiated)
@@ -101,12 +110,16 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private var timer  : DispatchSourceTimer?
     private var fileURL: URL?
     private var sub    : AnyCancellable?
+    private var activeDisplaySub: AnyCancellable?
     private var frames : Int = 0
     private var isStarting = false            // guards concurrent starts
     private var isFinishing = false           // guards concurrent finishes
     private var resumeAfterPause = false      // remember intent across interruptions
     private var recordingWidth: Int = 1280   // Store recording dimensions
     private var recordingHeight: Int = 800
+    private var tracker: ActiveDisplayTracker!
+    private var currentDisplayID: CGDirectDisplayID?
+    private var requestedDisplayID: CGDirectDisplayID?
 
     // MARK: public control ----------------------------------------------
     func start() {
@@ -176,9 +189,21 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             let content = try await SCShareableContent
                 .excludingDesktopWindows(false, onScreenWindowsOnly: true)
 
-            guard let display = content.displays.first else {
+            // choose the display: prefer requested → active → first
+            let displaysByID: [CGDirectDisplayID: SCDisplay] = Dictionary(uniqueKeysWithValues: content.displays.map { ($0.displayID, $0) })
+            // Read tracker's active display on the main actor to respect isolation
+            let trackerID: CGDirectDisplayID? = await MainActor.run { [weak tracker] in tracker?.activeDisplayID }
+            let preferredID = requestedDisplayID ?? trackerID
+            let display: SCDisplay
+            if let pid = preferredID, let scd = displaysByID[pid] {
+                display = scd
+            } else if let first = content.displays.first {
+                display = first
+            } else {
                 throw RecorderError.noDisplay
             }
+            currentDisplayID = display.displayID
+            requestedDisplayID = nil
 
             // 2. filter
             let filter = SCContentFilter(display: display,
@@ -195,17 +220,21 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             
             // Scale to target height while maintaining aspect ratio
             let targetHeight = C.targetHeight
-            let targetWidth = Int(Double(targetHeight) * aspectRatio)
+            var targetWidth = Int(Double(targetHeight) * aspectRatio)
+            // Ensure even dimensions for encoder safety
+            if targetWidth % 2 != 0 { targetWidth += 1 }
+            var evenTargetHeight = targetHeight
+            if evenTargetHeight % 2 != 0 { evenTargetHeight += 1 }
             
             cfg.width               = targetWidth
-            cfg.height              = targetHeight
+            cfg.height              = evenTargetHeight
             cfg.capturesAudio       = false
             cfg.pixelFormat         = kCVPixelFormatType_32BGRA
             cfg.minimumFrameInterval = CMTime(value: 1, timescale: C.fps)
             
             // Store dimensions for later use
             recordingWidth = targetWidth
-            recordingHeight = targetHeight
+            recordingHeight = evenTargetHeight
             
             dbg("Recording at \(targetWidth)×\(targetHeight) (display: \(displayWidth)×\(displayHeight), ratio: \(String(format: "%.2f", aspectRatio)):1)")
 
@@ -265,6 +294,21 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         stream = nil
         isStarting = false
         reset(); dbg("stream stopped")
+    }
+
+    // MARK: active-display switching --------------------------------------
+    private func handleActiveDisplayChange(_ newID: CGDirectDisplayID) {
+        // Only act if a stream exists
+        guard currentDisplayID != nil else { return }
+        guard newID != currentDisplayID else { return }
+
+        dbg("Active display changed → switching stream: \(String(describing: currentDisplayID)) → \(newID)")
+        requestedDisplayID = newID
+
+        // Finish the current segment and restart on the new display
+        finishSegment(restart: false)
+        stopStream()
+        start()
     }
 
     // MARK: segment rotation --------------------------------------------
