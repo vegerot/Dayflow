@@ -121,6 +121,16 @@ if [[ -d "${SPARKLE_DIR}" ]]; then
     "${SPARKLE_DIR}"
 fi
 
+# Inject analytics keys (optional) before final app signing
+if [[ -n "${POSTHOG_API_KEY:-}" ]]; then
+  /usr/libexec/PlistBuddy -c "Set :PHPostHogApiKey ${POSTHOG_API_KEY}" "${SANITIZED_APP}/Contents/Info.plist" \
+    >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :PHPostHogApiKey string ${POSTHOG_API_KEY}" "${SANITIZED_APP}/Contents/Info.plist"
+fi
+if [[ -n "${POSTHOG_HOST:-}" ]]; then
+  /usr/libexec/PlistBuddy -c "Set :PHPostHogHost ${POSTHOG_HOST}" "${SANITIZED_APP}/Contents/Info.plist" \
+    >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :PHPostHogHost string ${POSTHOG_HOST}" "${SANITIZED_APP}/Contents/Info.plist"
+fi
+
 # Resolve $(PRODUCT_BUNDLE_IDENTIFIER) in entitlements before codesigning
 BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${SANITIZED_APP}/Contents/Info.plist" 2>/dev/null || true)
 RESOLVED_ENTS="${SANITIZED_DIR}/resolved.entitlements"
