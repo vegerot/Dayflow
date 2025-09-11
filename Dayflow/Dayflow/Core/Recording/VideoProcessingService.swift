@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import CoreGraphics
 
 enum VideoProcessingError: Error {
     case invalidInputURL
@@ -69,7 +70,7 @@ actor VideoProcessingService {
             .appendingPathComponent(originalFileName + "_timelapse.mp4")
     }
 
-    /// If multiple URLs, stitches them; if one, copies it to a temp location.
+    /// If multiple URLs, stitches them. If sizes/orientations differ, re-renders to a stable 16:9 canvas.
     func prepareVideoForProcessing(urls: [URL]) async throws -> URL {
         guard !urls.isEmpty else { throw VideoProcessingError.invalidInputURL }
         let tempOutputURL = newTemporaryFileURL()
@@ -88,7 +89,27 @@ actor VideoProcessingService {
             }
         }
 
-        // Stitch multiple files
+        // Inspect tracks to decide homogeneous vs mixed pipeline
+        struct TrackInfo: Hashable { let width: Int; let height: Int }
+        var infos = Set<TrackInfo>()
+        for url in urls {
+            let asset = AVURLAsset(url: url)
+            if let track = try await asset.loadTracks(withMediaType: .video).first {
+                let nat = try await track.load(.naturalSize)
+                let xf = try await track.load(.preferredTransform)
+                let upright = nat.applying(xf)
+                let w = Int(abs(upright.width).rounded())
+                let h = Int(abs(upright.height).rounded())
+                infos.insert(TrackInfo(width: w, height: h))
+            }
+        }
+
+        // If mixed dimensions, render to canvas for stability
+        if infos.count > 1 {
+            return try await stitchToCanvas(urls: urls, canvas: CGSize(width: 1920, height: 1080))
+        }
+
+        // Stitch multiple files (homogeneous path)
         let composition = AVMutableComposition()
         guard
             let videoTrack = composition.addMutableTrack(withMediaType: .video,
@@ -116,21 +137,89 @@ actor VideoProcessingService {
             }
         }
 
-        guard
-            let exportSession = AVAssetExportSession(asset: composition,
-                                                     presetName: AVAssetExportPresetPassthrough)
-        else { throw VideoProcessingError.exportSessionCreationFailed }
+        guard let exportSession = AVAssetExportSession(asset: composition,
+                                                       presetName: AVAssetExportPresetPassthrough) else {
+            throw VideoProcessingError.exportSessionCreationFailed
+        }
 
         exportSession.outputURL = tempOutputURL
-                exportSession.outputFileType = .mp4
-                await exportSession.export()
+        exportSession.outputFileType = .mp4
+        await exportSession.export()
 
-                guard exportSession.status == .completed else {
-                    print("Stitching export failed. Status: \(exportSession.status). Error: \(exportSession.error?.localizedDescription ?? "No error description available")")
-                    throw VideoProcessingError.exportFailed(exportSession.error)
-                }
+        guard exportSession.status == .completed else {
+            print("Stitching export failed. Status: \(exportSession.status). Error: \(exportSession.error?.localizedDescription ?? "No error description available")")
+            throw VideoProcessingError.exportFailed(exportSession.error)
+        }
 
         return tempOutputURL
+    }
+
+    /// Stitch multiple inputs onto a fixed canvas with letterboxing/pillarboxing for mixed orientations.
+    private func stitchToCanvas(urls: [URL], canvas: CGSize) async throws -> URL {
+        let composition = AVMutableComposition()
+        guard let compTrack = composition.addMutableTrack(withMediaType: .video,
+                                                          preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw VideoProcessingError.noVideoTracks
+        }
+
+        var currentTime = CMTime.zero
+        var instructions: [AVMutableVideoCompositionInstruction] = []
+
+        for url in urls {
+            let asset = AVURLAsset(url: url)
+            guard let srcTrack = try await asset.loadTracks(withMediaType: .video).first else { continue }
+
+            let duration = try await asset.load(.duration)
+            let timeRange = CMTimeRange(start: .zero, duration: duration)
+            try compTrack.insertTimeRange(timeRange, of: srcTrack, at: currentTime)
+
+            // Compute upright size and transform to center-fit within canvas
+            let nat = try await srcTrack.load(.naturalSize)
+            let pref = try await srcTrack.load(.preferredTransform)
+            let upright = nat.applying(pref)
+            let inW = abs(upright.width)
+            let inH = abs(upright.height)
+            let scale = min(canvas.width / inW, canvas.height / inH)
+            let scaledW = inW * scale
+            let scaledH = inH * scale
+            let tx = (canvas.width - scaledW) / 2.0
+            let ty = (canvas.height - scaledH) / 2.0
+
+            // Build final transform: preferred rotation → scale → translate to center
+            var t = pref
+            t = t.concatenating(CGAffineTransform(scaleX: scale, y: scale))
+            // Translate after scaling; convert pixel translation into pre-scaled space
+            t = t.concatenating(CGAffineTransform(translationX: tx / scale, y: ty / scale))
+
+            let layer = AVMutableVideoCompositionLayerInstruction(assetTrack: compTrack)
+            layer.setTransform(t, at: currentTime)
+
+            let instr = AVMutableVideoCompositionInstruction()
+            instr.timeRange = CMTimeRange(start: currentTime, duration: duration)
+            instr.layerInstructions = [layer]
+            instructions.append(instr)
+
+            currentTime = currentTime + duration
+        }
+
+        let videoComp = AVMutableVideoComposition()
+        videoComp.renderSize = canvas
+        videoComp.frameDuration = CMTime(value: 1, timescale: 30)
+        videoComp.instructions = instructions
+
+        let outputURL = newTemporaryFileURL()
+        guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPreset1920x1080) else {
+            throw VideoProcessingError.exportSessionCreationFailed
+        }
+        export.videoComposition = videoComp
+        export.outputURL = outputURL
+        export.outputFileType = .mp4
+        await export.export()
+        guard export.status == .completed else {
+            print("Canvas stitch export failed. Status: \(export.status). Error: \(export.error?.localizedDescription ?? "No error description")")
+            throw VideoProcessingError.exportFailed(export.error)
+        }
+        return outputURL
     }
 
     /// Extract a single segment from `sourceVideoURL`.
