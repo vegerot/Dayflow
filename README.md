@@ -1,80 +1,318 @@
 # Dayflow
+_A timeline of your day, automatically._  
+Turns your screen activity into a clean timeline with AI summaries and distraction highlights.
 
-Dayflow is a macOS application that records the user's screen, analyzes the footage with the Gemini API, and displays a timeline of activities. Recordings are split into chunks, grouped into analysis batches, and processed in the background. A debug interface lets developers inspect each batch.
+<!-- Badges -->
+![Platform: macOS 13+](https://img.shields.io/badge/macOS-13%2B-000?logo=apple)
+![SwiftUI](https://img.shields.io/badge/SwiftUI-✓-orange)
+![Updates: Sparkle](https://img.shields.io/badge/Updates-Sparkle-informational)
+![AI: Gemini / Local](https://img.shields.io/badge/AI-Gemini%20or%20Local-blue)
+![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)
 
-## Building
-Open `Dayflow.xcodeproj` with Xcode 15 or later. The project targets macOS and uses SwiftUI.
+<!-- Hero image placeholder removed for public release -->
 
-## Debug View
-Select **Debug** from the top segmented control to review analysis batches. The view lets you play back the full batch video and expand individual timeline cards to see their summaries. If a card or its distractions include a video summary, it is displayed inline. The Debug view also lists every LLM call for the batch showing the full request and response with JSON prettified when possible.
+<p align="center">
+  <a href="#quickstart">Quickstart</a> •
+  <a href="#features">Features</a> •
+  <a href="#how-it-works">How it works</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#data--privacy">Data & Privacy</a> •
+  <a href="#cost-notes-gemini">Cost notes (Gemini)</a> •
+  <a href="#debug--developer-tools">Debug & Dev Tools</a> •
+  <a href="#auto-updates-sparkle">Auto‑updates</a> •
+  <a href="#releasing">Releasing</a> •
+  <a href="#contributing">Contributing</a>
+</p>
 
-## Distribution (DMG signing + notarization)
+---
 
-We include a script and CI workflow to build, sign, notarize, and package a DMG.
+## What is Dayflow?
 
-- Local script: `scripts/release_dmg.sh`
-  - Requires Xcode and a Developer ID Application certificate in your login keychain.
-  - Optional: set up `notarytool store-credentials` once, then export `NOTARY_PROFILE` or pass Apple ID credentials via env.
-  - Run: `chmod +x scripts/release_dmg.sh && ./scripts/release_dmg.sh`
-  - Output: `Dayflow.dmg` (stapled if notarization credentials provided)
-  - Persistent config: copy `scripts/release.env.example` → `scripts/release.env` and set `SIGN_ID`/`NOTARY_PROFILE` so you don’t need to export env vars each run.
+Dayflow is a **native macOS app** (SwiftUI) that records your screen, splits the footage into **chunks**, groups them into **analysis batches**, and sends those batches for **AI analysis** using your chosen provider. The result is a **timeline** of your day with summaries and distraction callouts. A built‑in **Debug** view lets you inspect each batch and every LLM request/response for full transparency.
 
-Notes:
-- Hardened Runtime is applied during codesigning by the script.
-- The app’s entitlements are in `Dayflow/Dayflow/Dayflow.entitlements`.
+> _Privacy‑minded by design_: You choose your AI provider. Use **Gemini** (bring your own API key) or **local models** (Ollama / LM Studio). See **Data & Privacy** for details.
 
-## Sparkle Updates
+<!-- Placeholder asset list removed for public release -->
 
-Sparkle is integrated via Swift Package Manager. We expose a small Settings block that shows the current version and a "Check for updates" action; the updater auto-checks daily and auto-downloads updates in the background.
+---
 
-What you must set up once:
-- Generate an Ed25519 keypair with Sparkle’s `generate_keys` and put the public key into `Dayflow/Dayflow/Info.plist` under `SUPublicEDKey`.
-- Decide where to host the appcast (recommend GitHub Pages or `docs/appcast.xml` on the default branch) and set `SUFeedURL` accordingly.
+## Features
 
-Key management tips:
-- Store the private key PEM in macOS Keychain as a Generic Password so you don’t keep a file around:
-  - `security add-generic-password -a $USER -s com.dayflow.sparkle.ed25519 -w "$(cat /path/to/ed25519_private.pem)" -U`
-  - Then sign releases with: `./scripts/sparkle_sign_from_keychain.sh Dayflow.dmg com.dayflow.sparkle.ed25519`
+- **Automatic timeline** of your day with concise summaries.
+- **Chunked recording** → grouped into **analysis batches** for scalable processing.
+- **Distraction highlights** to see what pulled you off‑task.
+- **Debug view** to replay batch video, expand cards, and inspect **every LLM call** (requests + responses, prettified JSON).
+- **Native UX** built with **SwiftUI**.
+- **Auto‑updates** with **Sparkle** (daily check + background download).
+- **One‑button release** scripts for DMG signing, notarization, appcast updates, and GitHub Releases.
 
-Simple release flow (manual):
-1) Build/sign/notarize the DMG:
-   - `./scripts/release_dmg.sh` → outputs `Dayflow.dmg`.
-2) Sign the DMG with Sparkle to get the EdDSA signature:
-   - `sign_update Dayflow.dmg` (from Sparkle’s distribution tools). Copy the `edSignature` value.
-3) Publish a GitHub Release and upload `Dayflow.dmg`. Copy the direct asset URL (the `…/releases/download/vX.Y.Z/Dayflow.dmg` link).
-4) Generate/update the appcast:
-   - `./scripts/make_appcast.sh --dmg Dayflow.dmg --url <asset-url> --short <shortVersion> --build <build> --signature <base64-sig> --msv 13.0 --out build/appcast.xml`
-- Commit/push the appcast to your chosen location (e.g. `docs/appcast.xml`).
+<!-- Feature screenshot placeholder removed -->
 
-## One-Button Release
+---
 
-Run a single command to bump version, build/sign, publish the Release, and prepend the appcast entry.
+## How it works
 
-Usage:
-- Default (bumps minor): `./scripts/release.sh`
-- Major bump: `./scripts/release.sh --major`
-- Patch bump: `./scripts/release.sh --patch`
-- Dry run: `./scripts/release.sh --dry-run`
+1) **Capture** — Dayflow requests macOS **Screen & System Audio Recording** permission and records as you work.  
+2) **Chunk** — Recordings are split into N‑second **chunks**.  
+3) **Batch** — Chunks are grouped into **analysis batches**.  
+4) **Analyze** — Batches are analyzed by your configured provider (Gemini or local).  
+5) **Summarize** — Results become **timeline cards** with summaries and distraction callouts.  
+6) **Inspect** — Use **Debug** to play the batch, expand cards, and review raw LLM I/O.
+
+<!-- Architecture diagram placeholder removed -->
+
+---
+
+## Quickstart
+
+**Download (end users)**
+1. Grab the latest `Dayflow.dmg` from **GitHub Releases**.
+2. Open the app; grant **Screen & System Audio Recording** when prompted:  
+   macOS → **System Settings** → **Privacy & Security** → **Screen & System Audio Recording** → enable **Dayflow**.
+
+**Build from source (developers)**
+1. Install **Xcode 15+** and open `Dayflow.xcodeproj`.
+2. Run the `Dayflow` scheme on macOS 13+.
+3. In your Run **scheme**, add your `GEMINI_API_KEY` under _Arguments > Environment Variables_ (if using Gemini).
+
+---
+
+## Installation
+
+### Requirements
+- macOS **13.0+**
+- Xcode **15+**
+- A **Gemini API key** (if using Gemini): https://ai.google.dev/gemini-api/docs/api-key
+
+### From Releases
+1. Download `Dayflow.dmg` and drag **Dayflow** into **Applications**.
+2. Launch and grant the **Screen & System Audio Recording** permission.
+
+### From source
+```bash
+git clone https://github.com/JerryZLiu/Dayflow.git
+cd Dayflow
+open Dayflow.xcodeproj
+# In Xcode: select the Dayflow target, configure signing if needed, then Run.
+```
+
+---
+
+## Data & Privacy
+
+This section explains **what Dayflow stores locally**, **what leaves your machine**, and **how provider choices affect privacy**.
+
+### Data locations (on your Mac)
+- **App support folder:** `~/Library/Application Support/Dayflow/`
+- **Recordings (video chunks):** `~/Library/Application Support/Dayflow/recordings/`
+- **Local database:** `~/Library/Application Support/Dayflow/chunks.sqlite`
+- **Purge / reset tip:** Quit Dayflow. Then delete the entire `~/Library/Application Support/Dayflow/` folder to remove recordings and analysis artifacts. Relaunch to start fresh.
+
+> These paths are created by the app at first run. If you package Dayflow differently or run in a sandbox, paths may vary slightly.
+
+### Processing modes & providers
+- **Gemini (cloud, BYO key)** — Dayflow sends batch payloads to **Google’s Gemini API** for analysis.
+- **Local models (Ollama / LM Studio)** — Processing stays **on‑device**; Dayflow talks to a **local server** you run.
+
+### TL;DR: Gemini data handling (our reading of Google’s docs)
+- **Short answer: yes.** If you **enable Cloud Billing** on **at least one** Gemini API project, Google treats **all of your Gemini API and Google AI Studio usage** under the **“Paid Services”** data‑use rules — **even when you’re using unpaid/free quota**. Under Paid Services, **Google does not use your prompts/responses to improve Google products/models**.  
+  - Terms: “When you activate a Cloud Billing account, all use of Gemini API and Google AI Studio is a ‘Paid Service’ with respect to how Google Uses Your Data, even when using Services that are offered free of charge.” ([Gemini API Additional Terms](https://ai.google.dev/gemini-api/terms#paid-services-how-google-uses-your-data))  
+  - Abuse monitoring: even under Paid Services, Google **logs prompts/responses for a limited period** for **policy enforcement and legal compliance**. ([Same Terms](https://ai.google.dev/gemini-api/terms#paid-services-how-google-uses-your-data))  
+  - **EEA/UK/Switzerland:** the **Paid‑style data handling applies by default** to **all Services** (including AI Studio and unpaid quota) **even without billing**. ([Same Terms](https://ai.google.dev/gemini-api/terms#unpaid-services-how-google-uses-your-data))
+
+**A couple useful nuances** (from docs + forum clarifications):
+- **AI Studio is still free** to use; enabling billing changes **data handling**, not whether Studio charges you. ([Pricing page](https://ai.google.dev/gemini-api/docs/pricing))  
+- **UI “Plan: Paid” check:** In **AI Studio → API keys**, you’ll typically see “Plan: Paid” once billing is enabled on any linked project (UI may evolve).  
+- **AI Studio “Apps” environment**: one forum reply suggests that, for **Apps**, you may need to **explicitly link** your billing‑enabled **Cloud project** to that app for “Paid Services” to apply within Apps. We rely on the **Terms** for policy, but note the nuance.  
+- **Workaround people ask about:** _“Make one project paid, keep using a free key elsewhere to get the best of both worlds.”_ The **Terms** imply **account‑level** coverage once any billing account is activated, but the **Apps** nuance above may limit this in specific UI contexts. **Treat this as an interpretation, not legal advice.**
+
+> Sources: Official **Gemini API Additional Terms** (Paid vs Unpaid data use, EEA/UK/CH default), **Pricing** (Studio is free), and Google forum clarifications. Always review the current Terms for your use case.
+
+### Local mode: privacy & trade‑offs
+- **Privacy:** With **Ollama/LM Studio**, prompts and model inference run on your machine. LM Studio documents full **offline** operation once models are downloaded.  
+- **Quality/latency:** Local open models are improving but **can underperform** cloud models on complex summarization.  
+- **Power/battery:** Local inference is **GPU‑heavy** on Apple Silicon and will drain battery faster; prefer **plugged‑in** sessions for long captures.  
+- **Future:** We may explore **fine‑tuning** or distilling a local model for better timeline summaries.
+
+References:  
+- LM Studio offline: https://lmstudio.ai/docs/app/offline  
+- Ollama GPU acceleration (Metal on Apple): https://github.com/ollama/ollama/blob/main/docs/gpu.md
+
+### Permissions (macOS)
+To record your screen, Dayflow requires the **Screen & System Audio Recording** permission. Review or change later at:  
+**System Settings → Privacy & Security → Screen & System Audio Recording**.  
+Apple’s docs: https://support.apple.com/guide/mac-help/control-access-screen-system-audio-recording-mchld6aa7d23/mac
+
+---
+
+## Cost notes (Gemini)
+
+Dayflow lets you bring your own Gemini key. Costs depend on **model**, **how many batches you analyze**, and **how many tokens** (input + output) each batch uses.
+
+### A quick formula
+```
+Cost/day ≈ (#batches × input_tokens × input_rate + #batches × output_tokens × output_rate) / 1,000,000
+```
+> Use Google’s **token counting** helper in dev to measure real tokens: https://ai.google.dev/gemini-api/docs/token-counting
+
+### Example scenarios (text/image/video analysis)
+Using **Gemini 2.5 Flash (Standard)** prices — **Input: $0.30/M tokens**, **Output: $2.50/M tokens**  
+See latest pricing: https://ai.google.dev/gemini-api/docs/pricing
+
+| Scenario | Batches/day | Input tokens/batch | Output tokens/batch | Est. daily cost |
+|---|---:|---:|---:|---:|
+| Light (text + 1 image) | 24 | 2,000 | 200 | **$0.03** |
+| Medium (short clip per batch) | 96 | 20,000 | 300 | **$0.65** |
+| Heavy (longer clip per batch) | 160 | 64,000 | 500 | **$3.27** |
+
+Same math with **Gemini 1.5 Flash (≤128k prompt)** — **Input: $0.075/M**, **Output: $0.30/M**:
+
+| Scenario | Est. daily cost |
+|---|---:|
+| Light | **$0.01** |
+| Medium | **$0.15** |
+| Heavy | **$0.79** |
+
+> **Notes:** Token counts for **video** inputs vary widely. Always measure your own prompts/files in development. For ultra‑low cost at scale, consider the **Batch API** (≈50% off interactive rates).
+
+---
+
+## Configuration
+
+- **AI Provider**
+  - Choose **Gemini** (set `GEMINI_API_KEY`) or **Local** (Ollama/LM Studio endpoint).  
+  - For Gemini keys: https://ai.google.dev/gemini-api/docs/api-key
+- **Capture settings**
+  - Start/stop capture from the main UI. Use **Debug** to verify batch contents.
+- **Data locations**
+  - See **Data & Privacy** for exact paths and a purge tip.
+
+---
+
+## Debug & Developer Tools
+
+Switch the top segmented control to **Debug** to:
+- Play back the full **batch video**.
+- Expand **timeline cards** to see summaries (and any inline video summaries).
+- Inspect a list of **every LLM call** for the batch, including full request/response with prettified JSON.
+
+<!-- Debug calls screenshot placeholder removed -->
+
+---
+
+## Auto‑updates (Sparkle)
+
+Dayflow integrates **Sparkle** via Swift Package Manager and shows the current version + a “Check for updates” action. By default, the updater **auto‑checks daily** and **auto‑downloads** updates.
+
+**One‑time setup**
+1. Generate an **Ed25519** keypair using Sparkle’s `generate_keys`.
+2. Add the public key to `Info.plist` under `SUPublicEDKey`.
+3. Host your **appcast** (e.g., `docs/appcast.xml`) and set `SUFeedURL` accordingly.
+
+**Key management tip (optional)**
+- Store the private key in Keychain (Generic Password) and sign releases with a helper script — see `scripts/sparkle_sign_from_keychain.sh`.
+
+**Appcast**
+- Host at `docs/appcast.xml` on your default branch (enable **GitHub Pages**), or host the raw file.  
+- Minimum system version is currently set to `13.0` in the appcast generation script.
+
+Links:  
+- Sparkle project: https://github.com/sparkle-project/Sparkle  
+- Sparkle docs: https://sparkle-project.org/documentation/
+
+---
+
+## Releasing
+
+### Local DMG build, sign, notarize
+```bash
+# First-time only: copy and edit your release env
+cp scripts/release.env.example scripts/release.env
+# Then:
+chmod +x scripts/release_dmg.sh
+./scripts/release_dmg.sh
+# Outputs: Dayflow.dmg (stapled if notarization creds provided)
+```
+
+**Prereqs**
+- Xcode toolchain
+- Developer ID Application certificate in your login Keychain
+- (Optional) `notarytool store-credentials` once, then export `NOTARY_PROFILE`, or pass Apple ID creds via env
+
+### One‑button release (tag, build, upload, appcast)
+```bash
+# bump minor version by default
+./scripts/release.sh
+# also available:
+./scripts/release.sh --major
+./scripts/release.sh --patch
+./scripts/release.sh --dry-run
+```
 
 What it does:
-- Reads current `CFBundleShortVersionString`/`CFBundleVersion` from `Dayflow/Dayflow/Info.plist`.
-- Bumps version (minor by default) and build (+1) and commits.
-- Builds, signs, and optionally notarizes via `scripts/release_dmg.sh`.
-- Signs the DMG using Sparkle’s `sign_update`:
-  - Default: reads your private key from login Keychain (account `ed25519`).
-  - CI fallback: set `SPARKLE_PRIVATE_KEY` (base64 secret exported by `generate_keys -x`).
-- Creates a draft GitHub Release and uploads the DMG via `gh`.
-- Prepends a new `<item>` to `docs/appcast.xml` via `scripts/update_appcast.sh`, commits, pushes, and then undrafts the Release.
+- Reads `CFBundleShortVersionString`/`CFBundleVersion` from `Dayflow/Dayflow/Info.plist`
+- Bumps version/build and commits
+- Builds, signs (+ notarizes if configured)
+- Signs the DMG via Sparkle (`sign_update`)
+- Creates a **draft** GitHub Release and uploads the DMG via `gh`
+- Prepends a new `<item>` to `docs/appcast.xml`, commits, pushes, and **undrafts** the Release
 
-Prereqs:
-- `gh` CLI authenticated (`gh auth status`).
-- Sparkle CLI tools installed (`sign_update`).
-- Private key generated with Sparkle `generate_keys` in your login Keychain (default account `ed25519`).
-- GitHub Pages enabled for `docs/`.
-- `SUFeedURL` points to `https://dayflow.so/appcast.xml` (Webflow redirects to Pages).
+**CI**  
+Add a GitHub Actions workflow to call the scripts above on tagged pushes if you’d like fully automated releases.
 
-Decisions to make:
-- Feed hosting: GitHub Pages (`https://<user>.github.io/<repo>/appcast.xml`) or raw file in repo (`https://raw.githubusercontent.com/<org>/<repo>/main/docs/appcast.xml`).
-- Channels: a single stable feed now; add a separate beta feed later if desired.
-- Frequency: default daily checks; change in `UpdaterManager` if you want more/less.
-- Install behavior: we default to auto-download; to auto-install without prompts, implement a custom Sparkle user driver.
+---
+
+## Project structure
+
+```
+Dayflow/
+├─ Dayflow/                 # SwiftUI app sources (timeline UI, debug UI, capture & analysis pipeline)
+├─ docs/                    # Appcast and documentation assets (screenshots, videos)
+├─ scripts/                 # Release automation (DMG, notarization, appcast, Sparkle signing, one-button release)
+└─ .github/workflows/       # (Optional) CI workflows for build/release
+```
+
+---
+
+## Troubleshooting
+
+- **Screen capture is blank or fails**  
+  Check System Settings → Privacy & Security → **Screen & System Audio Recording** and ensure **Dayflow** is enabled.
+- **API errors**  
+  Verify your `GEMINI_API_KEY` and network connectivity.
+- **Updates don’t appear**  
+  Confirm `SUFeedURL` points to your published appcast and that the DMG asset URL + Sparkle signature match the uploaded release.
+
+---
+
+## Roadmap
+
+- [ ] Export timeline summaries (Markdown/CSV)
+- [ ] Per‑app grouping and filters
+- [ ] Configurable chunk duration
+- [ ] In‑app redaction controls for sensitive windows
+- [ ] Optional local OCR pipeline for on‑device hints
+- [ ] Beta update channel
+
+---
+
+## Contributing
+
+PRs welcome! If you plan a larger change, please open an issue first to discuss scope and approach.  
+_Lint/style preferences or Swift formatters can be added here if you use them._
+
+---
+
+## License
+
+Licensed under the Apache License, Version 2.0. See LICENSE for the full text.
+You must preserve the LICENSE and NOTICE files in redistributions.
+Software is provided on an "AS IS" basis, without warranties or conditions of any kind.
+
+---
+
+## Acknowledgements
+
+- [Sparkle](https://github.com/sparkle-project/Sparkle) for battle‑tested macOS updates.
+- [Google AI Gemini API](https://ai.google.dev/gemini-api/docs) for analysis.
+- [Ollama](https://ollama.com/) and [LM Studio](https://lmstudio.ai/) for local model support.
