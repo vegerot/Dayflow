@@ -107,7 +107,10 @@ struct DayflowApp: App {
                     // Reset the selected LLM provider to default
                     UserDefaults.standard.set("gemini", forKey: "selectedLLMProvider")
                     // Force quit and restart the app to show onboarding
-                    NSApp.terminate(nil)
+                    Task { @MainActor in
+                        AppDelegate.allowTermination = true
+                        NSApp.terminate(nil)
+                    }
                 }
                 .keyboardShortcut("R", modifiers: [.command, .shift])
             }

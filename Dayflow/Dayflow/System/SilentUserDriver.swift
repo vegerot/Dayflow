@@ -64,8 +64,11 @@ final class SilentUserDriver: NSObject, SPUUserDriver {
 
     // MARK: Install & Relaunch
     func showReady(toInstallAndRelaunch reply: @escaping (SPUUserUpdateChoice) -> Void) {
-        // Install and relaunch immediately
-        reply(.install)
+        // Allow app termination for install and relaunch on the main actor
+        Task { @MainActor in
+            AppDelegate.allowTermination = true
+            reply(.install)
+        }
     }
 
     func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {

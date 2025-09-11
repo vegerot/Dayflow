@@ -78,5 +78,11 @@ final class StatusBarController {
     }
     @objc private func toggle() { AppState.shared.isRecording.toggle() }
     @objc private func checkForUpdates() { UpdaterManager.shared.checkForUpdates(showUI: true) }
-    @objc private func quit()   { NSApp.terminate(nil) }
+    @objc private func quit()   {
+        // Allow termination only when explicitly quitting from the status bar
+        AppDelegate.allowTermination = true
+        // Optionally stop recording gracefully
+        AppState.shared.isRecording = false
+        NSApp.terminate(nil)
+    }
 }
