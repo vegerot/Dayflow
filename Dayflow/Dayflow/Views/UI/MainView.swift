@@ -93,12 +93,21 @@ struct MainView: View {
                             Spacer()
 
                             // Recording toggle (replaces previous date controls spot)
-                            Toggle("Recording", isOn: $appState.isRecording)
-                                .labelsHidden()
-                                .toggleStyle(SunriseGlassPillToggleStyle())
-                                .accessibilityLabel(Text("Recording"))
+                            HStack(spacing: 8) {
+                                Text("Recording")
+                                    .font(
+                                        Font.custom("Nunito", size: 14)
+                                            .weight(.semibold)
+                                    )
+                                    .foregroundColor(.black)
+
+                                Toggle("Recording", isOn: $appState.isRecording)
+                                    .labelsHidden()
+                                    .toggleStyle(SunriseGlassPillToggleStyle())
+                                    .accessibilityLabel(Text("Recording"))
+                            }
                         }
-                        .padding(.leading, 10)
+                        .padding(.horizontal, 10)
 
                         // Content area: Left (chips + timeline) and Right (summary)
                         GeometryReader { geo in
