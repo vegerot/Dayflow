@@ -7,7 +7,7 @@ Turns your screen activity into a clean timeline with AI summaries and distracti
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-✓-orange)
 ![Updates: Sparkle](https://img.shields.io/badge/Updates-Sparkle-informational)
 ![AI: Gemini / Local](https://img.shields.io/badge/AI-Gemini%20or%20Local-blue)
-![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)
+![License: MIT](https://img.shields.io/badge/License-MIT-green)
 
 <!-- Hero image placeholder removed for public release -->
 
@@ -305,9 +305,8 @@ _Lint/style preferences or Swift formatters can be added here if you use them._
 
 ## License
 
-Licensed under the Apache License, Version 2.0. See LICENSE for the full text.
-You must preserve the LICENSE and NOTICE files in redistributions.
-Software is provided on an "AS IS" basis, without warranties or conditions of any kind.
+Licensed under the MIT License. See LICENSE for the full text.
+Software is provided “AS IS”, without warranty of any kind.
 
 ---
 
