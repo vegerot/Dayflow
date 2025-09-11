@@ -28,7 +28,7 @@ Turns your screen activity into a clean timeline with AI summaries and distracti
 
 ## What is Dayflow?
 
-Dayflow is a **native macOS app** (SwiftUI) that records your screen, splits the footage into **chunks**, groups them into **analysis batches**, and sends those batches for **AI analysis** using your chosen provider. The result is a **timeline** of your day with summaries and distraction callouts. A built‑in **Debug** view lets you inspect each batch and every LLM request/response for full transparency.
+Dayflow is a **native macOS app** (SwiftUI) that records your screen at **1 FPS**, analyzes it **every 15 minutes** with AI, and generates a **timeline** of your activities with summaries. A built‑in **Debug** view lets you inspect each batch and every LLM request/response for full transparency.
 
 > _Privacy‑minded by design_: You choose your AI provider. Use **Gemini** (bring your own API key) or **local models** (Ollama / LM Studio). See **Data & Privacy** for details.
 
@@ -39,7 +39,10 @@ Dayflow is a **native macOS app** (SwiftUI) that records your screen, splits the
 ## Features
 
 - **Automatic timeline** of your day with concise summaries.
-- **Chunked recording** → grouped into **analysis batches** for scalable processing.
+- **1 FPS recording** - minimal CPU/storage impact.
+- **15-minute analysis intervals** for timely updates.
+- **Timelapse videos** for each activity.
+- **Auto storage cleanup** - removes old recordings after 3 days.
 - **Distraction highlights** to see what pulled you off‑task.
 - **Debug view** to replay batch video, expand cards, and inspect **every LLM call** (requests + responses, prettified JSON).
 - **Native UX** built with **SwiftUI**.
@@ -52,12 +55,11 @@ Dayflow is a **native macOS app** (SwiftUI) that records your screen, splits the
 
 ## How it works
 
-1) **Capture** — Dayflow requests macOS **Screen & System Audio Recording** permission and records as you work.  
-2) **Chunk** — Recordings are split into N‑second **chunks**.  
-3) **Batch** — Chunks are grouped into **analysis batches**.  
-4) **Analyze** — Batches are analyzed by your configured provider (Gemini or local).  
-5) **Summarize** — Results become **timeline cards** with summaries and distraction callouts.  
-6) **Inspect** — Use **Debug** to play the batch, expand cards, and review raw LLM I/O.
+1) **Capture** — Records screen at 1 FPS in 15-second chunks.  
+2) **Analyze** — Every 15 minutes, sends recent footage to AI.  
+3) **Generate** — AI creates timeline cards with activity summaries.  
+4) **Display** — Shows your day as a visual timeline.  
+5) **Cleanup** — Auto-deletes recordings older than 3 days.
 
 <!-- Architecture diagram placeholder removed -->
 
@@ -106,6 +108,7 @@ This section explains **what Dayflow stores locally**, **what leaves your machin
 - **App support folder:** `~/Library/Application Support/Dayflow/`
 - **Recordings (video chunks):** `~/Library/Application Support/Dayflow/recordings/`
 - **Local database:** `~/Library/Application Support/Dayflow/chunks.sqlite`
+- **Recording details:** 1 FPS capture, analyzed every 15 minutes, 3-day retention
 - **Purge / reset tip:** Quit Dayflow. Then delete the entire `~/Library/Application Support/Dayflow/` folder to remove recordings and analysis artifacts. Relaunch to start fresh.
 
 > These paths are created by the app at first run. If you package Dayflow differently or run in a sandbox, paths may vary slightly.
