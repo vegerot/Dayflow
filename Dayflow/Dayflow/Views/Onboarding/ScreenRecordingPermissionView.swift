@@ -163,7 +163,17 @@ struct ScreenRecordingPermissionView: View {
             // Check permission status using preflight (won't trigger dialog)
             if CGPreflightScreenCaptureAccess() {
                 permissionState = .granted
+                // Keep termination blocked if already granted
+                Task { @MainActor in AppDelegate.allowTermination = false }
+            } else {
+                permissionState = .denied
+                // Allow Quit & Reopen while permission is pending/denied
+                Task { @MainActor in AppDelegate.allowTermination = true }
             }
+        }
+        .onDisappear {
+            // Restore default behavior: do not allow termination unless explicit
+            Task { @MainActor in AppDelegate.allowTermination = false }
         }
     }
     
@@ -183,6 +193,8 @@ struct ScreenRecordingPermissionView: View {
                     isCheckingPermission = false
                 }
                 AnalyticsService.shared.capture("screen_permission_granted")
+                // Block termination again now that permission is granted
+                await MainActor.run { AppDelegate.allowTermination = false }
             } catch {
                 // Permission denied or not granted
                 await MainActor.run {
@@ -190,12 +202,16 @@ struct ScreenRecordingPermissionView: View {
                     isCheckingPermission = false
                 }
                 AnalyticsService.shared.capture("screen_permission_denied")
+                // Keep allowing termination for system Quit & Reopen
+                await MainActor.run { AppDelegate.allowTermination = true }
             }
         }
     }
     
     private func openSystemSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            // Ensure termination is allowed before the user toggles permission
+            Task { @MainActor in AppDelegate.allowTermination = true }
             NSWorkspace.shared.open(url)
             // Don't change state - they might not grant permission
             // Keep showing the instructions until they restart
