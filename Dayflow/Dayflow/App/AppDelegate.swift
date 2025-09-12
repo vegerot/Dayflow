@@ -110,7 +110,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if Self.allowTermination {
             return .terminateNow
         }
+        // Soft-quit: hide windows and remove Dock icon, but keep status item + background tasks
         NSApp.hide(nil)
+        NSApp.setActivationPolicy(.accessory)
         return .terminateCancel
     }
     

@@ -7,6 +7,7 @@
 
 import AppKit
 import SwiftUI
+import Combine
 
 @MainActor
 final class StatusBarController {
@@ -38,6 +39,13 @@ final class StatusBarController {
     private lazy var menu: NSMenu = {
         let m = NSMenu()
 
+        // Open Dayflow (show main UI)
+        let openMain = NSMenuItem(title: "Open Dayflow…",
+                                  action: #selector(openMainUI),
+                                  keyEquivalent: "")
+        openMain.target = self
+        m.addItem(openMain)
+
         // Pause / Resume
         let t = NSMenuItem(title: "Pause Dayflow",
                            action: #selector(toggle),
@@ -62,8 +70,8 @@ final class StatusBarController {
         
         m.addItem(NSMenuItem.separator())
 
-        // Quit
-        let quit = NSMenuItem(title: "Quit",
+        // Quit Completely
+        let quit = NSMenuItem(title: "Quit Completely",
                               action: #selector(quit),
                               keyEquivalent: "q")
         quit.target = self
@@ -75,6 +83,18 @@ final class StatusBarController {
     @objc private func openFolder() {
         let dir = StorageManager.shared.recordingsRoot
         NSWorkspace.shared.open(dir)
+    }
+
+    @objc private func openMainUI() {
+        // Promote to regular app so Dock/menu bar appear
+        NSApp.setActivationPolicy(.regular)
+        NSApp.unhide(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        // Bring any existing windows to the front; if none, SwiftUI will create as needed
+        for w in NSApp.windows {
+            if w.isMiniaturized { w.deminiaturize(nil) }
+            w.makeKeyAndOrderFront(nil)
+        }
     }
     @objc private func toggle() { AppState.shared.isRecording.toggle() }
     @objc private func checkForUpdates() { UpdaterManager.shared.checkForUpdates(showUI: true) }
