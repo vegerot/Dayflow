@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import AppKit
 import ScreenCaptureKit
 import CoreGraphics
 
@@ -13,13 +14,14 @@ struct ScreenRecordingPermissionView: View {
     var onBack: () -> Void
     var onNext: () -> Void
     
-    @State private var permissionState: PermissionState = .notChecked
+    @State private var permissionState: PermissionState = .notRequested
     @State private var isCheckingPermission = false
+    @State private var initiatedFlow = false
     
     enum PermissionState {
-        case notChecked
+        case notRequested
         case granted
-        case denied
+        case needsAction // requested or settings opened, awaiting quit & reopen / toggle
     }
     
     var body: some View {
@@ -46,26 +48,26 @@ struct ScreenRecordingPermissionView: View {
                 // State-based messaging
                 Group {
                     switch permissionState {
-                    case .notChecked:
+                    case .notRequested:
                         EmptyView()
                     case .granted:
                         Text("✓ Permission granted! Click Next to continue.")
                             .font(.custom("Nunito", size: 14))
                             .foregroundColor(.green)
-                    case .denied:
-                        Text("Please grant permission in System Settings.")
+                    case .needsAction:
+                        Text("Turn on Screen Recording for Dayflow, then quit and reopen the app to finish.")
                             .font(.custom("Nunito", size: 14))
                             .foregroundColor(.orange)
                     }
                 }
                 .padding(.top, 8)
                 
-                // Action button
+                // Action buttons
                 Group {
                     switch permissionState {
-                    case .notChecked:
+                    case .notRequested:
                         DayflowSurfaceButton(
-                            action: { checkPermission() },
+                            action: { requestPermission() },
                             content: { 
                                 HStack {
                                     if isCheckingPermission {
@@ -87,22 +89,39 @@ struct ScreenRecordingPermissionView: View {
                             showOverlayStroke: true
                         )
                         .disabled(isCheckingPermission)
-                    case .denied:
-                        DayflowSurfaceButton(
-                            action: openSystemSettings,
-                            content: { 
-                                Text("Open System Settings")
-                                    .font(.custom("Nunito", size: 16))
-                                    .fontWeight(.medium)
-                            },
-                            background: Color(red: 0.25, green: 0.17, blue: 0),
-                            foreground: .white,
-                            borderColor: .clear,
-                            cornerRadius: 8,
-                            horizontalPadding: 24,
-                            verticalPadding: 12,
-                            showOverlayStroke: true
-                        )
+                    case .needsAction:
+                        HStack(spacing: 12) {
+                            DayflowSurfaceButton(
+                                action: openSystemSettings,
+                                content: { 
+                                    Text("Open System Settings")
+                                        .font(.custom("Nunito", size: 16))
+                                        .fontWeight(.medium)
+                                },
+                                background: Color(red: 0.25, green: 0.17, blue: 0),
+                                foreground: .white,
+                                borderColor: .clear,
+                                cornerRadius: 8,
+                                horizontalPadding: 24,
+                                verticalPadding: 12,
+                                showOverlayStroke: true
+                            )
+                            DayflowSurfaceButton(
+                                action: quitAndReopen,
+                                content: { 
+                                    Text("Quit & Reopen")
+                                        .font(.custom("Nunito", size: 16))
+                                        .fontWeight(.medium)
+                                },
+                                background: .white,
+                                foreground: Color(red: 0.25, green: 0.17, blue: 0),
+                                borderColor: .clear,
+                                cornerRadius: 8,
+                                horizontalPadding: 24,
+                                verticalPadding: 12,
+                                showOverlayStroke: true
+                            )
+                        }
                     case .granted:
                         EmptyView()
                     }
@@ -160,15 +179,21 @@ struct ScreenRecordingPermissionView: View {
         .padding(60)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            // Check permission status using preflight (won't trigger dialog)
+            // If already granted, mark as granted; otherwise start in notRequested
             if CGPreflightScreenCaptureAccess() {
                 permissionState = .granted
-                // Keep termination blocked if already granted
                 Task { @MainActor in AppDelegate.allowTermination = false }
             } else {
-                permissionState = .denied
-                // Allow Quit & Reopen while permission is pending/denied
+                permissionState = .notRequested
                 Task { @MainActor in AppDelegate.allowTermination = true }
+            }
+        }
+        // Re-check when app becomes active again (e.g., returning from System Settings)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Only transition to granted here; avoid flipping notChecked to denied automatically
+            if CGPreflightScreenCaptureAccess() {
+                permissionState = .granted
+                Task { @MainActor in AppDelegate.allowTermination = false }
             }
         }
         .onDisappear {
@@ -177,44 +202,44 @@ struct ScreenRecordingPermissionView: View {
         }
     }
     
-    private func checkPermission() {
+    private func requestPermission() {
         guard !isCheckingPermission else { return }
         isCheckingPermission = true
-        
-        Task {
-            do {
-                // This is the idiomatic way - try to access content
-                // Will trigger system dialog if permission not granted
-                _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-                
-                // If we get here, permission is granted
-                await MainActor.run {
-                    permissionState = .granted
-                    isCheckingPermission = false
-                }
-                AnalyticsService.shared.capture("screen_permission_granted")
-                // Block termination again now that permission is granted
-                await MainActor.run { AppDelegate.allowTermination = false }
-            } catch {
-                // Permission denied or not granted
-                await MainActor.run {
-                    permissionState = .denied
-                    isCheckingPermission = false
-                }
-                AnalyticsService.shared.capture("screen_permission_denied")
-                // Keep allowing termination for system Quit & Reopen
-                await MainActor.run { AppDelegate.allowTermination = true }
+        initiatedFlow = true
+
+        // This will prompt and register the app with TCC; may return false
+        _ = CGRequestScreenCaptureAccess()
+        if CGPreflightScreenCaptureAccess() {
+            permissionState = .granted
+            AnalyticsService.shared.capture("screen_permission_granted")
+            Task { @MainActor in
+                AppDelegate.allowTermination = false
+            }
+        } else {
+            permissionState = .needsAction
+            AnalyticsService.shared.capture("screen_permission_denied")
+            Task { @MainActor in
+                AppDelegate.allowTermination = true
             }
         }
+        isCheckingPermission = false
     }
     
     private func openSystemSettings() {
+        initiatedFlow = true
+        // Ensure termination is allowed before the user toggles permission
+        Task { @MainActor in AppDelegate.allowTermination = true }
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-            // Ensure termination is allowed before the user toggles permission
-            Task { @MainActor in AppDelegate.allowTermination = true }
-            NSWorkspace.shared.open(url)
-            // Don't change state - they might not grant permission
-            // Keep showing the instructions until they restart
+            _ = NSWorkspace.shared.open(url)
+        }
+        // Move to needsAction so we show Quit & Reopen guidance
+        if permissionState != .granted { permissionState = .needsAction }
+    }
+
+    private func quitAndReopen() {
+        Task { @MainActor in
+            AppDelegate.allowTermination = true
+            NSApp.terminate(nil)
         }
     }
 }
