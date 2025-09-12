@@ -348,7 +348,7 @@ final class GeminiDirectProvider: LLMProvider {
         When you decide to extend a card, its original startTime is IMMUTABLE. You MUST carry over the startTime from the previous_card you are extending. Failure to preserve the original startTime is a critical error.
         CORE DIRECTIVES:
 
-        Extend by Default: Your first instinct should be to extend the last card. When extending, you must perform these steps:
+        Extend by Default (unless idle): Your first instinct should be to extend the last card UNLESS the new observations show primarily idle time (>50% of the duration). When extending, you must perform these steps:
         a. Preserve the original startTime of the card you are extending. NEVER MODIFY THE START TIMES OF CARDS
         b. Update the endTime to reflect the latest observation.
         c. Rewrite the summary and detailedSummary to tell the complete, unified story from the original start to the new end.
@@ -442,7 +442,7 @@ final class GeminiDirectProvider: LLMProvider {
         - Coding, debugging, work emails, Slack, client meetings, studying, research
         - Learning work-related skills (YouTube coding tutorial, Coursera course)
         - Job searching, networking, portfolio work
-
+        
         PERSONAL: Intentional non-work activities for personal needs/interests  
         - Entertainment, social media for connecting with friends
         - Personal research (travel, shopping with intent)
