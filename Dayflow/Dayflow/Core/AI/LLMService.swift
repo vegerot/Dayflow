@@ -406,6 +406,22 @@ final class LLMService: LLMServicing {
     private func getHumanReadableError(_ error: Error) -> String {
         // First check if it's an NSError with a domain and code we recognize
         if let nsError = error as NSError? {
+            // For HTTP errors, check if we have a specific error message in userInfo
+            if nsError.domain == "GeminiError" && nsError.code >= 400 && nsError.code < 600 {
+                // Check for specific known API error messages
+                let errorMessage = nsError.localizedDescription.lowercased()
+                if errorMessage.contains("api key not found") {
+                    return "Invalid API key. Please check your Gemini API key in Settings."
+                } else if errorMessage.contains("rate limit") || errorMessage.contains("quota") {
+                    return "Rate limited. Too many requests to Gemini. Please wait a few minutes."
+                } else if errorMessage.contains("unauthorized") {
+                    return "Unauthorized. Your Gemini API key may be invalid or expired."
+                } else if errorMessage.contains("timeout") {
+                    return "Request timed out. The video may be too large or the connection is slow."
+                }
+                // Fall through to switch statement for generic HTTP error messages
+            }
+
             // Check specific error domains and codes
             switch nsError.domain {
             case "LLMService":
@@ -430,7 +446,18 @@ final class LLMService: LLMServicing {
                 case 8, 10: return "Failed to connect to Gemini after multiple attempts."
                 case 100: return "The AI generated timestamps beyond the video duration."
                 case 101: return "The AI couldn't identify any activities in the video."
-                default: break
+                // HTTP status codes
+                case 400: return "Invalid API key. Please check your Gemini API key in Settings."
+                case 401: return "Unauthorized. Your Gemini API key may be invalid or expired."
+                case 403: return "Access forbidden. Check your Gemini API permissions."
+                case 429: return "Rate limited. Too many requests to Gemini. Please wait a few minutes."
+                case 500...599: return "Gemini service error. The service may be temporarily down."
+                default:
+                    // For other HTTP errors, provide context
+                    if nsError.code >= 400 && nsError.code < 600 {
+                        return "Gemini returned HTTP error \(nsError.code). Check your API settings."
+                    }
+                    break
                 }
                 
             case "OllamaProvider":
