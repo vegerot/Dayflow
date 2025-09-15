@@ -15,6 +15,14 @@ struct SettingsView: View {
     @State private var hasLoadedProvider: Bool = false
     @State private var analyticsEnabled: Bool = AnalyticsService.shared.isOptedIn
     
+    // Local LLM saved settings for test UI
+    @State private var localBaseURL: String = UserDefaults.standard.string(forKey: "llmLocalBaseURL") ?? "http://localhost:11434"
+    @State private var localModelId: String = UserDefaults.standard.string(forKey: "llmLocalModelId") ?? "qwen2.5vl:3b"
+    @State private var localEngine: LocalEngine = {
+        let raw = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
+        return LocalEngine(rawValue: raw) ?? .ollama
+    }()
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Header - left aligned
@@ -67,16 +75,73 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             
-            // Provider Cards - centered within content area
+            // Provider Cards + Test Section - centered within content area
             ScrollView {
-                HStack(spacing: 20) {
-                    ForEach(providerCards, id: \.id) { card in
-                        card
-                            .frame(maxWidth: 350)  // Cards shouldn't stretch beyond 350px
-                            .frame(height: 420)
+                VStack(alignment: .center, spacing: 24) {
+                    // Cards row
+                    HStack(spacing: 20) {
+                        ForEach(providerCards, id: \.id) { card in
+                            card
+                                .frame(maxWidth: 350)
+                                .frame(height: 420)
+                        }
                     }
+
+                    // Test connection section adapts to selection
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Test Connection")
+                            .font(.custom("Nunito", size: 16))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.black.opacity(0.9))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Group {
+                            if currentProvider == "gemini" {
+                                TestConnectionView(onTestComplete: { success in
+                                    // Optional: analytics event already captured inside TestConnectionView
+                                })
+                            } else if currentProvider == "ollama" {
+                                LocalLLMTestView(
+                                    baseURL: $localBaseURL,
+                                    modelId: $localModelId,
+                                    engine: localEngine,
+                                    showInputs: false,
+                                    onTestComplete: { success in
+                                        // Persist any updated values back (defensive)
+                                        UserDefaults.standard.set(localBaseURL, forKey: "llmLocalBaseURL")
+                                        UserDefaults.standard.set(localModelId, forKey: "llmLocalModelId")
+                                    }
+                                )
+                            } else if currentProvider == "dayflow" {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "info.circle").font(.system(size: 12)).foregroundColor(.black.opacity(0.5))
+                                    Text("Testing Dayflow Pro connection isn’t available yet.")
+                                        .font(.custom("Nunito", size: 13))
+                                        .foregroundColor(.black.opacity(0.6))
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            } else {
+                                // Unknown provider fallback
+                                HStack(spacing: 8) {
+                                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 12)).foregroundColor(Color(hex: "E91515"))
+                                    Text("Unknown provider – please reselect above.")
+                                        .font(.custom("Nunito", size: 13))
+                                        .foregroundColor(Color(hex: "E91515"))
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                        .frame(maxWidth: 520, alignment: .leading)
+                    }
+                    .padding(16)
+                    .background(Color.white.opacity(0.5))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                    )
+                    .cornerRadius(6)
+                    .frame(maxWidth: 600)
                 }
-                
             }
             .frame(maxWidth: .infinity)  // Center the scrollview content
         }
@@ -85,10 +150,22 @@ struct SettingsView: View {
             loadCurrentProvider()
             AnalyticsService.shared.capture("settings_opened")
             analyticsEnabled = AnalyticsService.shared.isOptedIn
+            // Refresh cached local settings for test section
+            localBaseURL = UserDefaults.standard.string(forKey: "llmLocalBaseURL") ?? localBaseURL
+            localModelId = UserDefaults.standard.string(forKey: "llmLocalModelId") ?? localModelId
+            let raw = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? localEngine.rawValue
+            localEngine = LocalEngine(rawValue: raw) ?? localEngine
         }
         .onChange(of: analyticsEnabled) { enabled in
             AnalyticsService.shared.setOptIn(enabled)
             AnalyticsService.shared.capture("analytics_opt_in_changed", ["enabled": enabled])
+        }
+        .onChange(of: currentProvider) { _ in
+            // Keep local tester in sync when switching providers
+            localBaseURL = UserDefaults.standard.string(forKey: "llmLocalBaseURL") ?? localBaseURL
+            localModelId = UserDefaults.standard.string(forKey: "llmLocalModelId") ?? localModelId
+            let raw = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? localEngine.rawValue
+            localEngine = LocalEngine(rawValue: raw) ?? localEngine
         }
         .sheet(item: Binding(
             get: { setupModalProvider.map { ProviderSetupWrapper(id: $0) } },
