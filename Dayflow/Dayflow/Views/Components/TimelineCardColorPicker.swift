@@ -1,0 +1,835 @@
+import SwiftUI
+import UniformTypeIdentifiers
+import AppKit
+import Combine
+
+// MARK: - Utilities (HSL → RGB/Hex) — 1:1 with your JS algorithm
+
+fileprivate func hslToRGB(_ h: Double, _ s: Double, _ l: Double) -> (r: Double, g: Double, b: Double) {
+    // Normalize hue to [0, 360)
+    var H = h.truncatingRemainder(dividingBy: 360)
+    if H < 0 { H += 360 }
+    let S = max(0, min(100, s)) / 100.0
+    let L = max(0, min(100, l)) / 100.0
+
+    let k: (Double) -> Double = { n in
+        (n + H / 30.0).truncatingRemainder(dividingBy: 12.0)
+    }
+    let a = S * min(L, 1 - L)
+    let f: (Double) -> Double = { n in
+        let K = k(n)
+        return L - a * max(-1, min(K - 3, min(9 - K, 1)))
+    }
+    return (f(0), f(8), f(4))
+}
+
+fileprivate func hslToHex(_ h: Double, _ s: Double, _ l: Double) -> String {
+    let (r, g, b) = hslToRGB(h, s, l)
+    func hex(_ x: Double) -> String { String(format: "%02X", max(0, min(255, Int(round(x * 255))))) }
+    return "#\(hex(r))\(hex(g))\(hex(b))"
+}
+
+extension Color {
+    // Keep only HSL helper to avoid redeclaring `init(hex:)` (already defined elsewhere)
+    static func fromHSL(h: Double, s: Double, l: Double) -> Color {
+        let (r, g, b) = hslToRGB(h, s, l)
+        return Color(.sRGB, red: r, green: g, blue: b, opacity: 1)
+    }
+}
+
+// Fallback helper: build a Color from optional hex, else return default
+fileprivate func colorFromHexOrDefault(_ hex: String?, default defaultColor: Color) -> Color {
+    guard let raw = hex?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+        return defaultColor
+    }
+    return Color(hex: raw)
+}
+
+// MARK: - Color Wheel Image (pixel-accurate CGImage like your <canvas>)
+
+fileprivate func makeColorWheelCGImage(
+    size: CGFloat,
+    padding: CGFloat,
+    minLight: Double,
+    maxLight: Double,
+    scale: CGFloat = NSScreen.main?.backingScaleFactor ?? 2.0
+) -> CGImage? {
+    let pixelW = Int((size * scale).rounded())
+    let pixelH = Int((size * scale).rounded())
+    let bytesPerRow = pixelW * 4
+
+    guard let ctx = CGContext(
+        data: nil,
+        width: pixelW,
+        height: pixelH,
+        bitsPerComponent: 8,
+        bytesPerRow: bytesPerRow,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { return nil }
+
+    guard let data = ctx.data else { return nil }
+    let ptr = data.bindMemory(to: UInt8.self, capacity: pixelW * pixelH * 4)
+
+    let cx = Double(pixelW) / 2.0
+    let cy = Double(pixelH) / 2.0
+    let R = Double((size / 2.0 - padding) * scale)
+    let deltaL = maxLight - minLight
+
+    for y in 0..<pixelH {
+        for x in 0..<pixelW {
+            let dx = Double(x) - cx
+            let dy = Double(y) - cy
+            let r = sqrt(dx * dx + dy * dy)
+            let offset = (y * pixelW + x) * 4
+
+            if r <= R {
+                var angle = atan2(dy, dx) // [-π, π]
+                if angle < 0 { angle += .pi * 2 }
+                let hue = angle * 180.0 / .pi
+                let light = minLight + deltaL * (r / R)
+
+                let (rr, gg, bb) = hslToRGB(hue, 100, light)
+                ptr[offset + 0] = UInt8(max(0, min(255, Int(round(rr * 255))))) // R
+                ptr[offset + 1] = UInt8(max(0, min(255, Int(round(gg * 255))))) // G
+                ptr[offset + 2] = UInt8(max(0, min(255, Int(round(bb * 255))))) // B
+                ptr[offset + 3] = 255
+            } else {
+                ptr[offset + 0] = 0
+                ptr[offset + 1] = 0
+                ptr[offset + 2] = 0
+                ptr[offset + 3] = 0
+            }
+        }
+    }
+    return ctx.makeImage()
+}
+
+// MARK: - Dot Pattern (masked like your SVG)
+
+fileprivate struct DotPattern: View {
+    var width: CGFloat = 10
+    var height: CGFloat = 10
+
+    var body: some View {
+        GeometryReader { geo in
+            Canvas { context, size in
+                let cols = Int(ceil(size.width / width))
+                let rows = Int(ceil(size.height / height))
+                let dot = Path(ellipseIn: CGRect(x: 0, y: 0, width: 2, height: 2))
+                let color = Color(.sRGB, red: 107/255, green: 114/255, blue: 128/255, opacity: 0.2)
+
+                for i in 0..<cols {
+                    for j in 0..<rows {
+                        let x = CGFloat(i) * width + width * 0.5 - 1
+                        let y = CGFloat(j) * height + height * 0.5 - 1
+                        context.translateBy(x: x, y: y)
+                        context.fill(dot, with: .color(color))
+                        context.translateBy(x: -x, y: -y)
+                    }
+                }
+            }
+            .mask(
+                RadialGradient(
+                    gradient: Gradient(stops: [
+                        .init(color: .white, location: 0),
+                        .init(color: .clear, location: 1)
+                    ]),
+                    center: .center,
+                    startRadius: 0,
+                    endRadius: 200
+                )
+            )
+        }
+        .allowsHitTesting(false)
+        .zIndex(10)
+    }
+}
+
+// MARK: - Color Picker (angles, spreads, bullets, drag)
+
+fileprivate struct ColorPickerView: View {
+    // Props (mirroring your defaults)
+    var size: CGFloat = 280
+    var padding: CGFloat = 20
+    var bulletRadius: CGFloat = 24
+    var spreadFactor: Double = 0.4
+    var minSpread: Double = .pi / 1.5
+    var maxSpread: Double = .pi / 3
+    var minLight: Double = 15
+    var maxLight: Double = 90
+    var showColorWheel: Bool = false
+
+    var numPoints: Int
+    var onColorChange: ([String]) -> Void
+    var onRadiusChange: (Double) -> Void
+    var onAngleChange: (Double) -> Void
+
+    // Internal state
+    @State private var angle: Double = -.pi / 2
+    @State private var radius: CGFloat = 0
+    @State private var wheelImage: CGImage? = nil
+    private var RADIUS: CGFloat { size / 2 - padding }
+
+    // Derived (exactly like your React code)
+    private var hue: Double { angle * 180 / .pi }
+    private var light: Double { maxLight * Double(radius / RADIUS) }
+    private var colorHex: String { hslToHex(hue, 100, light) }
+
+    private var normalizedRadius: Double { Double(radius / RADIUS) }
+    private var spread: Double {
+        (minSpread + (maxSpread - minSpread) * pow(normalizedRadius, 3)) * spreadFactor
+    }
+
+    private func color(at deltaAngle: Double) -> String {
+        let a = angle + deltaAngle
+        let h = a * 180 / .pi
+        return hslToHex(h, 100, light)
+    }
+
+    private func updateCallbacks() {
+        // Color array ordering mirrors your useEffect:
+        // 1: [color]
+        // 2: [color2, color]
+        // 3: [color2, color, color1]
+        // 4: [color2, color, color1, color3]
+        // 5+: [color4, color2, color, color1, color3]
+        let c  = colorHex
+        let c1 = color(at: -spread)
+        let c2 = color(at: +spread)
+        let c3 = color(at: -spread * 2)
+        let c4 = color(at: +spread * 2)
+
+        let out: [String]
+        switch numPoints {
+        case 1: out = [c]
+        case 2: out = [c2, c]
+        case 3: out = [c2, c, c1]
+        case 4: out = [c2, c, c1, c3]
+        default: out = [c4, c2, c, c1, c3]
+        }
+        onColorChange(out)
+        onRadiusChange(Double(radius / RADIUS))
+        onAngleChange(angle)
+    }
+
+    private func setFrom(location: CGPoint) {
+        let center = CGPoint(x: size / 2, y: size / 2)
+        let vx = Double(location.x - center.x)
+        let vy = Double(location.y - center.y)
+        var a = atan2(vy, vx)
+        if a < 0 { a += .pi * 2 }
+        let r = min(RADIUS, max(0, CGFloat(hypot(vx, vy))))
+        angle = a
+        radius = r
+        updateCallbacks()
+    }
+
+    var body: some View {
+        ZStack {
+            // Wheel
+            Group {
+                if let img = wheelImage {
+                    Image(decorative: img, scale: 1, orientation: .up)
+                        .resizable()
+                        .frame(width: size, height: size)
+                        .clipShape(Circle())
+                        .opacity(showColorWheel ? 1 : 0)
+                        .animation(.easeInOut(duration: 0.2), value: showColorWheel)
+                } else {
+                    // Lazy placeholder before image is built
+                    Circle().fill(Color.clear).frame(width: size, height: size)
+                }
+            }
+
+            // Drag area overlay
+            GeometryReader { _ in
+                Color.clear
+                    .contentShape(Circle().path(in: CGRect(x: 0, y: 0, width: size, height: size)))
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in setFrom(location: value.location) }
+                            .onEnded { _ in }
+                    )
+                    .frame(width: size, height: size)
+            }
+            .allowsHitTesting(true)
+
+            // Bullets
+            let bx = size / 2 + CGFloat(cos(angle)) * radius
+            let by = size / 2 + CGFloat(sin(angle)) * radius
+
+            let angle1 = angle - spread
+            let angle2 = angle + spread
+            let angle3 = angle - spread * 2
+            let angle4 = angle + spread * 2
+
+            let bx1 = size / 2 + CGFloat(cos(angle1)) * radius
+            let by1 = size / 2 + CGFloat(sin(angle1)) * radius
+            let bx2 = size / 2 + CGFloat(cos(angle2)) * radius
+            let by2 = size / 2 + CGFloat(sin(angle2)) * radius
+            let bx3 = size / 2 + CGFloat(cos(angle3)) * radius
+            let by3 = size / 2 + CGFloat(sin(angle3)) * radius
+            let bx4 = size / 2 + CGFloat(cos(angle4)) * radius
+            let by4 = size / 2 + CGFloat(sin(angle4)) * radius
+
+            // Secondary bullets (ordered & sized like your JSX)
+            if numPoints >= 2 {
+                Circle()
+                    .fill(Color(hex: color(at: +spread)))
+                    .frame(width: bulletRadius * 1.2, height: bulletRadius * 1.2)
+                    .overlay(Circle().stroke(.white.opacity(0.8), lineWidth: 2))
+                    .shadow(radius: 4, y: 2)
+                    .position(x: bx2 - bulletRadius / 1.7 + bulletRadius * 1.2/2,
+                              y: by2 - bulletRadius / 1.7 + bulletRadius * 1.2/2)
+                    .opacity(0.9)
+                    .zIndex(20)
+                    .allowsHitTesting(false)
+            }
+            // Primary draggable bullet
+            Circle()
+                .fill(Color(hex: colorHex))
+                .frame(width: bulletRadius * 2, height: bulletRadius * 2)
+                .overlay(Circle().stroke(.white.opacity(0.9), lineWidth: 3))
+                .shadow(radius: 8, y: 2)
+                .position(x: bx, y: by)
+                .zIndex(30)
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in setFrom(location: value.location) }
+                )
+
+            if numPoints >= 3 {
+                Circle()
+                    .fill(Color(hex: color(at: -spread)))
+                    .frame(width: bulletRadius * 1.2, height: bulletRadius * 1.2)
+                    .overlay(Circle().stroke(.white.opacity(0.8), lineWidth: 2))
+                    .shadow(radius: 4, y: 2)
+                    .position(x: bx1 - bulletRadius / 1.7 + bulletRadius * 1.2/2,
+                              y: by1 - bulletRadius / 1.7 + bulletRadius * 1.2/2)
+                    .opacity(0.9)
+                    .zIndex(20)
+                    .allowsHitTesting(false)
+            }
+            if numPoints >= 4 {
+                Circle()
+                    .fill(Color(hex: color(at: -spread * 2)))
+                    .frame(width: bulletRadius, height: bulletRadius)
+                    .overlay(Circle().stroke(.white.opacity(0.7), lineWidth: 2))
+                    .shadow(radius: 4, y: 2)
+                    .position(x: bx3, y: by3)
+                    .opacity(0.8)
+                    .zIndex(15)
+                    .allowsHitTesting(false)
+            }
+            if numPoints >= 5 {
+                Circle()
+                    .fill(Color(hex: color(at: +spread * 2)))
+                    .frame(width: bulletRadius, height: bulletRadius)
+                    .overlay(Circle().stroke(.white.opacity(0.7), lineWidth: 2))
+                    .shadow(radius: 4, y: 2)
+                    .position(x: bx4, y: by4)
+                    .opacity(0.8)
+                    .zIndex(15)
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(width: size, height: size)
+        .onAppear {
+            radius = RADIUS * 0.7
+            wheelImage = makeColorWheelCGImage(size: size, padding: padding, minLight: minLight, maxLight: maxLight)
+            updateCallbacks()
+        }
+        .onChange(of: size) { _ in
+            wheelImage = makeColorWheelCGImage(size: size, padding: padding, minLight: minLight, maxLight: maxLight)
+        }
+        .onChange(of: minLight) { _ in
+            wheelImage = makeColorWheelCGImage(size: size, padding: padding, minLight: minLight, maxLight: maxLight)
+        }
+        .onChange(of: maxLight) { _ in
+            wheelImage = makeColorWheelCGImage(size: size, padding: padding, minLight: minLight, maxLight: maxLight)
+        }
+        .onChange(of: angle) { _ in updateCallbacks() }
+        .onChange(of: radius) { _ in updateCallbacks() }
+        .onChange(of: numPoints) { _ in updateCallbacks() }
+    }
+}
+
+// MARK: - Swatch (draggable) — matches size/hover/hint
+
+fileprivate struct ColorSwatch: View {
+    var hex: String
+    var showHint: Bool
+    var onDragStart: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(hex: hex))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white, lineWidth: 2))
+                .frame(width: 60, height: 36)
+                .shadow(radius: hovering ? 12 : 8, y: hovering ? 4 : 2)
+                .offset(y: hovering ? -2 : 0)
+                .animation(.easeInOut(duration: 0.15), value: hovering)
+
+            if showHint && hovering {
+                Text("Drag to category")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white)
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 8)
+                    .background(Color.black.opacity(0.8))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .offset(y: -30)
+                    .allowsHitTesting(false)
+            }
+        }
+        .onHover { hovering in self.hovering = hovering }
+        .onDrag {
+            onDragStart()
+            return NSItemProvider(object: hex as NSString)
+        }
+    }
+}
+
+// MARK: - Category cell
+
+fileprivate struct CategoryView: View {
+    var name: String
+    var colorHex: String?
+    var details: String
+    var isNew: Bool
+    var onColorDrop: (String) -> Void
+    var onDetailsChange: (String) -> Void
+    var onDelete: () -> Void
+
+    @State private var expanded = false
+    @State private var hovering = false
+    @State private var dragOver = false
+    @State private var localDetails: String = ""
+    @State private var showHint: Bool = false
+    @FocusState private var editing: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(colorFromHexOrDefault(colorHex, default: Color(red: 0.89, green: 0.91, blue: 0.94)))
+                        .frame(width: 20, height: 20)
+                        .overlay(Circle().stroke(.white, lineWidth: 2))
+                        .shadow(radius: 2, y: 1)
+                    Text(name)
+                        .font(.system(size: 14, weight: .medium))
+                }
+
+                Spacer()
+
+                HStack(spacing: 4) {
+                    if expanded {
+                        Text("▲").font(.system(size: 10)).foregroundColor(Color.gray.opacity(0.7))
+                    } else if !localDetails.isEmpty {
+                        Text("▼").font(.system(size: 10)).foregroundColor(Color.gray.opacity(0.7))
+                    }
+                    if hovering {
+                        Button {
+                            onDelete()
+                        } label: {
+                            Text("×")
+                                .font(.system(size: 16))
+                                .foregroundColor(.red)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            if !expanded && !localDetails.isEmpty {
+                Text(localDetails)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .font(.system(size: 12))
+                    .foregroundColor(Color.gray.opacity(0.7))
+                    .padding(.top, 2)
+            }
+
+            if expanded {
+                TextEditor(text: $localDetails)
+                    .font(.system(size: 12))
+                    .frame(minHeight: 60)
+                    .padding(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color(red: 0.89, green: 0.91, blue: 0.94), lineWidth: 1)
+                    )
+                    .focused($editing)
+                    .onDisappear { onDetailsChange(localDetails) }
+                    .onSubmit { onDetailsChange(localDetails) }
+            }
+        }
+        .padding(12)
+        .background(Color.white)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(dragOver ? Color(red: 0.29, green: 0.33, blue: 0.41) : Color(red: 0.89, green: 0.91, blue: 0.94), lineWidth: dragOver ? 2 : 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .shadow(color: Color.black.opacity(0.1), radius: dragOver ? 12 : 3, y: dragOver ? 4 : 1)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            expanded.toggle()
+            if expanded { editing = true }
+        }
+        .onHover { hovering in self.hovering = hovering }
+        .onAppear {
+            localDetails = details
+            showHint = isNew
+            if isNew {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5) { showHint = false }
+            }
+        }
+        .overlay(alignment: .center) {
+            if showHint, (colorHex == nil || colorHex?.isEmpty == true) {
+                Text("← Drop a color here")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white)
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 10)
+                    .background(Color.black.opacity(0.8))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .offset(x: -140)
+                    .allowsHitTesting(false)
+            }
+            if hovering, !expanded, localDetails.isEmpty {
+                Text("Click to add details")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white)
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 8)
+                    .background(Color.black.opacity(0.8))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .offset(x: -100, y: 40)
+                    .allowsHitTesting(false)
+            }
+        }
+        .onDrop(of: [UTType.plainText], isTargeted: $dragOver) { providers in
+            guard let prov = providers.first else { return false }
+            // Accept the drop immediately; resolve payload asynchronously
+            prov.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { item, _ in
+                let str: String? = {
+                    if let data = item as? Data { return String(data: data, encoding: .utf8) }
+                    if let s = item as? String { return s }
+                    if let ns = item as? NSString { return ns as String }
+                    return nil
+                }()
+                if let hex = str {
+                    DispatchQueue.main.async {
+                        onColorDrop(hex)
+                    }
+                }
+            }
+            return true
+        }
+    }
+}
+
+// MARK: - Model & Persistence
+
+fileprivate struct ColorCategory: Identifiable, Codable, Equatable {
+    let id: Int64
+    var name: String
+    var color: String?
+    var details: String
+    var isNew: Bool
+}
+
+fileprivate enum StoreKeys {
+    static let categories = "colorCategories"
+    static let hasUsedApp = "hasUsedApp"
+}
+
+fileprivate final class CategoryStore: ObservableObject {
+    @Published var categories: [ColorCategory] = []
+
+    init() {
+        load()
+    }
+
+    func load() {
+        if let data = UserDefaults.standard.data(forKey: StoreKeys.categories) {
+            if let cats = try? JSONDecoder().decode([ColorCategory].self, from: data) {
+                self.categories = cats
+                return
+            }
+        }
+        self.categories = []
+    }
+
+    func save() {
+        if let data = try? JSONEncoder().encode(categories) {
+            UserDefaults.standard.set(data, forKey: StoreKeys.categories)
+        }
+    }
+
+    func add(name: String, showFirstTimeHints: inout Bool) {
+        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let cat = ColorCategory(id: Int64(Date().timeIntervalSince1970 * 1000),
+                                name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                                color: nil,
+                                details: "",
+                                isNew: true)
+        categories.append(cat)
+        save()
+
+        if showFirstTimeHints {
+            UserDefaults.standard.set(true, forKey: StoreKeys.hasUsedApp)
+            showFirstTimeHints = false
+        }
+    }
+
+    func update(id: Int64, mutate: (inout ColorCategory) -> Void) {
+        if let idx = categories.firstIndex(where: { $0.id == id }) {
+            var c = categories[idx]
+            mutate(&c)
+            c.isNew = false
+            categories[idx] = c
+            save()
+        }
+    }
+
+    func delete(id: Int64) {
+        categories.removeAll { $0.id == id }
+        save()
+    }
+}
+
+// MARK: - Root (recreates your App component)
+
+struct ColorOrganizerRoot: View {
+    @State private var colors: [String] = []
+    @State private var numPoints: Int = 3
+    @State private var normalizedRadius: Double = 0.7
+    @State private var currentAngle: Double = -Double.pi / 2
+    @State private var newCategoryName: String = ""
+    @State private var isDragging: Bool = false
+    @State private var showFirstTimeHints: Bool = !UserDefaults.standard.bool(forKey: StoreKeys.hasUsedApp)
+
+    @StateObject private var store = CategoryStore()
+
+    // Spectrum colors (8) around the circle starting from current picker angle
+    private var spectrumColors: [String] {
+        (0..<8).map { i in
+            let angleOffset = Double(i) * (.pi * 2) / 8.0
+            let a = currentAngle + angleOffset
+            let h = a * 180.0 / .pi
+            let lightness = 15 + 75 * normalizedRadius
+            return hslToHex(h, 100, lightness)
+        }
+    }
+
+    // Precomputed background gradient to help the type-checker
+    private var backgroundGradient: LinearGradient {
+        let start = Color(hex: "#667EEA")
+        let end = Color(hex: "#764BA2")
+        return LinearGradient(gradient: Gradient(colors: [start, end]), startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    private var leftPanel: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            // Picker container (light slate with dot mask)
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(hex: "#F1F5F9"))
+                    .frame(width: 280, height: 280 + 12 + 28)
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
+
+                VStack(spacing: 8) {
+                    ZStack {
+                        DotPattern(width: 10, height: 10)
+                            .frame(width: 280, height: 280)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .zIndex(10)
+
+                        ColorPickerView(
+                            size: 280,
+                            padding: 20,
+                            bulletRadius: 24,
+                            spreadFactor: 0.4,
+                            minSpread: .pi / 1.5,
+                            maxSpread: .pi / 3,
+                            minLight: 15,
+                            maxLight: 90,
+                            showColorWheel: false,
+                            numPoints: numPoints,
+                            onColorChange: { colors = $0 },
+                            onRadiusChange: { normalizedRadius = $0 },
+                            onAngleChange: { currentAngle = $0 }
+                        )
+                        .zIndex(20)
+                    }
+
+                    // +/- buttons
+                    HStack(spacing: 8) {
+                        shapedIconButton(label: "−") { numPoints = max(1, numPoints - 1) }
+                        shapedIconButton(label: "+") { numPoints = min(5, numPoints + 1) }
+                    }
+                    .frame(height: 28)
+                }
+                .padding(12)
+            }
+
+            // Spectrum swatches
+            VStack(alignment: .leading, spacing: 12) {
+                Text(isDragging ? "Drop on a category →" : "Spectrum Colors")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(Color.gray.opacity(0.7))
+
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+                    ForEach(Array(spectrumColors.enumerated()), id: \.offset) { i, hex in
+                        ColorSwatch(
+                            hex: hex,
+                            showHint: showFirstTimeHints && i == 0,
+                            onDragStart: { isDragging = true }
+                        )
+                    }
+                }
+                .onDrop(of: [UTType.plainText], isTargeted: nil) { _ in
+                    isDragging = false
+                    return false
+                }
+            }
+            .padding(16)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .shadow(color: Color.black.opacity(0.1), radius: 3, y: 1)
+        }
+        .frame(width: 280)
+    }
+
+    private var rightPanel: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Categories")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(Color(hex: "#2D3748"))
+
+            if store.categories.isEmpty && newCategoryName.isEmpty {
+                VStack(spacing: 6) {
+                    Text("No categories yet.")
+                    Text("Create one below and drag colors to assign them!")
+                }
+                .font(.system(size: 13))
+                .foregroundColor(Color.gray.opacity(0.7))
+                .frame(maxWidth: .infinity)
+                .padding(20)
+                .background(Color(hex: "#F7FAFC"))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color(hex: "#CBD5E0"), style: StrokeStyle(lineWidth: 2, dash: [6, 6]))
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+
+            VStack(spacing: 8) {
+                ForEach(store.categories) { cat in
+                    CategoryView(
+                        name: cat.name,
+                        colorHex: cat.color,
+                        details: cat.details,
+                        isNew: cat.isNew,
+                        onColorDrop: { hex in
+                            store.update(id: cat.id) { $0.color = hex }
+                            isDragging = false
+                        },
+                        onDetailsChange: { text in
+                            store.update(id: cat.id) { $0.details = text }
+                        },
+                        onDelete: {
+                            store.delete(id: cat.id)
+                        }
+                    )
+                }
+            }
+
+            HStack(spacing: 8) {
+                TextField("Add category...", text: $newCategoryName, onCommit: {
+                    store.add(name: newCategoryName, showFirstTimeHints: &showFirstTimeHints)
+                    newCategoryName = ""
+                })
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 14))
+                .frame(height: 30)
+
+                Button {
+                    store.add(name: newCategoryName, showFirstTimeHints: &showFirstTimeHints)
+                    newCategoryName = ""
+                } label: {
+                    Text("Add")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 12)
+                        .background(Color(hex: "#4A5568"))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(width: 280)
+        }
+        .frame(width: 280)
+    }
+
+    private var contentCard: some View {
+        VStack {
+            HStack(alignment: .top, spacing: 48) {
+                leftPanel
+                rightPanel
+            }
+            .frame(maxWidth: 900)
+            .padding(32)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white)
+                .shadow(color: Color.black.opacity(0.3), radius: 60, y: 20)
+        )
+        .padding()
+    }
+
+    var body: some View {
+        ZStack {
+            backgroundGradient
+                .ignoresSafeArea()
+            contentCard
+        }
+    }
+
+    // Styled +/- button matching your design
+    private func shapedIconButton(label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 24, weight: .regular, design: .default))
+                .foregroundColor(Color(hex: "#6B7280"))
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.clear)
+        )
+        .onHover { hover in
+            // hover highlight
+        }
+    }
+
+}
+
+
+// App entry point intentionally omitted; DayflowApp provides the main entry.
+
+#Preview("Timeline Card Color Picker") {
+    ColorOrganizerRoot()
+        .frame(minWidth: 980, minHeight: 640)
+}
