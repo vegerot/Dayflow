@@ -70,88 +70,9 @@ struct CanvasTimelineDataView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
-                // Place anchor at ScrollView content level for reliable targeting
-                ZStack(alignment: .topLeading) {
-                    // White background for the entire content area
-                    Color.white
-                    // Invisible anchor positioned for "now" scroll target
-                    nowAnchorView()
-                        .zIndex(-1) // Behind other content
-                    
-                    // Main content ZStack
-                // Horizontal lines that extend past the vertical separator
-                VStack(spacing: 0) {
-                    ForEach(0..<(CanvasConfig.endHour - CanvasConfig.startHour), id: \.self) { _ in
-                        VStack(spacing: 0) {
-                            Rectangle()
-                                .fill(Color(hex: "E5E4E4"))
-                                .frame(height: 1)
-                            Spacer()
-                        }
-                        .frame(height: CanvasConfig.hourHeight)
-                    }
-                }
-                .padding(.leading, CanvasConfig.timeColumnWidth)
-
-                    // Main content with time labels
-                    HStack(spacing: 0) {
-                        // Time labels column
-                        VStack(spacing: 0) {
-                        ForEach(CanvasConfig.startHour..<CanvasConfig.endHour, id: \.self) { hour in
-                            let hourIndex = hour - CanvasConfig.startHour
-                            Text(formatHour(hour))
-                                .font(.custom("Figtree", size: 13))
-                                .foregroundColor(Color(hex: "594838"))
-                                .padding(.trailing, 5)
-                                .frame(width: CanvasConfig.timeColumnWidth, alignment: .trailing)
-                                .multilineTextAlignment(.trailing)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.95)
-                                .allowsTightening(true)
-                                .frame(height: CanvasConfig.hourHeight, alignment: .top)
-                                .offset(y: -8)
-                                .id("hour-\(hourIndex)")
-                        }
-                    }
-                    .frame(width: CanvasConfig.timeColumnWidth)
-
-                        // Main timeline area
-                        ZStack(alignment: .topLeading) {
-                            Color.clear
-
-                            ForEach(positionedActivities) { item in
-                            CanvasActivityCard(
-                                title: item.title,
-                                time: item.timeLabel,
-                                height: item.height,
-                                cardColor: item.color,
-                                isSelected: selectedCardId == item.id,
-                                onTap: {
-                                    if selectedCardId == item.id {
-                                        selectedCardId = nil
-                                        selectedActivity = nil
-                                    } else {
-                                        selectedCardId = item.id
-                                        selectedActivity = item.activity
-                                    }
-                                },
-                                faviconPrimaryHost: item.faviconPrimaryHost,
-                                faviconSecondaryHost: item.faviconSecondaryHost
-                            )
-                            .frame(height: item.height)
-                            .offset(y: item.yPosition)
-                            }
-
-                        }
-                        .clipped() // Prevent shadows/animations from affecting scroll geometry
-                        // Allow timeline column to shrink under narrow widths
-                        .frame(minWidth: 0, maxWidth: .infinity)
-                    }
-                }
-                .frame(height: CGFloat(CanvasConfig.endHour - CanvasConfig.startHour) * CanvasConfig.hourHeight)
-                .background(Color.white)
+                timelineScrollContent()
             }
-            .background(Color.white)
+            .background(Color.clear)
             // Respond to external scroll nudges (initial or idle-triggered)
             .onChange(of: scrollToNowTick) { _ in
                 // Calculate which hour to scroll to for 80% positioning
@@ -207,7 +128,7 @@ struct CanvasTimelineDataView: View {
                 }
             }
         }
-        .background(Color.white)
+        .background(Color.clear)
         .onAppear {
             loadActivities()
             startRefreshTimer()
@@ -217,6 +138,99 @@ struct CanvasTimelineDataView: View {
         }
         .onChange(of: selectedDate) { _ in
             loadActivities()
+        }
+    }
+
+    // MARK: - Extracted subviews to help type-checker
+    @ViewBuilder
+    private func timelineScrollContent() -> some View {
+        ZStack(alignment: .topLeading) {
+            // Transparent background to let panel show through
+            Color.clear
+            // Invisible anchor positioned for "now" scroll target
+            nowAnchorView()
+                .zIndex(-1) // Behind other content
+
+            // Hour lines layer
+            hourLines
+                .padding(.leading, CanvasConfig.timeColumnWidth)
+
+            // Main content with time labels and cards
+            mainTimelineRow
+        }
+        .frame(height: CGFloat(CanvasConfig.endHour - CanvasConfig.startHour) * CanvasConfig.hourHeight)
+        .background(Color.clear)
+    }
+
+    private var hourLines: some View {
+        VStack(spacing: 0) {
+            ForEach(0..<(CanvasConfig.endHour - CanvasConfig.startHour), id: \.self) { _ in
+                VStack(spacing: 0) {
+                    Rectangle()
+                        .fill(Color(hex: "E5E4E4"))
+                        .frame(height: 1)
+                    Spacer()
+                }
+                .frame(height: CanvasConfig.hourHeight)
+            }
+        }
+    }
+
+    private var timeColumn: some View {
+        VStack(spacing: 0) {
+            ForEach(CanvasConfig.startHour..<CanvasConfig.endHour, id: \.self) { hour in
+                let hourIndex = hour - CanvasConfig.startHour
+                Text(formatHour(hour))
+                    .font(.custom("Figtree", size: 13))
+                    .foregroundColor(Color(hex: "594838"))
+                    .padding(.trailing, 5)
+                    .frame(width: CanvasConfig.timeColumnWidth, alignment: .trailing)
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.95)
+                    .allowsTightening(true)
+                    .frame(height: CanvasConfig.hourHeight, alignment: .top)
+                    .offset(y: -8)
+                    .id("hour-\(hourIndex)")
+            }
+        }
+        .frame(width: CanvasConfig.timeColumnWidth)
+    }
+
+    private var cardsLayer: some View {
+        ZStack(alignment: .topLeading) {
+            Color.clear
+            ForEach(positionedActivities) { item in
+                CanvasActivityCard(
+                    title: item.title,
+                    time: item.timeLabel,
+                    height: item.height,
+                    cardColor: item.color,
+                    isSelected: selectedCardId == item.id,
+                    onTap: {
+                        if selectedCardId == item.id {
+                            selectedCardId = nil
+                            selectedActivity = nil
+                        } else {
+                            selectedCardId = item.id
+                            selectedActivity = item.activity
+                        }
+                    },
+                    faviconPrimaryHost: item.faviconPrimaryHost,
+                    faviconSecondaryHost: item.faviconSecondaryHost
+                )
+                .frame(height: item.height)
+                .offset(y: item.yPosition)
+            }
+        }
+        .clipped() // Prevent shadows/animations from affecting scroll geometry
+        .frame(minWidth: 0, maxWidth: .infinity)
+    }
+
+    private var mainTimelineRow: some View {
+        HStack(spacing: 0) {
+            timeColumn
+            cardsLayer
         }
     }
 
@@ -640,44 +654,14 @@ struct CanvasActivityCard: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .topLeading)
-        .background(
-            GeometryReader { geo in
-                let size = geo.size
-                Group {
-                    if cardColor == .idle {
-                        // Idle cards: white background only
-                        Color.white
-                    } else if let imageName = chooseBackgroundImageName(for: cardColor, cardSize: size),
-                       let nsImg = NSImage(named: imageName) {
-                        Image(nsImage: nsImg)
-                            .resizable()
-                            .interpolation(.high)
-                            .frame(width: size.width, height: size.height)
-                            .clipped()
-                    } else {
-                        LinearGradient(
-                            colors: gradientColors(for: cardColor),
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    }
-                }
-            }
-        )
-        .overlay(
-            // Add dotted border for idle cards
-            cardColor == .idle ?
-                RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(
-                        style: StrokeStyle(
-                            lineWidth: 1,
-                            dash: [4, 4]
-                        )
-                    )
-                    .foregroundColor(borderColor(for: cardColor))
-            : nil
-        )
-        // Remove explicit corner radius and strokes; images include any rounding baked-in
+        .background(Color.white.opacity(0.7))
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(Color(hex: "4F80EB"))
+                .frame(width: 5)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+        // Keep outer horizontal padding to respect timeline gutters
         .padding(.horizontal, 6)
         .contentShape(Rectangle())
         .onTapGesture { onTap() }

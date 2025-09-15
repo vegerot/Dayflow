@@ -153,7 +153,7 @@ struct MainView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 14.72286, style: .continuous)
-                    .fill(Color.white)
+                    .fill(Color.white.opacity(0.2))
             )
             .clipShape(RoundedRectangle(cornerRadius: 14.72286, style: .continuous))
             // No outline stroke — clean white panel
