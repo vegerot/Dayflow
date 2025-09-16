@@ -9,7 +9,9 @@ Turns your screen activity into a clean timeline with AI summaries and distracti
 ![AI: Gemini / Local](https://img.shields.io/badge/AI-Gemini%20or%20Local-blue)
 ![License: MIT](https://img.shields.io/badge/License-MIT-green)
 
-<!-- Hero image placeholder removed for public release -->
+<div align="center">
+  <img src="docs/images/hero_animation_1080p.gif" alt="Dayflow Hero Animation" width="800">
+</div>
 
 <p align="center">
   <a href="#quickstart">Quickstart</a> •
