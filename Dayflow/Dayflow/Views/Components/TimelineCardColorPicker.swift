@@ -37,14 +37,6 @@ extension Color {
     }
 }
 
-// Fallback helper: build a Color from optional hex, else return default
-fileprivate func colorFromHexOrDefault(_ hex: String?, default defaultColor: Color) -> Color {
-    guard let raw = hex?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
-        return defaultColor
-    }
-    return Color(hex: raw)
-}
-
 // MARK: - Color Wheel Image (pixel-accurate CGImage like your <canvas>)
 
 fileprivate func makeColorWheelCGImage(
@@ -397,10 +389,7 @@ fileprivate struct ColorSwatch: View {
 // MARK: - Category cell
 
 fileprivate struct CategoryView: View {
-    var name: String
-    var colorHex: String?
-    var details: String
-    var isNew: Bool
+    var category: TimelineCategory
     var onColorDrop: (String) -> Void
     var onDetailsChange: (String) -> Void
     var onDelete: () -> Void
@@ -417,31 +406,33 @@ fileprivate struct CategoryView: View {
             HStack {
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(colorFromHexOrDefault(colorHex, default: Color(red: 0.89, green: 0.91, blue: 0.94)))
+                        .fill(Color(hex: category.colorHex))
                         .frame(width: 20, height: 20)
                         .overlay(Circle().stroke(.white, lineWidth: 2))
                         .shadow(radius: 2, y: 1)
-                    Text(name)
+                    Text(category.name)
                         .font(.system(size: 14, weight: .medium))
                 }
 
                 Spacer()
 
-                HStack(spacing: 4) {
-                    if expanded {
-                        Text("▲").font(.system(size: 10)).foregroundColor(Color.gray.opacity(0.7))
-                    } else if !localDetails.isEmpty {
-                        Text("▼").font(.system(size: 10)).foregroundColor(Color.gray.opacity(0.7))
-                    }
-                    if hovering {
-                        Button {
-                            onDelete()
-                        } label: {
-                            Text("×")
-                                .font(.system(size: 16))
-                                .foregroundColor(.red)
+                if !category.isSystem {
+                    HStack(spacing: 4) {
+                        if expanded {
+                            Text("▲").font(.system(size: 10)).foregroundColor(Color.gray.opacity(0.7))
+                        } else if !localDetails.isEmpty {
+                            Text("▼").font(.system(size: 10)).foregroundColor(Color.gray.opacity(0.7))
                         }
-                        .buttonStyle(.plain)
+                        if hovering {
+                            Button {
+                                onDelete()
+                            } label: {
+                                Text("×")
+                                    .font(.system(size: 16))
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
             }
@@ -484,14 +475,17 @@ fileprivate struct CategoryView: View {
         }
         .onHover { hovering in self.hovering = hovering }
         .onAppear {
-            localDetails = details
-            showHint = isNew
-            if isNew {
+            localDetails = category.details
+            showHint = category.isNew
+            if category.isNew {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 5) { showHint = false }
             }
         }
+        .onChange(of: category.details) { newValue in
+            localDetails = newValue
+        }
         .overlay(alignment: .center) {
-            if showHint, (colorHex == nil || colorHex?.isEmpty == true) {
+            if showHint, category.colorHex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text("← Drop a color here")
                     .font(.system(size: 11))
                     .foregroundColor(.white)
@@ -515,6 +509,7 @@ fileprivate struct CategoryView: View {
             }
         }
         .onDrop(of: [UTType.plainText], isTargeted: $dragOver) { providers in
+            guard category.isSystem == false else { return false }
             guard let prov = providers.first else { return false }
             // Accept the drop immediately; resolve payload asynchronously
             prov.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { item, _ in
@@ -535,88 +530,17 @@ fileprivate struct CategoryView: View {
     }
 }
 
-// MARK: - Model & Persistence
-
-fileprivate struct ColorCategory: Identifiable, Codable, Equatable {
-    let id: Int64
-    var name: String
-    var color: String?
-    var details: String
-    var isNew: Bool
-}
-
-fileprivate enum StoreKeys {
-    static let categories = "colorCategories"
-    static let hasUsedApp = "hasUsedApp"
-}
-
-fileprivate final class CategoryStore: ObservableObject {
-    @Published var categories: [ColorCategory] = []
-
-    init() {
-        load()
-    }
-
-    func load() {
-        if let data = UserDefaults.standard.data(forKey: StoreKeys.categories) {
-            if let cats = try? JSONDecoder().decode([ColorCategory].self, from: data) {
-                self.categories = cats
-                return
-            }
-        }
-        self.categories = []
-    }
-
-    func save() {
-        if let data = try? JSONEncoder().encode(categories) {
-            UserDefaults.standard.set(data, forKey: StoreKeys.categories)
-        }
-    }
-
-    func add(name: String, showFirstTimeHints: inout Bool) {
-        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let cat = ColorCategory(id: Int64(Date().timeIntervalSince1970 * 1000),
-                                name: name.trimmingCharacters(in: .whitespacesAndNewlines),
-                                color: nil,
-                                details: "",
-                                isNew: true)
-        categories.append(cat)
-        save()
-
-        if showFirstTimeHints {
-            UserDefaults.standard.set(true, forKey: StoreKeys.hasUsedApp)
-            showFirstTimeHints = false
-        }
-    }
-
-    func update(id: Int64, mutate: (inout ColorCategory) -> Void) {
-        if let idx = categories.firstIndex(where: { $0.id == id }) {
-            var c = categories[idx]
-            mutate(&c)
-            c.isNew = false
-            categories[idx] = c
-            save()
-        }
-    }
-
-    func delete(id: Int64) {
-        categories.removeAll { $0.id == id }
-        save()
-    }
-}
-
 // MARK: - Root (recreates your App component)
 
 struct ColorOrganizerRoot: View {
-    @State private var colors: [String] = []
+    var showBackgroundGradient: Bool = true
+    @EnvironmentObject private var categoryStore: CategoryStore
     @State private var numPoints: Int = 3
     @State private var normalizedRadius: Double = 0.7
     @State private var currentAngle: Double = -Double.pi / 2
     @State private var newCategoryName: String = ""
     @State private var isDragging: Bool = false
-    @State private var showFirstTimeHints: Bool = !UserDefaults.standard.bool(forKey: StoreKeys.hasUsedApp)
-
-    @StateObject private var store = CategoryStore()
+    @State private var showFirstTimeHints: Bool = !UserDefaults.standard.bool(forKey: CategoryStore.StoreKeys.hasUsedApp)
 
     // Spectrum colors (8) around the circle starting from current picker angle
     private var spectrumColors: [String] {
@@ -663,7 +587,7 @@ struct ColorOrganizerRoot: View {
                             maxLight: 90,
                             showColorWheel: false,
                             numPoints: numPoints,
-                            onColorChange: { colors = $0 },
+                            onColorChange: { _ in },
                             onRadiusChange: { normalizedRadius = $0 },
                             onAngleChange: { currentAngle = $0 }
                         )
@@ -714,7 +638,9 @@ struct ColorOrganizerRoot: View {
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(Color(hex: "#2D3748"))
 
-            if store.categories.isEmpty && newCategoryName.isEmpty {
+            let visibleCategories = categoryStore.editableCategories
+
+            if visibleCategories.isEmpty && newCategoryName.isEmpty {
                 VStack(spacing: 6) {
                     Text("No categories yet.")
                     Text("Create one below and drag colors to assign them!")
@@ -732,21 +658,18 @@ struct ColorOrganizerRoot: View {
             }
 
             VStack(spacing: 8) {
-                ForEach(store.categories) { cat in
+                ForEach(visibleCategories) { cat in
                     CategoryView(
-                        name: cat.name,
-                        colorHex: cat.color,
-                        details: cat.details,
-                        isNew: cat.isNew,
+                        category: cat,
                         onColorDrop: { hex in
-                            store.update(id: cat.id) { $0.color = hex }
+                            categoryStore.assignColor(hex, to: cat.id)
                             isDragging = false
                         },
                         onDetailsChange: { text in
-                            store.update(id: cat.id) { $0.details = text }
+                            categoryStore.updateDetails(text, for: cat.id)
                         },
                         onDelete: {
-                            store.delete(id: cat.id)
+                            categoryStore.removeCategory(id: cat.id)
                         }
                     )
                 }
@@ -754,7 +677,8 @@ struct ColorOrganizerRoot: View {
 
             HStack(spacing: 8) {
                 TextField("Add category...", text: $newCategoryName, onCommit: {
-                    store.add(name: newCategoryName, showFirstTimeHints: &showFirstTimeHints)
+                    categoryStore.addCategory(name: newCategoryName)
+                    showFirstTimeHints = false
                     newCategoryName = ""
                 })
                 .textFieldStyle(.roundedBorder)
@@ -762,7 +686,8 @@ struct ColorOrganizerRoot: View {
                 .frame(height: 30)
 
                 Button {
-                    store.add(name: newCategoryName, showFirstTimeHints: &showFirstTimeHints)
+                    categoryStore.addCategory(name: newCategoryName)
+                    showFirstTimeHints = false
                     newCategoryName = ""
                 } label: {
                     Text("Add")
@@ -799,9 +724,14 @@ struct ColorOrganizerRoot: View {
 
     var body: some View {
         ZStack {
-            backgroundGradient
-                .ignoresSafeArea()
+            if showBackgroundGradient {
+                backgroundGradient
+                    .ignoresSafeArea()
+            }
             contentCard
+        }
+        .onAppear {
+            showFirstTimeHints = !UserDefaults.standard.bool(forKey: CategoryStore.StoreKeys.hasUsedApp)
         }
     }
 
@@ -831,5 +761,6 @@ struct ColorOrganizerRoot: View {
 
 #Preview("Timeline Card Color Picker") {
     ColorOrganizerRoot()
+        .environmentObject(CategoryStore())
         .frame(minWidth: 980, minHeight: 640)
 }

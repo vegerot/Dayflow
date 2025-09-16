@@ -18,6 +18,7 @@ struct OnboardingFlow: View {
     @State private var timelineOffset: CGFloat = 300 // Start below screen
     @State private var textOpacity: Double = 0
     @AppStorage("selectedLLMProvider") private var selectedProvider: String = "gemini" // Persist across sessions
+    @EnvironmentObject private var categoryStore: CategoryStore
     private let fullText = "Your day has a story. Let's uncover it together."
     
     @ViewBuilder
@@ -82,18 +83,31 @@ struct OnboardingFlow: View {
                         selectedProvider = provider
                         AnalyticsService.shared.capture("llm_provider_selected", ["provider": provider])
                         AnalyticsService.shared.setPersonProperties(["current_llm_provider": provider])
-                        if provider == "dayflow" {
-                            step = .done
-                            savedStepRawValue = step.rawValue
-                        } else {
-                            advance()
-                        }
+                        step = .categories
+                        savedStepRawValue = step.rawValue
                     }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .onAppear {
                     restoreSavedStep()
                     AnalyticsService.shared.screen("onboarding_llm_selection")
+                }
+                
+            case .categories:
+                OnboardingCategorySetupView(
+                    onBack: {
+                        step.prev()
+                        savedStepRawValue = step.rawValue
+                    },
+                    onNext: {
+                        advance()
+                    }
+                )
+                .environmentObject(categoryStore)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onAppear {
+                    restoreSavedStep()
+                    AnalyticsService.shared.screen("onboarding_categories")
                 }
                 
             case .llmSetup:
@@ -155,6 +169,7 @@ struct OnboardingFlow: View {
             case .howItWorks: name = "how_it_works"
             case .screen: name = "screen_recording"
             case .llmSelection: name = "llm_selection"
+            case .categories: name = "categories"
             case .llmSetup: name = "llm_setup"
             case .done: name = "completion"
             }
@@ -195,7 +210,15 @@ struct OnboardingFlow: View {
             }
         case .llmSelection:
             markStepCompleted(step)
-            step.next()  // Move to llmSetup
+            step.next()  // Move to categories
+            savedStepRawValue = step.rawValue
+        case .categories:
+            markStepCompleted(step)
+            if selectedProvider == "dayflow" {
+                step = .done
+            } else {
+                step.next()
+            }
             savedStepRawValue = step.rawValue
         case .llmSetup:
             markStepCompleted(step)
@@ -215,7 +238,7 @@ struct OnboardingFlow: View {
 // MARK: – Helpers
 
 /// Wizard step order
-private enum Step: Int, CaseIterable { case welcome, howItWorks, screen, llmSelection, llmSetup, done
+private enum Step: Int, CaseIterable { case welcome, howItWorks, screen, llmSelection, categories, llmSetup, done
     mutating func next() { self = Step(rawValue: rawValue + 1)! }
     mutating func prev() { self = Step(rawValue: rawValue - 1)! }
 }
@@ -285,6 +308,68 @@ struct WelcomeView: View {
                         }
                 }
         }
+    }
+}
+
+struct OnboardingCategorySetupView: View {
+    let onBack: () -> Void
+    let onNext: () -> Void
+    @EnvironmentObject private var categoryStore: CategoryStore
+
+    var body: some View {
+        VStack(spacing: 24) {
+            HStack {
+                Button(action: onBack) {
+                    Label("Back", systemImage: "chevron.left")
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.plain)
+                .padding(10)
+                .background(Color.white.opacity(0.6))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                Spacer()
+
+                Button(action: onNext) {
+                    Text("Next")
+                        .font(.system(size: 15, weight: .semibold))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .background(Color.black.opacity(0.85))
+                        .foregroundColor(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.plain)
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Customize your categories")
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundColor(.white)
+
+                Text("Drag colors onto categories to set their palette. You can add, rename, or remove categories at any time from the timeline.")
+                    .font(.system(size: 15))
+                    .foregroundColor(Color.white.opacity(0.9))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            ColorOrganizerRoot(showBackgroundGradient: false)
+                .environmentObject(categoryStore)
+                .frame(maxWidth: 900)
+                .frame(minHeight: 540)
+                .background(
+                    RoundedRectangle(cornerRadius: 24)
+                        .fill(Color.white.opacity(0.88))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24)
+                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                        )
+                )
+                .padding(.vertical, 10)
+
+            Spacer()
+        }
+        .padding(40)
     }
 }
 

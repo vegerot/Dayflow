@@ -8,9 +8,11 @@
 import SwiftUI
 import AVKit
 import AVFoundation
+import AppKit
 
 struct MainView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var categoryStore: CategoryStore
     @State private var selectedIcon: SidebarIcon = .timeline
     @State private var selectedDate = Date()
     @State private var showDatePicker = false
@@ -37,6 +39,7 @@ struct MainView: View {
     @State private var lastObservedCivilDay: String = {
         let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"; return fmt.string(from: Date())
     }()
+    @State private var showCategoryEditor = false
     
     var body: some View {
         // Two-column layout: left logo + sidebar; right white panel with header, filters, timeline
@@ -115,6 +118,9 @@ struct MainView: View {
                                 // Left column: chips row at top, timeline below
                                 VStack(alignment: .leading, spacing: 12) {
                                     TabFilterBar(
+                                        categories: categoryStore.editableCategories,
+                                        idleCategory: categoryStore.idleCategory,
+                                        onManageCategories: { showCategoryEditor = true },
                                         selectedDate: $selectedDate,
                                         showDatePicker: $showDatePicker,
                                         lastDateNavMethod: $lastDateNavMethod,
@@ -130,6 +136,7 @@ struct MainView: View {
                                         hasAnyActivities: $hasAnyActivities
                                     )
                                     .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
+                                    .environmentObject(categoryStore)
                                     .opacity(contentOpacity)
                                 }
                                 .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -253,6 +260,11 @@ struct MainView: View {
             // Safety: stop timer if view disappears
             stopDayChangeTimer()
         }
+        .sheet(isPresented: $showCategoryEditor) {
+            ColorOrganizerRoot(showBackgroundGradient: false)
+                .environmentObject(categoryStore)
+                .frame(minWidth: 860, minHeight: 600)
+        }
     }
     
     private func formatDateForDisplay(_ date: Date) -> String {
@@ -360,52 +372,50 @@ struct SidebarIconButton: View {
 
 // MARK: - Tab Filter Bar
 struct TabFilterBar: View {
+    let categories: [TimelineCategory]
+    let idleCategory: TimelineCategory?
+    let onManageCategories: () -> Void
     @Binding var selectedDate: Date
     @Binding var showDatePicker: Bool
     @Binding var lastDateNavMethod: String?
     @Binding var previousDate: Date
 
     var body: some View {
-        HStack(spacing: 10) {
-            // Work
-            Button(action: {}) {
-                Image("WorkChip")
-                    .resizable()
-                    .interpolation(.high)
-                    .renderingMode(.original)
-                    .aspectRatio(contentMode: .fit)
-                    .frame(height: 30)
+        HStack(spacing: 12) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(categories) { category in
+                        CategoryChip(category: category, isIdle: false)
+                    }
+
+                    if let idleCategory {
+                        CategoryChip(category: idleCategory, isIdle: true)
+                    }
+
+                    Button(action: onManageCategories) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("Edit")
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.white.opacity(0.85))
+                        .foregroundColor(.black)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.vertical, 4)
             }
-            .buttonStyle(PlainButtonStyle())
+            .frame(height: 44)
 
-            // Personal
-            Button(action: {}) {
-                Image("PersonalChip")
-                    .resizable()
-                    .interpolation(.high)
-                    .renderingMode(.original)
-                    .aspectRatio(contentMode: .fit)
-                    .frame(height: 30)
-            }
-            .buttonStyle(PlainButtonStyle())
+            Spacer(minLength: 0)
 
-            // Distractions
-            Button(action: {}) {
-                Image("DistractionsChip")
-                    .resizable()
-                    .interpolation(.high)
-                    .renderingMode(.original)
-                    .aspectRatio(contentMode: .fit)
-                    .frame(height: 30)
-            }
-            .buttonStyle(PlainButtonStyle())
-
-            Spacer()
-
-            // Date controls moved to the right of the chips row
             HStack(spacing: 12) {
                 DayflowCircleButton {
-                    // Go to previous day
                     let from = selectedDate
                     let to = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
                     previousDate = selectedDate
@@ -428,7 +438,6 @@ struct TabFilterBar: View {
                 .buttonStyle(PlainButtonStyle())
 
                 DayflowCircleButton {
-                    // Go to next day
                     let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
                     if tomorrow <= Date() {
                         let from = selectedDate
@@ -473,6 +482,64 @@ struct TabFilterBar: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
+    }
+}
+
+private extension TabFilterBar {
+    struct CategoryChip: View {
+        let category: TimelineCategory
+        let isIdle: Bool
+
+        var body: some View {
+            let baseColor = Color(hex: category.colorHex)
+            let textColor = isIdle ? baseColor : adaptiveTextColor(for: category.colorHex)
+
+            return Text(category.name)
+                .font(.system(size: 13, weight: .semibold))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(
+                    Group {
+                        if isIdle {
+                            Color.white.opacity(0.8)
+                        } else {
+                            baseColor.opacity(0.9)
+                        }
+                    }
+                )
+                .foregroundColor(isIdle ? textColor : textColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(borderColor(for: baseColor, isIdle: isIdle), style: borderStyle(for: isIdle))
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .shadow(color: Color.black.opacity(isIdle ? 0 : 0.12), radius: isIdle ? 0 : 8, x: 0, y: isIdle ? 0 : 4)
+        }
+
+        private func borderColor(for color: Color, isIdle: Bool) -> Color {
+            if isIdle {
+                return color.opacity(0.6)
+            }
+            return Color.white.opacity(0.2)
+        }
+
+        private func borderStyle(for isIdle: Bool) -> StrokeStyle {
+            if isIdle {
+                return StrokeStyle(lineWidth: 1.2, dash: [4, 2])
+            }
+            return StrokeStyle(lineWidth: 1)
+        }
+
+        private func adaptiveTextColor(for hex: String) -> Color {
+            guard let nsColor = NSColor(hex: hex) else { return .white }
+            var r: CGFloat = 0
+            var g: CGFloat = 0
+            var b: CGFloat = 0
+            var a: CGFloat = 0
+            nsColor.usingColorSpace(.sRGB)?.getRed(&r, green: &g, blue: &b, alpha: &a)
+            let brightness = (0.299 * r) + (0.587 * g) + (0.114 * b)
+            return brightness > 0.6 ? Color.black.opacity(0.8) : .white
+        }
     }
 }
 
@@ -573,6 +640,7 @@ struct ActivityCard: View {
     var scrollSummary: Bool = false
     var hasAnyActivities: Bool = true
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var categoryStore: CategoryStore
     
     private let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -590,7 +658,20 @@ struct ActivityCard: View {
                         .fontWeight(.semibold)
                     Spacer()
                 }
-                
+
+                if let badge = categoryBadge(for: activity.category) {
+                    HStack {
+                        Text(badge.name)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(badge.textColor)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(badge.background)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        Spacer()
+                    }
+                }
+
                 Text("\(timeFormatter.string(from: activity.startTime)) to \(timeFormatter.string(from: activity.endTime))")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -723,35 +804,34 @@ struct ActivityCard: View {
             }
         }
     }
-    
-    private func iconForActivity(_ activity: TimelineActivity) -> String {
-        switch activity.category.lowercased() {
-        case "productive work", "work":
-            return "laptopcomputer" // valid SF Symbol
-        case "research", "learning":
-            return "book"
-        case "personal", "hobbies":
-            return "person"
-        case "distraction", "entertainment":
-            return "play.rectangle.fill"
-        default:
-            return "circle"
+
+    private func categoryBadge(for raw: String) -> (name: String, background: Color, textColor: Color)? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let normalized = trimmed.lowercased()
+        let categories = categoryStore.categories
+        let matched = categories.first { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalized }
+        guard let category = matched ?? categories.first else { return nil }
+
+        let nsColor = NSColor(hex: category.colorHex) ?? NSColor(hex: "#4F80EB") ?? .systemBlue
+        var r: CGFloat = 0
+        var g: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+        nsColor.usingColorSpace(.sRGB)?.getRed(&r, green: &g, blue: &b, alpha: &a)
+        let brightness = (0.299 * r) + (0.587 * g) + (0.114 * b)
+
+        let background: Color
+        let textColor: Color
+        if category.isIdle {
+            background = Color.white.opacity(0.8)
+            textColor = Color(nsColor: nsColor).opacity(0.9)
+        } else {
+            background = Color(nsColor: nsColor).opacity(0.85)
+            textColor = brightness > 0.6 ? Color.black.opacity(0.8) : .white
         }
-    }
-    
-    private func colorForActivity(_ activity: TimelineActivity) -> Color {
-        switch activity.category.lowercased() {
-        case "productive work", "work":
-            return .blue
-        case "research", "learning":
-            return .purple
-        case "personal", "hobbies":
-            return .green
-        case "distraction", "entertainment":
-            return .red
-        default:
-            return .gray
-        }
+
+        return (name: category.name, background: background, textColor: textColor)
     }
 }
 

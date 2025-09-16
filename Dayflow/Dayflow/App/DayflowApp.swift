@@ -10,9 +10,11 @@ import Sparkle
 
 // MARK: - Root View with Transparent UI
 struct AppRootView: View {
+    @EnvironmentObject private var categoryStore: CategoryStore
     var body: some View {
         MainView()
             .environmentObject(AppState.shared)
+            .environmentObject(categoryStore)
     }
 }
 
@@ -24,6 +26,7 @@ struct DayflowApp: App {
     @State private var showVideoLaunch = true
     @State private var contentOpacity = 0.0
     @State private var contentScale = 0.98
+    @StateObject private var categoryStore = CategoryStore()
     
     init() {
         // Comment out for production - only use for testing onboarding
@@ -41,10 +44,12 @@ struct DayflowApp: App {
                     if didOnboard {
                         // Show UI after onboarding
                         AppRootView()
+                            .environmentObject(categoryStore)
                             .environmentObject(updaterManager)
                     } else {
                         OnboardingFlow()
                             .environmentObject(AppState.shared)
+                            .environmentObject(categoryStore)
                             .environmentObject(updaterManager)
                     }
                 }

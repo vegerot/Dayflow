@@ -2,14 +2,6 @@ import SwiftUI
 import AppKit
 import Foundation
 
-// MARK: - Card Color Enum
-enum CardColor: String, CaseIterable {
-    case blue = "BlueTimelineCard"
-    case orange = "OrangeTimelineCard"
-    case red = "RedTimelineCard"
-    case idle = "IdleCard"
-}
-
 // MARK: - Canvas Config (preserve Canvas look)
 private struct CanvasConfig {
     static let hourHeight: CGFloat = 120           // 120px per hour (Canvas look)
@@ -27,33 +19,12 @@ private struct CanvasPositionedActivity: Identifiable {
     let height: CGFloat
     let title: String
     let timeLabel: String
-    let color: CardColor
+    let categoryName: String
     let faviconPrimaryHost: String?
     let faviconSecondaryHost: String?
 }
 
 // MARK: - Selection Effect Constants (file-local)
-private struct SelectionEffectConstants {
-    static let shadowRadius: CGFloat = 12
-    static let shadowOffset = CGSize(width: 4, height: 4)
-    static let blueShadowColor = Color(red: 0.2, green: 0.4, blue: 0.9).opacity(0.3)
-    static let orangeShadowColor = Color(red: 1.0, green: 0.6, blue: 0.2).opacity(0.3)
-    static let redShadowColor = Color(red: 0.9, green: 0.3, blue: 0.3).opacity(0.3)
-
-    static let springResponse: Double = 0.35
-    static let springDampingFraction: Double = 0.8
-    static let springBlendDuration: Double = 0.1
-
-    static func shadowColor(for cardColor: CardColor) -> Color {
-        switch cardColor {
-        case .blue: return blueShadowColor
-        case .orange: return orangeShadowColor
-        case .red: return redShadowColor
-        case .idle: return Color.gray.opacity(0.2) // Subtle shadow for idle
-        }
-    }
-}
-
 struct CanvasTimelineDataView: View {
     @Binding var selectedDate: Date
     @Binding var selectedActivity: TimelineActivity?
@@ -64,6 +35,7 @@ struct CanvasTimelineDataView: View {
     @State private var positionedActivities: [CanvasPositionedActivity] = []
     @State private var refreshTimer: Timer?
     @State private var didInitialScrollInView: Bool = false
+    @EnvironmentObject private var categoryStore: CategoryStore
 
     private let storageManager = StorageManager.shared
 
@@ -205,7 +177,7 @@ struct CanvasTimelineDataView: View {
                     title: item.title,
                     time: item.timeLabel,
                     height: item.height,
-                    cardColor: item.color,
+                    style: style(for: item.categoryName),
                     isSelected: selectedCardId == item.id,
                     onTap: {
                         if selectedCardId == item.id {
@@ -274,7 +246,7 @@ struct CanvasTimelineDataView: View {
                     height: height,
                     title: seg.activity.title,
                     timeLabel: formatRange(start: seg.start, end: seg.end),
-                    color: colorForCategory(seg.activity.category),
+                    categoryName: seg.activity.category,
                     faviconPrimaryHost: primaryHost,
                     faviconSecondaryHost: secondaryHost
                 )
@@ -514,21 +486,32 @@ struct CanvasTimelineDataView: View {
     }
 
 
-    private func colorForCategory(_ category: String) -> CardColor {
-        let key = category.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        switch key {
-        case "work":
-            return .orange   // Work → Orange
-        case "personal":
-            return .blue     // Personal → Blue
-        case "distraction":
-            return .red
-        case "idle", "idle time":
-            return .idle     // Idle → Gray dotted border
-        default:
-            // If upstream sends unexpected labels, keep a safe default
-            return .orange
-        }
+    private func style(for rawCategory: String) -> CanvasActivityCardStyle {
+        let normalized = rawCategory.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let categories = categoryStore.categories
+        let matched = categories.first { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalized }
+        let fallback = categories.first ?? CategoryPersistence.defaultCategories.first!
+        let category = matched ?? fallback
+
+        let baseNSColor = NSColor(hex: category.colorHex) ?? NSColor(hex: "#4F80EB") ?? .systemBlue
+        let baseColor = Color(nsColor: baseNSColor)
+        let accent = baseNSColor
+
+        var r: CGFloat = 0
+        var g: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+        baseNSColor.usingColorSpace(.sRGB)?.getRed(&r, green: &g, blue: &b, alpha: &a)
+        let brightness = (0.299 * r) + (0.587 * g) + (0.114 * b)
+        let textColor: Color = brightness > 0.6 ? Color.black.opacity(0.85) : .white
+        let timeColor: Color = brightness > 0.6 ? Color.black.opacity(0.7) : Color.white.opacity(0.85)
+
+        return CanvasActivityCardStyle(
+            text: category.isIdle ? baseColor.opacity(0.9) : textColor,
+            time: category.isIdle ? Color.gray.opacity(0.8) : timeColor,
+            accent: Color(nsColor: accent),
+            isIdle: category.isIdle
+        )
     }
 }
 
@@ -579,66 +562,31 @@ extension CanvasTimelineDataView {
 }
 
 // MARK: - Canvas Activity Card (visuals preserved from Canvas)
+struct CanvasActivityCardStyle {
+    let text: Color
+    let time: Color
+    let accent: Color
+    let isIdle: Bool
+}
+
 struct CanvasActivityCard: View {
     let title: String
     let time: String
     let height: CGFloat
-    let cardColor: CardColor
+    let style: CanvasActivityCardStyle
     let isSelected: Bool
     let onTap: () -> Void
     let faviconPrimaryHost: String?
     let faviconSecondaryHost: String?
     
-    // Helper function to get gradient colors based on card type
-    private func gradientColors(for color: CardColor) -> [Color] {
-        switch color {
-        case .blue:
-            // Productive work: Soft mint/sage pastels
-            return [
-                Color(red: 0.85, green: 0.94, blue: 0.90), // #D9F0E5 - Soft mint
-                Color(red: 0.90, green: 0.96, blue: 0.93)  // #E5F5ED - Lighter mint
-            ]
-        case .red:
-            // Distractions: Warm peach/coral pastels
-            return [
-                Color(red: 1.0, green: 0.88, blue: 0.85),  // #FFE0D9 - Soft peach
-                Color(red: 1.0, green: 0.92, blue: 0.90)   // #FFEBE5 - Lighter peach
-            ]
-        case .orange:
-            // Learning/Personal: Soft lavender pastels
-            return [
-                Color(red: 0.92, green: 0.88, blue: 0.95), // #EBE0F2 - Soft lavender
-                Color(red: 0.95, green: 0.92, blue: 0.97)  // #F2EBF7 - Lighter lavender
-            ]
-        case .idle:
-            // Idle: White background (no gradient)
-            return [Color.white, Color.white]
-        }
-    }
-    
-    // Helper function to get border color based on card type
-    private func borderColor(for color: CardColor) -> Color {
-        switch color {
-        case .blue:
-            return Color(red: 0.70, green: 0.85, blue: 0.78).opacity(0.5) // Soft mint border
-        case .red:
-            return Color(red: 0.95, green: 0.75, blue: 0.70).opacity(0.5) // Soft coral border
-        case .orange:
-            return Color(red: 0.82, green: 0.75, blue: 0.88).opacity(0.5) // Soft lavender border
-        case .idle:
-            return Color(red: 0.6, green: 0.6, blue: 0.6).opacity(0.8) // Gray border for idle
-        }
-    }
-
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            // Favicon or fallback ✨
             FaviconOrSparkleView(primaryHost: faviconPrimaryHost, secondaryHost: faviconSecondaryHost)
                 .frame(width: 16, height: 16)
 
             Text(title)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(cardColor == .idle ? Color.gray : Color(red: 0.25, green: 0.25, blue: 0.30))
+                .foregroundColor(style.text)
 
             Spacer()
 
@@ -647,79 +595,23 @@ struct CanvasActivityCard: View {
                     Font.custom("Nunito", size: 10)
                         .weight(.medium)
                 )
-                .foregroundColor(cardColor == .idle ? Color.gray.opacity(0.8) : Color(red: 0.35, green: 0.35, blue: 0.40).opacity(0.8))
+                .foregroundColor(style.time)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .topLeading)
-        .background(Color.white.opacity(0.7))
+        .background(style.isIdle ? Color.white.opacity(0.6) : Color.white.opacity(0.8))
         .overlay(alignment: .leading) {
             Rectangle()
-                .fill(Color(hex: "4F80EB"))
+                .fill(style.accent)
                 .frame(width: 5)
         }
         .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
-        // Keep outer horizontal padding to respect timeline gutters
         .padding(.horizontal, 6)
         .contentShape(Rectangle())
         .onTapGesture { onTap() }
-    }
-
-    // MARK: - Background asset selection (aspect‑ratio based)
-    private func smallImageName(for color: CardColor) -> String {
-        switch color { 
-            case .blue: return "BlueCard"
-            case .orange: return "OrangeCard"
-            case .red: return "RedCard"
-            case .idle: return "" // No image for idle cards
-        }
-    }
-    private func largeImageName(for color: CardColor) -> String {
-        switch color { 
-            case .blue: return "LargeBlueCard"
-            case .orange: return "LargeOrangeCard"
-            case .red: return "LargeRedCard"
-            case .idle: return "" // No image for idle cards
-        }
-    }
-
-    private func chooseBackgroundImageName(for color: CardColor, cardSize: CGSize) -> String? {
-        let small = smallImageName(for: color)
-        let large = largeImageName(for: color)
-
-        let cardAR = safeAspect(width: cardSize.width, height: cardSize.height)
-        let smallAR = imageAspectRatio(named: small)
-        let largeAR = imageAspectRatio(named: large)
-
-        switch (smallAR, largeAR) {
-        case let (s?, l?):
-            let errS = abs(cardAR - s)
-            let errL = abs(cardAR - l)
-            return errL < errS ? large : small
-        case let (s?, nil):
-            return small
-        case let (nil, l?):
-            return large
-        default:
-            return nil
-        }
-    }
-
-    private func safeAspect(width: CGFloat, height: CGFloat) -> CGFloat {
-        let w = max(width, 1)
-        let h = max(height, 1)
-        return w / h
-    }
-
-    private static var aspectCache: [String: CGFloat] = [:]
-    private func imageAspectRatio(named name: String) -> CGFloat? {
-        if let cached = Self.aspectCache[name] { return cached }
-        guard let img = NSImage(named: name), img.size.width > 0, img.size.height > 0 else { return nil }
-        let ar = img.size.width / img.size.height
-        Self.aspectCache[name] = ar
-        return ar
     }
 }
 
@@ -735,6 +627,7 @@ struct CanvasActivityCard: View {
                                    scrollToNowTick: $tick,
                                    hasAnyActivities: .constant(true))
                 .frame(width: 800, height: 600)
+                .environmentObject(CategoryStore())
         }
     }
     return PreviewWrapper()
