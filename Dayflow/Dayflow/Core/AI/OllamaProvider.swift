@@ -82,13 +82,15 @@ final class OllamaProvider: LLMProvider {
         
         
         // Generate initial activity card for these observations
-        let (titleSummary, firstLog) = try await generateTitleAndSummary(observations: sortedObservations)
+        let (titleSummary, firstLog) = try await generateTitleAndSummary(observations: sortedObservations, categories: context.categories)
         logs.append(firstLog)
         
+        let normalizedCategory = normalizeCategory(titleSummary.category, categories: context.categories)
+
         let initialCard = ActivityCardData(
             startTime: formatTimestampForPrompt(sortedObservations.first!.startTs),
             endTime: formatTimestampForPrompt(sortedObservations.last!.endTs),
-            category: titleSummary.category,
+            category: normalizedCategory,
             subcategory: "",
             title: titleSummary.title,
             summary: titleSummary.summary,
@@ -547,13 +549,42 @@ final class OllamaProvider: LLMProvider {
         let summary: String
         let category: String
     }
+
+    private func normalizeCategory(_ raw: String, categories: [LLMCategoryDescriptor]) -> String {
+        let cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return categories.first?.name ?? "" }
+        let normalized = cleaned.lowercased()
+        if let match = categories.first(where: { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalized }) {
+            return match.name
+        }
+        if let idle = categories.first(where: { $0.isIdle }) {
+            let idleLabels = ["idle", "idle time", idle.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()]
+            if idleLabels.contains(normalized) {
+                return idle.name
+            }
+        }
+        return categories.first?.name ?? cleaned
+    }
     
-    private func generateTitleAndSummary(observations: [Observation]) async throws -> (TitleSummaryResponse, String) {
+    private func generateTitleAndSummary(observations: [Observation], categories: [LLMCategoryDescriptor]) async throws -> (TitleSummaryResponse, String) {
         let observationsText = observations.map { obs in
             let startTime = formatTimestampForPrompt(obs.startTs)
             let endTime = formatTimestampForPrompt(obs.endTs)
             return "[\(startTime) - \(endTime)]: \(obs.observation)"
         }.joined(separator: "\n")
+
+        let descriptorList = categories.isEmpty ? CategoryStore.descriptorsForLLM() : categories
+        let categoriesSection = descriptorList.enumerated().map { index, descriptor in
+            var description = descriptor.description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if descriptor.isIdle && description.isEmpty {
+                description = "Use when the user is idle for most of the period."
+            }
+            let dashDescription = description.isEmpty ? "" : " — \(description)"
+            return "- \"\(descriptor.name)\"\(dashDescription)"
+        }.joined(separator: "\n")
+
+        let allowedValues = descriptorList.map { "\"\($0.name)\"" }.joined(separator: ", ")
+        let idleReminder = descriptorList.first(where: { $0.isIdle })?.name
         
         let prompt = """
         You are observing someone's computer activity from the last 15 minutes.
@@ -614,23 +645,22 @@ final class OllamaProvider: LLMProvider {
         ✗ "I was working on fixing bugs in the codebase."
           WHY BAD: Don't use "I"! Say: "Fixed race condition in auth flow, added mutex locks."
         
-        CATEGORIES (you MUST pick one of the following):
-        - Work
-        - Personal
-        - Distractions
+        CATEGORIES (choose exactly one label):
+        \(categoriesSection)
+        \(idleReminder.map { "Only use \"\($0)\" when the user is idle for more than half of the period." } ?? "")
         
         🚨 FINAL CHECKLIST BEFORE RESPONDING:
         1. Title: Casual like texting a friend? No "working on/with"?
         2. Summary: Check EVERY word - NO "the user", "User", or "They" ANYWHERE?
         3. Summary: Starts with action verbs? EXACTLY 2-3 sentences?
-        4. Category: Work, Personal, or Distractions ONLY?
+        4. Category: One of [\(allowedValues)]?
         
         REASONING FIELD (REQUIRED):
         You MUST use the "reasoning" field to plan your response. Think step by step:
         1. What was the main activity in these observations?
         2. Draft your summary - check: did I write "the user" or "User"? Fix it!
         3. Draft your title - check: did I use "working on/with"? Make it casual!
-        4. Pick category: Is this Work, Personal, or Distractions?
+        4. Pick category: Which label from [\(allowedValues)] best matches?
         
         Return JSON:
         {

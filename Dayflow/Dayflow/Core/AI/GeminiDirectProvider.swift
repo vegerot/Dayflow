@@ -20,6 +20,63 @@ final class GeminiDirectProvider: LLMProvider {
         self.apiKey = apiKey
     }
 
+    private func categoriesSection(from descriptors: [LLMCategoryDescriptor]) -> String {
+        guard !descriptors.isEmpty else {
+            return "USER CATEGORIES: No categories configured. Use consistent labels based on the activity story."
+        }
+
+        let allowed = descriptors.map { "\"\($0.name)\"" }.joined(separator: ", ")
+        var lines: [String] = ["USER CATEGORIES (choose exactly one label):"]
+
+        for (index, descriptor) in descriptors.enumerated() {
+            var desc = descriptor.description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if descriptor.isIdle && desc.isEmpty {
+                desc = "Use when the user is idle for most of this period."
+            }
+            let suffix = desc.isEmpty ? "" : " — \(desc)"
+            lines.append("\(index + 1). \"\(descriptor.name)\"\(suffix)")
+        }
+
+        if let idle = descriptors.first(where: { $0.isIdle }) {
+            lines.append("Only use \"\(idle.name)\" when the user is idle for more than half of the timeframe. Otherwise pick the closest non-idle label.")
+        }
+
+        lines.append("Return the category exactly as written. Allowed values: [\(allowed)].")
+        return lines.joined(separator: "\n")
+    }
+
+    private func normalizeCategory(_ raw: String, descriptors: [LLMCategoryDescriptor]) -> String {
+        let cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return descriptors.first?.name ?? "" }
+        let normalized = cleaned.lowercased()
+        if let match = descriptors.first(where: { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalized }) {
+            return match.name
+        }
+        if let idle = descriptors.first(where: { $0.isIdle }) {
+            let idleLabels = ["idle", "idle time", idle.name.lowercased()]
+            if idleLabels.contains(normalized) {
+                return idle.name
+            }
+        }
+        return descriptors.first?.name ?? cleaned
+    }
+
+    private func normalizeCards(_ cards: [ActivityCardData], descriptors: [LLMCategoryDescriptor]) -> [ActivityCardData] {
+        cards.map { card in
+            ActivityCardData(
+                startTime: card.startTime,
+                endTime: card.endTime,
+                category: normalizeCategory(card.category, descriptors: descriptors),
+                subcategory: card.subcategory,
+                title: card.title,
+                summary: card.summary,
+                detailedSummary: card.detailedSummary,
+                distractions: card.distractions,
+                appSites: card.appSites
+            )
+        }
+    }
+
     // MARK: - Debug helpers
     private func truncate(_ text: String, max: Int = 2000) -> String {
         if text.count <= max { return text }
@@ -340,6 +397,8 @@ final class GeminiDirectProvider: LLMProvider {
         let existingCardsJSON = try encoder.encode(context.existingCards)
         let existingCardsString = String(data: existingCardsJSON, encoding: .utf8) ?? "[]"
         
+        let exampleCategory = context.categories.first?.name ?? "Work"
+
         let activityGenerationPrompt = """
         You are a digital anthropologist, observing a user's raw activity log. Your goal is to synthesize this log into a high-level, human-readable story of their session, presented as a series of timeline cards.
         THE GOLDEN RULE:
@@ -434,31 +493,7 @@ final class GeminiDirectProvider: LLMProvider {
         "Began by reviewing the codebase and then dove deep into implementing new features. The work involved multiple context switches between different parts of the application."
         (All filler, no actual information)
         
-        
-        CATEGORY CLASSIFICATION:
-        Assign category based on intent and relevance to professional goals:
-
-        WORK: Activities directly related to school, job, career, or professional development
-        - Coding, debugging, work emails, Slack, client meetings, studying, research
-        - Learning work-related skills (YouTube coding tutorial, Coursera course)
-        - Job searching, networking, portfolio work
-        
-        PERSONAL: Intentional non-work activities for personal needs/interests  
-        - Entertainment, social media for connecting with friends
-        - Personal research (travel, shopping with intent)
-        - Hobbies, side projects for fun, personal finance
-
-        DISTRACTION: Aimless, compulsive, or unintentional time-wasters
-        - YouTube cat videos, TikTok scrolling, Reddit rabbit holes  
-        - Compulsive email/notification checking
-        - Random browsing without clear purpose
-        
-        IDLE: User is idle for the majority of the duration.
-
-        Same app, different category based on use:
-        - YouTube: coding tutorial = Work, music playlist = Personal, cat videos = Distraction
-        - Twitter: following industry news = Work, chatting with friends = Personal, doom-scrolling = Distraction
-        - Shopping: buying work equipment = Work, planned purchase = Personal, window shopping = Distraction
+        \(categoriesSection(from: context.categories))
 
         APP SITES (Website Logos)
         Identify the main app or website used for each card and include an appSites object.
@@ -505,7 +540,7 @@ final class GeminiDirectProvider: LLMProvider {
                   {
                     "startTime": "1:12 AM",
                     "endTime": "1:30 AM",
-                    "category": "Work",
+                    "category": "\(exampleCategory)",
                     "subcategory": "Coding",
                     "title": "Working on auth bug in Dayflow",
                     "summary": "Fixed authentication bug in the login flow and added error handling",
@@ -532,7 +567,7 @@ final class GeminiDirectProvider: LLMProvider {
             prompt: activityGenerationPrompt,
             batchId: batchId
         )
-        var cards = try parseActivityCards(response)
+        var cards = normalizeCards(try parseActivityCards(response), descriptors: context.categories)
         
         // Track the actual prompt used for logging
         var actualPromptUsed = activityGenerationPrompt
@@ -599,7 +634,7 @@ final class GeminiDirectProvider: LLMProvider {
             // Retry with enhanced prompt
             actualPromptUsed = retryPrompt
             response = try await geminiCardsRequest(prompt: retryPrompt, batchId: batchId)
-            cards = try parseActivityCards(response)
+            cards = normalizeCards(try parseActivityCards(response), descriptors: context.categories)
         }
         
         let log = LLMCall(
@@ -616,31 +651,109 @@ final class GeminiDirectProvider: LLMProvider {
     
     // MARK: - Gemini-specific methods (from original GeminiService)
     
-    private func uploadAndAwait(_ fileURL: URL, mimeType: String, key: String, maxWaitTime: TimeInterval = 6 * 60) async throws -> (fileSize: Int64, fileURI: String) {
+    private func uploadAndAwait(_ fileURL: URL, mimeType: String, key: String, maxWaitTime: TimeInterval = 3 * 60) async throws -> (fileSize: Int64, fileURI: String) {
         let fileData = try Data(contentsOf: fileURL)
         let fileSize = fileData.count
-        var uploadedFileURI: String? = nil
-        
-        // Removed debug print
-        
-        // Always use resumable upload
-        // Removed debug print
-        uploadedFileURI = try await uploadResumable(data: fileData, mimeType: mimeType)
-        
-        guard let fileURI = uploadedFileURI else {
-            throw NSError(domain: "GeminiError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to upload file"])
-        }
-        
-        let startTime = Date()
-        while Date().timeIntervalSince(startTime) < maxWaitTime {
-            let status = try await getFileStatus(fileURI: fileURI)
-            if status == "ACTIVE" {
-                return (Int64(fileSize), fileURI)
+
+        // Full cycle retry: upload + processing
+        let maxCycles = 3
+        var lastError: Error?
+
+        for cycle in 1...maxCycles {
+            print("🔄 Upload+Processing cycle \(cycle)/\(maxCycles)")
+
+            var uploadedFileURI: String? = nil
+
+            // Upload with retries
+            let maxUploadRetries = 3
+            var uploadAttempt = 0
+
+            while uploadAttempt < maxUploadRetries {
+                do {
+                    uploadedFileURI = try await uploadResumable(data: fileData, mimeType: mimeType)
+                    break // Upload success, exit upload retry loop
+                } catch {
+                    uploadAttempt += 1
+                    lastError = error
+
+                    // Check if this is a retryable error
+                    if shouldRetryUpload(error: error) && uploadAttempt < maxUploadRetries {
+                        let delay = pow(2.0, Double(uploadAttempt)) // Exponential backoff: 2s, 4s, 8s
+                        print("🔄 Upload attempt \(uploadAttempt) failed, retrying in \(Int(delay))s: \(error.localizedDescription)")
+                        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    } else {
+                        // Either non-retryable error or max upload retries exceeded
+                        if uploadAttempt >= maxUploadRetries {
+                            print("❌ Upload failed after \(maxUploadRetries) attempts in cycle \(cycle)")
+                        }
+                        break // Break upload retry loop, will continue to next cycle
+                    }
+                }
             }
-            try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+
+            // If upload failed completely, try next cycle
+            guard let fileURI = uploadedFileURI else {
+                if cycle == maxCycles {
+                    throw lastError ?? NSError(domain: "GeminiError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to upload file after \(maxCycles) cycles"])
+                }
+                print("🔄 Upload failed in cycle \(cycle), trying next cycle")
+                continue
+            }
+
+            // Upload succeeded, now poll for processing with 3-minute timeout
+            print("✅ Upload succeeded in cycle \(cycle), polling for file processing...")
+            let startTime = Date()
+
+            while Date().timeIntervalSince(startTime) < maxWaitTime {
+                do {
+                    let status = try await getFileStatus(fileURI: fileURI)
+                    if status == "ACTIVE" {
+                        print("✅ File processing completed in cycle \(cycle)")
+                        return (Int64(fileSize), fileURI)
+                    }
+                } catch {
+                    print("⚠️ Error checking file status: \(error.localizedDescription)")
+                    lastError = error
+                }
+                try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+            }
+
+            // Processing timeout occurred
+            print("⏰ File processing timeout (3 minutes) in cycle \(cycle)")
+            lastError = NSError(domain: "GeminiError", code: 2, userInfo: [NSLocalizedDescriptionKey: "File processing timeout"])
+
+            if cycle < maxCycles {
+                print("🔄 Starting next upload+processing cycle...")
+            }
         }
-        
-        throw NSError(domain: "GeminiError", code: 2, userInfo: [NSLocalizedDescriptionKey: "File processing timeout"])
+
+        // All cycles failed
+        throw lastError ?? NSError(domain: "GeminiError", code: 3, userInfo: [NSLocalizedDescriptionKey: "Upload and processing failed after \(maxCycles) complete cycles"])
+    }
+
+    private func shouldRetryUpload(error: Error) -> Bool {
+        // Retry on network connection issues
+        if let nsError = error as NSError? {
+            // Network connection lost (error -1005)
+            if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorNetworkConnectionLost {
+                return true
+            }
+            // Connection timeout (error -1001)
+            if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorTimedOut {
+                return true
+            }
+            // DNS lookup failed (error -1003)
+            if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCannotFindHost {
+                return true
+            }
+            // Socket connection issues (various codes)
+            if nsError.domain == NSURLErrorDomain && (nsError.code == NSURLErrorCannotConnectToHost || nsError.code == NSURLErrorNotConnectedToInternet) {
+                return true
+            }
+        }
+
+        // Don't retry on API key issues, file format problems, etc.
+        return false
     }
     
     private func uploadSimple(data: Data, mimeType: String) async throws -> String {

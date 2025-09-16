@@ -276,7 +276,8 @@ final class LLMService: LLMServicing {
                 let context = ActivityGenerationContext(
                     batchObservations: observations,
                     existingCards: existingActivityCards,
-                    currentTime: currentTime
+                    currentTime: currentTime,
+                    categories: CategoryStore.descriptorsForLLM()
                 )
                 
                 // Generate activity cards using sliding window observations

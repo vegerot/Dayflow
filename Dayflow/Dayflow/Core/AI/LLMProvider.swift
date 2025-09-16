@@ -14,6 +14,7 @@ struct ActivityGenerationContext {
     let batchObservations: [Observation]
     let existingCards: [ActivityCardData]  // Cards that overlap with current analysis window
     let currentTime: Date  // Current time to prevent future timestamps
+    let categories: [LLMCategoryDescriptor]
 }
 
 enum LLMProviderType: Codable {
