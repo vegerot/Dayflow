@@ -1,6 +1,11 @@
-# Dayflow
-_A timeline of your day, automatically._  
-Turns your screen activity into a clean timeline with AI summaries and distraction highlights.
+<div align="center">
+  <img src="docs/images/dayflow_header.png" alt="Dayflow" width="400">
+</div>
+
+<div align="center">
+  <em>A timeline of your day, automatically.</em><br>
+  Turns your screen activity into a clean timeline with AI summaries and distraction highlights.
+</div>
 
 <!-- Badges -->
 ![Platform: macOS 13+](https://img.shields.io/badge/macOS-13%2B-000?logo=apple)
