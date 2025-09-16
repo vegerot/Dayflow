@@ -7,12 +7,14 @@
   Turns your screen activity into a clean timeline with AI summaries and distraction highlights.
 </div>
 
-<!-- Badges -->
-![Platform: macOS 13+](https://img.shields.io/badge/macOS-13%2B-000?logo=apple)
-![SwiftUI](https://img.shields.io/badge/SwiftUI-✓-orange)
-![Updates: Sparkle](https://img.shields.io/badge/Updates-Sparkle-informational)
-![AI: Gemini / Local](https://img.shields.io/badge/AI-Gemini%20or%20Local-blue)
-![License: MIT](https://img.shields.io/badge/License-MIT-green)
+<div align="center">
+  <!-- Badges -->
+  <img src="https://img.shields.io/badge/macOS-13%2B-000?logo=apple" alt="Platform: macOS 13+">
+  <img src="https://img.shields.io/badge/SwiftUI-✓-orange" alt="SwiftUI">
+  <img src="https://img.shields.io/badge/Updates-Sparkle-informational" alt="Updates: Sparkle">
+  <img src="https://img.shields.io/badge/AI-Gemini%20or%20Local-blue" alt="AI: Gemini / Local">
+  <img src="https://img.shields.io/badge/License-MIT-green" alt="License: MIT">
+</div>
 
 <div align="center">
   <img src="docs/images/hero_animation_1080p.gif" alt="Dayflow Hero Animation" width="800">
