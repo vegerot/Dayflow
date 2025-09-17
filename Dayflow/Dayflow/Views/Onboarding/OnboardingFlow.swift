@@ -11,7 +11,6 @@ import ScreenCaptureKit
 // Window manager removed - no longer needed!
 
 struct OnboardingFlow: View {
-    // MARK: – State
     @AppStorage("onboardingStep") private var savedStepRawValue = 0
     @State private var step: Step = .welcome
     @AppStorage("didOnboard") private var didOnboard = false
@@ -153,7 +152,6 @@ struct OnboardingFlow: View {
         }
     }
     
-    // MARK: – Flow control
     private func restoreSavedStep() {
         if let savedStep = Step(rawValue: savedStepRawValue) {
             step = savedStep
@@ -235,7 +233,6 @@ struct OnboardingFlow: View {
     }
 }
 
-// MARK: – Helpers
 
 /// Wizard step order
 private enum Step: Int, CaseIterable { case welcome, howItWorks, screen, llmSelection, categories, llmSetup, done
@@ -243,7 +240,6 @@ private enum Step: Int, CaseIterable { case welcome, howItWorks, screen, llmSele
     mutating func prev() { self = Step(rawValue: rawValue - 1)! }
 }
 
-// MARK: - Standalone Views
 
 struct WelcomeView: View {
     let fullText: String
@@ -445,7 +441,6 @@ struct CompletionView: View {
     }
 }
 
-// MARK: - Preview
 struct OnboardingFlow_Previews: PreviewProvider {
     static var previews: some View {
         OnboardingFlow()

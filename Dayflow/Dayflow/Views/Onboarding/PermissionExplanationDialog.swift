@@ -87,7 +87,6 @@ struct PermissionExplanationDialog: View {
     }
 }
 
-// MARK: - View Extension for Presenting
 
 extension View {
     func permissionExplanationDialog(isPresented: Binding<Bool>, onProceed: @escaping () -> Void) -> some View {

@@ -8,7 +8,6 @@
 import SwiftUI
 
 
-// MARK: - Reusable Gradient
 struct DayflowAngularGradient {
     static let gradient = AngularGradient(
         gradient: Gradient(stops: [
@@ -35,7 +34,6 @@ struct DayflowAngularGradient {
     )
 }
 
-// MARK: - Shadow Modifier
 struct DayflowShadowModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -47,7 +45,6 @@ struct DayflowShadowModifier: ViewModifier {
     }
 }
 
-// MARK: - View Extensions
 extension View {
     /// Applies Dayflow's signature shadow stack
     func dayflowShadow() -> some View {
@@ -81,7 +78,6 @@ extension View {
     }
 }
 
-// MARK: - Convenience Styled Components
 struct DayflowCircleButton: View {
     let action: () -> Void
     let content: () -> AnyView

@@ -48,7 +48,6 @@ struct DashboardView: View {
     }
 }
 
-// MARK: - Infinite Scrolling Banner
 private struct InfiniteScrollingBanner: View {
     enum Direction { case leftToRight, rightToLeft }
 

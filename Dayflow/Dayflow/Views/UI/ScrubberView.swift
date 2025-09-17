@@ -10,7 +10,6 @@ import SwiftUI
 import AVFoundation
 import AppKit
 
-// MARK: - Filmstrip Generator (lightweight cache)
 final class FilmstripGenerator {
     static let shared = FilmstripGenerator()
 
@@ -126,7 +125,6 @@ final class FilmstripGenerator {
     }
 }
 
-// MARK: - Scrubber View
 struct ScrubberView: View {
     let url: URL
     let duration: Double

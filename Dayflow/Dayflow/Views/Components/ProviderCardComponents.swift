@@ -8,14 +8,12 @@
 
 import SwiftUI
 
-// MARK: - Provider Card Button Mode
 
 enum ProviderCardButtonMode {
     case onboarding(onProceed: () -> Void)
     case settings(onSwitch: () -> Void)
 }
 
-// MARK: - Flexible Provider Card
 
 struct FlexibleProviderCard: View {
     let id: String
@@ -272,13 +270,11 @@ struct FlexibleProviderCard: View {
     }
 }
 
-// MARK: - Badge Type
 
 enum BadgeType {
     case green, orange, blue
 }
 
-// MARK: - Badge View
 
 struct BadgeView: View {
     let text: String
@@ -389,7 +385,6 @@ struct BadgeView: View {
     }
 }
 
-// MARK: - Badge Shadow Modifier
 
 struct BadgeShadowModifier: ViewModifier {
     let shadowColor: Color
@@ -404,7 +399,6 @@ struct BadgeShadowModifier: ViewModifier {
     }
 }
 
-// MARK: - Provider Icon View
 
 struct ProviderIconView: View {
     let icon: String
@@ -425,7 +419,6 @@ struct ProviderIconView: View {
     }
 }
 
-// MARK: - Feature Row View
 
 struct FeatureRowView: View {
     let feature: (text: String, isAvailable: Bool)
@@ -446,7 +439,6 @@ struct FeatureRowView: View {
     }
 }
 
-// MARK: - Selected Card Background
 
 struct SelectedCardBackground: View {
     var body: some View {
@@ -466,7 +458,6 @@ struct SelectedCardBackground: View {
     }
 }
 
-// MARK: - Selected Card Overlay
 
 struct SelectedCardOverlay: View {
     var body: some View {
@@ -507,7 +498,6 @@ struct SelectedCardOverlay: View {
     }
 }
 
-// MARK: - Card Shadow Modifier
 
 struct CardShadowModifier: ViewModifier {
     let isSelected: Bool
@@ -535,7 +525,6 @@ struct CardShadowModifier: ViewModifier {
     }
 }
 
-// MARK: - Color Extension for Hex
 
 extension Color {
     init(hex: String) {

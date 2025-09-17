@@ -21,7 +21,7 @@ final class UpdaterManager: NSObject, ObservableObject {
         // Prefer background checks and automatic downloads
         u.automaticallyChecksForUpdates = true
         u.automaticallyDownloadsUpdates = true
-        u.updateCheckInterval = TimeInterval(60 * 60 * 24)
+        u.updateCheckInterval = TimeInterval(60 * 60) // hourly cadence
         return u
     }()
 
@@ -32,7 +32,7 @@ final class UpdaterManager: NSObject, ObservableObject {
                                              userDriverDelegate: nil)
         c.updater.automaticallyChecksForUpdates = false
         c.updater.automaticallyDownloadsUpdates = true
-        c.updater.updateCheckInterval = TimeInterval(60 * 60 * 24)
+        c.updater.updateCheckInterval = TimeInterval(60 * 60) // hourly cadence
         return c
     }()
 
@@ -58,12 +58,17 @@ final class UpdaterManager: NSObject, ObservableObject {
             // Route interactive checks through the UI driver to allow auth prompts
             interactiveController.updater.checkForUpdates()
         } else {
-            updater.checkForUpdatesInBackground()
+            // Sparkle only allows background checks after the user has granted permission.
+            if updater.automaticallyChecksForUpdates {
+                updater.checkForUpdates()
+            } else {
+                // If permission hasn’t been granted yet, fall back to the interactive flow.
+                interactiveController.updater.checkForUpdates()
+            }
         }
     }
 }
 
-// MARK: - SPUUpdaterDelegate
 
 extension UpdaterManager: SPUUpdaterDelegate {
     nonisolated func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {

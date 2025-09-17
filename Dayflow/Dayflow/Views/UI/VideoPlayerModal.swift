@@ -9,7 +9,6 @@ import SwiftUI
 import AVKit
 import AppKit
 
-// MARK: - Custom Button Style
 struct ScaleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -18,7 +17,6 @@ struct ScaleButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: - Data Models
 struct VideoSegment: Identifiable {
     let id = UUID()
     let title: String
@@ -63,7 +61,6 @@ enum ActivityType {
     }
 }
 
-// MARK: - View Model
 class VideoPlayerViewModel: ObservableObject {
     @Published var currentTime: Double = 0
     @Published var duration: Double = 1
@@ -175,7 +172,6 @@ class VideoPlayerViewModel: ObservableObject {
     }
 }
 
-// MARK: - Main Player View
 struct VideoPlayerModal: View {
     let videoURL: String
     var title: String? = nil
@@ -402,7 +398,6 @@ struct VideoPlayerModal: View {
     }
 }
 
-// MARK: - Helpers
 extension VideoPlayerModal {
     private var timeFormatter: DateFormatter {
         let f = DateFormatter()

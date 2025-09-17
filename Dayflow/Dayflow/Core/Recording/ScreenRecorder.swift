@@ -29,7 +29,6 @@ private enum C {
     static let fps    : Int32        = 1         // keep @ 1 fps - NOTE: This is intentionally low!
 }
 
-// MARK: - SCStream Error Codes
 private enum SCStreamErrorCode: Int {
     case noDisplayOrWindow = -3807          // Transient error, display disconnected
     case userStoppedViaSystemUI = -3808     // User clicked "Stop Sharing" in system UI
@@ -64,10 +63,8 @@ private enum SCStreamErrorCode: Int {
 @inline(__always) func dbg(_: @autoclosure () -> String) {}
 #endif
 
-// MARK: - ScreenRecorder
 final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 
-    // MARK: lifecycle ----------------------------------------------------
     @MainActor
     init(autoStart: Bool = true) {
         super.init()
@@ -101,7 +98,6 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 
         deinit { sub?.cancel(); activeDisplaySub?.cancel(); dbg("deinit") }
 
-    // MARK: private state ----------------------------------------------
     private let q = DispatchQueue(label: "com.dayflow.recorder", qos: .userInitiated)
     private var stream : SCStream?
     private var writer : AVAssetWriter?
@@ -121,7 +117,6 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private var currentDisplayID: CGDirectDisplayID?
     private var requestedDisplayID: CGDirectDisplayID?
 
-    // MARK: public control ----------------------------------------------
     func start() {
         q.async { [weak self] in
             guard let self else { return }
@@ -182,7 +177,6 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         return false
     }
 
-    // MARK: stream setup -------------------------------------------------
     private func makeStream(attempt: Int = 1, maxAttempts: Int = 4) async {
         do {
             // 1. find a display
@@ -296,7 +290,6 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         reset(); dbg("stream stopped")
     }
 
-    // MARK: active-display switching --------------------------------------
     private func handleActiveDisplayChange(_ newID: CGDirectDisplayID) {
         // Only act if a stream exists
         guard currentDisplayID != nil else { return }
@@ -311,7 +304,6 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         start()
     }
 
-    // MARK: segment rotation --------------------------------------------
     private func beginSegment() {
         guard writer == nil else { return }
         let url = StorageManager.shared.nextFileURL(); fileURL = url; frames = 0
@@ -421,7 +413,6 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         timer = nil; writer = nil; input = nil; firstPTS = nil; fileURL = nil; frames = 0
     }
 
-    // MARK: sample-buffer handling ---------------------------------------
     func stream(_ s: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen else { return }
         guard CMSampleBufferDataIsReady(sb) else { return }
@@ -448,7 +439,6 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         }
     }
 
-    // MARK: error & sleep / wake ----------------------------------------
     func stream(_ s: SCStream, didStopWithError err: Error) {
         let scErr = err as NSError
         dbg("stream stopped – domain: \(scErr.domain), code: \(scErr.code), description: \(err.localizedDescription)")
@@ -589,7 +579,6 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         }
     }
 
-    // MARK: helpers ------------------------------------------------------
     private enum RecorderError: Error { case badInput, noDisplay }
 
     /// Accept only fully-assembled frames (complete & not dropped).

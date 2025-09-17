@@ -20,7 +20,6 @@ final class AnalyticsService {
 
     private init() {}
 
-    // MARK: - State
     private let optInKey = "analyticsOptIn"
     private let distinctIdKeychainKey = "analyticsDistinctId"
     private var throttles: [String: Date] = [:]
@@ -38,7 +37,6 @@ final class AnalyticsService {
         }
     }
 
-    // MARK: - Setup
     func start(apiKey: String, host: String) {
         let config = PostHogConfig(apiKey: apiKey, host: host)
         // Disable autocapture for privacy
@@ -64,7 +62,6 @@ final class AnalyticsService {
         PostHogSDK.shared.capture("person_props_updated", properties: payload)
     }
 
-    // MARK: - Identity
     @discardableResult
     private func ensureDistinctId() -> String {
         if let existing = KeychainManager.shared.retrieve(for: distinctIdKeychainKey), !existing.isEmpty {
@@ -75,13 +72,11 @@ final class AnalyticsService {
         return newId
     }
 
-    // MARK: - Opt-in
     func setOptIn(_ enabled: Bool) {
         isOptedIn = enabled
         setPersonProperties(["analytics_opt_in": enabled])
     }
 
-    // MARK: - Capture helpers
     func capture(_ name: String, _ props: [String: Any] = [:]) {
         guard isOptedIn else { return }
         PostHogSDK.shared.capture(name, properties: sanitize(props))
@@ -116,7 +111,6 @@ final class AnalyticsService {
         PostHogSDK.shared.capture("person_props_updated", properties: payload)
     }
 
-    // MARK: - Throttling & Sampling
     func throttled(_ key: String, minInterval: TimeInterval, action: () -> Void) {
         let now = Date()
         if let last = throttles[key], now.timeIntervalSince(last) < minInterval { return }
@@ -129,7 +123,6 @@ final class AnalyticsService {
         action()
     }
 
-    // MARK: - Bucketing helpers
     func secondsBucket(_ seconds: Double) -> String {
         switch seconds {
         case ..<15: return "0-15s"
@@ -156,7 +149,6 @@ final class AnalyticsService {
         return fmt.string(from: date)
     }
 
-    // MARK: - Super properties (initial)
     private func registerInitialSuperProperties() {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
@@ -177,7 +169,6 @@ final class AnalyticsService {
         ])
     }
 
-    // MARK: - Sanitization
     private func sanitize(_ props: [String: Any]) -> [String: Any] {
         // Drop known sensitive keys if ever passed by mistake
         let blocked = Set(["api_key", "token", "authorization", "file_path", "url", "window_title", "clipboard", "screen_content"]) 

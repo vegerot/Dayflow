@@ -13,7 +13,6 @@ class HardwareInfo {
     
     private init() {}
     
-    // MARK: - Public Properties
     
     var modelName: String {
         getSystemProfilerValue(for: "SPHardwareDataType", key: "machine_model") ?? "Unknown Mac"
@@ -96,7 +95,6 @@ class HardwareInfo {
         return machine.contains("arm64")
     }
     
-    // MARK: - Helper Methods
     
     private func getSystemProfilerValue(for dataType: String, key: String) -> String? {
         let task = Process()
@@ -154,7 +152,6 @@ class HardwareInfo {
         return nil
     }
     
-    // MARK: - Convenience Methods
     
     func getSystemSummary() -> String {
         var summary = ""

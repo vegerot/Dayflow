@@ -114,7 +114,6 @@ final class FaviconService {
         return nil
     }
 
-    // MARK: - In-flight task helpers
     private func existingTask(for host: String) -> Task<NSImage?, Never>? {
         inFlightLock.lock()
         let task = inFlight[host]

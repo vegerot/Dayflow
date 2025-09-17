@@ -374,7 +374,6 @@ final class LLMService: LLMServicing {
         }
     }
     
-    // MARK: - Error Card Generation
     
     private func createErrorCard(batchId: Int64, batchStartTime: Date, batchEndTime: Date, error: Error) -> TimelineCardShell {
         let formatter = DateFormatter()

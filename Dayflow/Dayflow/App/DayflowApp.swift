@@ -8,7 +8,6 @@
 import SwiftUI
 import Sparkle
 
-// MARK: - Root View with Transparent UI
 struct AppRootView: View {
     @EnvironmentObject private var categoryStore: CategoryStore
     var body: some View {

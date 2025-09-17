@@ -571,7 +571,6 @@ struct LLMProviderSetupView: View {
     }
 }
 
-// MARK: - State Management
 class ProviderSetupState: ObservableObject {
     @Published var steps: [SetupStep] = []
     @Published var currentStepIndex: Int = 0
@@ -672,7 +671,6 @@ class ProviderSetupState: ObservableObject {
     }
 }
 
-// MARK: - Data Models
 struct SetupStep: Identifiable {
     let id: String
     let title: String
@@ -708,9 +706,7 @@ enum StepContentType {
     }
 }
 
-// MARK: - Button Style removed in favor of DayflowSurfaceButton
 
-// MARK: - Local Engine Selection
 enum LocalEngine: String {
     case ollama
     case lmstudio
@@ -739,7 +735,6 @@ extension ProviderSetupState {
     }
 }
 
-// MARK: - Local LLM Test View
 struct LocalLLMTestView: View {
     @Binding var baseURL: String
     @Binding var modelId: String

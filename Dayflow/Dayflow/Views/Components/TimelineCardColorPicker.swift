@@ -3,7 +3,6 @@ import UniformTypeIdentifiers
 import AppKit
 import Combine
 
-// MARK: - Utilities (HSL → RGB/Hex) — 1:1 with your JS algorithm
 
 fileprivate func hslToRGB(_ h: Double, _ s: Double, _ l: Double) -> (r: Double, g: Double, b: Double) {
     // Normalize hue to [0, 360)
@@ -37,7 +36,6 @@ extension Color {
     }
 }
 
-// MARK: - Color Wheel Image (pixel-accurate CGImage like your <canvas>)
 
 fileprivate func makeColorWheelCGImage(
     size: CGFloat,
@@ -97,7 +95,6 @@ fileprivate func makeColorWheelCGImage(
     return ctx.makeImage()
 }
 
-// MARK: - Dot Pattern (masked like your SVG)
 
 fileprivate struct DotPattern: View {
     var width: CGFloat = 10
@@ -138,7 +135,6 @@ fileprivate struct DotPattern: View {
     }
 }
 
-// MARK: - Color Picker (angles, spreads, bullets, drag)
 
 fileprivate struct ColorPickerView: View {
     // Props (mirroring your defaults)
@@ -347,7 +343,6 @@ fileprivate struct ColorPickerView: View {
     }
 }
 
-// MARK: - Swatch (draggable) — matches size/hover/hint
 
 fileprivate struct ColorSwatch: View {
     var hex: String
@@ -386,7 +381,6 @@ fileprivate struct ColorSwatch: View {
     }
 }
 
-// MARK: - Category cell
 
 fileprivate struct CategoryView: View {
     var category: TimelineCategory
@@ -530,7 +524,6 @@ fileprivate struct CategoryView: View {
     }
 }
 
-// MARK: - Root (recreates your App component)
 
 struct ColorOrganizerRoot: View {
     var showBackgroundGradient: Bool = true

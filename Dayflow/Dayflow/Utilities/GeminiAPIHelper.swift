@@ -176,7 +176,6 @@ class GeminiAPIHelper {
         return text
     }
 
-    // MARK: - Helpers
     private func encodeJSON(_ obj: Any) -> String? {
         guard JSONSerialization.isValidJSONObject(obj) else {
             // Try to coerce header dictionaries with AnyHashable keys

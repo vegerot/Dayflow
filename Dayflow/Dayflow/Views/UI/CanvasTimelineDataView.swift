@@ -2,7 +2,6 @@ import SwiftUI
 import AppKit
 import Foundation
 
-// MARK: - Canvas Config (preserve Canvas look)
 private struct CanvasConfig {
     static let hourHeight: CGFloat = 120           // 120px per hour (Canvas look)
     static let pixelsPerMinute: CGFloat = 2        // 2px = 1 minute (Canvas look)
@@ -24,7 +23,6 @@ private struct CanvasPositionedActivity: Identifiable {
     let faviconSecondaryHost: String?
 }
 
-// MARK: - Selection Effect Constants (file-local)
 struct CanvasTimelineDataView: View {
     @Binding var selectedDate: Date
     @Binding var selectedActivity: TimelineActivity?
@@ -113,7 +111,6 @@ struct CanvasTimelineDataView: View {
         }
     }
 
-    // MARK: - Extracted subviews to help type-checker
     @ViewBuilder
     private func timelineScrollContent() -> some View {
         ZStack(alignment: .topLeading) {
@@ -207,7 +204,6 @@ struct CanvasTimelineDataView: View {
     }
 
 
-    // MARK: - Data Loading and Mapping
     private func loadActivities() {
         DispatchQueue.global(qos: .userInitiated).async {
             // Determine logical date (4 AM boundary)
@@ -339,7 +335,6 @@ struct CanvasTimelineDataView: View {
         }
     }
 
-    // MARK: - Overlap Resolution (Display-only)
     // Trims larger overlapping cards so smaller cards keep their full range.
     // This is a mitigation transform for occasional upstream timeline card overlap bugs.
     private struct DisplaySegment {
@@ -434,7 +429,6 @@ struct CanvasTimelineDataView: View {
         return segments
     }
 
-    // MARK: - Timers
     private func startRefreshTimer() {
         stopRefreshTimer()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { _ in
@@ -447,7 +441,6 @@ struct CanvasTimelineDataView: View {
         refreshTimer = nil
     }
 
-    // MARK: - Positioning Helpers (Canvas scale)
     private func calculateYPosition(for time: Date) -> CGFloat {
         let calendar = Calendar.current
         let hour = calendar.component(.hour, from: time)
@@ -469,7 +462,6 @@ struct CanvasTimelineDataView: View {
         return CGFloat(durationMinutes) * CanvasConfig.pixelsPerMinute
     }
 
-    // MARK: - UI Helpers
     private func formatHour(_ hour: Int) -> String {
         let normalizedHour = hour >= 24 ? hour - 24 : hour
         let adjustedHour = normalizedHour > 12 ? normalizedHour - 12 : (normalizedHour == 0 ? 12 : normalizedHour)
@@ -515,7 +507,6 @@ struct CanvasTimelineDataView: View {
     }
 }
 
-// MARK: - Now Anchor Helper
 extension CanvasTimelineDataView {
     // Places a hidden view at a position slightly above "now" so that scrolling reveals "now" plus more below
     @ViewBuilder
@@ -546,7 +537,6 @@ extension CanvasTimelineDataView {
     }
 }
 
-// MARK: - Hour Index Helper
 extension CanvasTimelineDataView {
     fileprivate func currentHourIndex() -> Int {
         let cal = Calendar.current
@@ -561,7 +551,6 @@ extension CanvasTimelineDataView {
     }
 }
 
-// MARK: - Canvas Activity Card (visuals preserved from Canvas)
 struct CanvasActivityCardStyle {
     let text: Color
     let time: Color
@@ -633,7 +622,6 @@ struct CanvasActivityCard: View {
     return PreviewWrapper()
 }
 
-// MARK: - FaviconOrSparkleView
 private struct FaviconOrSparkleView: View {
     let primaryHost: String?
     let secondaryHost: String?

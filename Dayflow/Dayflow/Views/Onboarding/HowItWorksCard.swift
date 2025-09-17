@@ -55,7 +55,6 @@ struct HowItWorksCard: View {
     }
 }
 
-// MARK: - Preview
 struct HowItWorksCard_Previews: PreviewProvider {
     static var previews: some View {
         VStack(spacing: 20) {

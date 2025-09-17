@@ -94,7 +94,6 @@ enum LLMLogger {
         )
     }
 
-    // MARK: - Sanitization helpers
     private static func sanitize(url: URL?, headers: [String: String]?) -> (URL?, [String:String]?) {
         guard let url = url else { return (nil, sanitizeHeaders(headers)) }
         var comps = URLComponents(url: url, resolvingAgainstBaseURL: false)

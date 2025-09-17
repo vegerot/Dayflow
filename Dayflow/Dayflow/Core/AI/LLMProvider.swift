@@ -23,10 +23,9 @@ enum LLMProviderType: Codable {
     case ollamaLocal(endpoint: String = "http://localhost:11434")
 }
 
-// MARK: - Data Models
 
 struct AppSites: Codable {
-    let primary: String
+    let primary: String?
     let secondary: String?
 }
 
@@ -45,7 +44,6 @@ struct ActivityCardData: Codable {
 // Distraction is defined in StorageManager.swift
 // LLMCall is defined in StorageManager.swift
 
-// MARK: - Helper Extensions for Timestamp Conversion
 
 extension LLMProvider {
     // Convert "MM:SS" or "HH:MM:SS" to seconds from video start

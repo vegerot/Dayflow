@@ -132,7 +132,6 @@ struct DayflowButton: View {
     }
 }
 
-// MARK: - Preview
 struct DayflowButton_Previews: PreviewProvider {
     static var previews: some View {
         VStack(spacing: 20) {

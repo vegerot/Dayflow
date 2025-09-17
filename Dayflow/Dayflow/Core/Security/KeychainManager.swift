@@ -9,18 +9,15 @@ import Security
 /// Thread-safe manager for securely storing API keys in macOS Keychain
 final class KeychainManager {
     
-    // MARK: - Singleton
     
     static let shared = KeychainManager()
     
-    // MARK: - Constants
     
     private let servicePrefix = "com.teleportlabs.dayflow.apikeys"
     private let queue = DispatchQueue(label: "com.teleportlabs.dayflow.keychain", qos: .userInitiated)
     
     private init() {}
     
-    // MARK: - Public Methods
     
     /// Stores an API key in the keychain
     /// - Parameters:

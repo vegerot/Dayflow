@@ -183,7 +183,6 @@ struct SettingsView: View {
         }
     }
     
-    // MARK: - Provider Cards
     
     private var providerCards: [FlexibleProviderCard] {
         [
@@ -244,7 +243,6 @@ struct SettingsView: View {
         ]
     }
     
-    // MARK: - Actions
     
     private func loadCurrentProvider() {
         guard !hasLoadedProvider else { return }
@@ -303,13 +301,11 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - Provider Setup Wrapper (for sheet binding)
 
 struct ProviderSetupWrapper: Identifiable {
     let id: String
 }
 
-// MARK: - Preview
 
 struct SettingsView_Previews: PreviewProvider {
     static var previews: some View {

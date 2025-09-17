@@ -40,7 +40,6 @@ final class InactivityMonitor: ObservableObject {
         }
     }
 
-    // MARK: - Private
     private func setupEventMonitors() {
         removeEventMonitors()
 

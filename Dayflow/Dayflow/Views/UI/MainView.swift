@@ -291,7 +291,6 @@ struct MainView: View {
     }
 }
 
-// MARK: - Sidebar
 enum SidebarIcon: CaseIterable {
     case timeline
     case dashboard
@@ -370,7 +369,6 @@ struct SidebarIconButton: View {
     }
 }
 
-// MARK: - Tab Filter Bar
 struct TabFilterBar: View {
     let categories: [TimelineCategory]
     let idleCategory: TimelineCategory?
@@ -554,9 +552,7 @@ extension View {
     }
 }
 
-// MARK: - Idle Reset Helpers
 extension MainView {
-    // MARK: - Civil Day Change Timer
     private func startDayChangeTimer() {
         stopDayChangeTimer()
         dayChangeTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { _ in
@@ -633,7 +629,6 @@ extension MainView {
     }
 }
 
-// MARK: - Activity Card
 struct ActivityCard: View {
     let activity: TimelineActivity?
     var maxHeight: CGFloat? = nil

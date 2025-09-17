@@ -8,7 +8,6 @@
 import SwiftUI
 
 struct HowItWorksView: View {
-    // MARK: – Animation state
     @State private var titleOpacity: Double = 0
     @State private var cardOffsets: [CGFloat] = [50, 50, 50]
     @State private var cardOpacities: [Double] = [0, 0, 0]
@@ -21,7 +20,6 @@ struct HowItWorksView: View {
     var onBack: () -> Void
     var onNext: () -> Void
 
-    // MARK: – Card data model
     private let cards: [(icon: String, title: String, body: String)] = [
         ("OnboardingHow",
          "Install and Forget",
@@ -37,7 +35,6 @@ struct HowItWorksView: View {
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 40) {
-                    // MARK: – Animated title
                     Text(fullText)
                         .font(.custom("InstrumentSerif-Regular", size: 48))
                         .multilineTextAlignment(.center)
@@ -51,7 +48,6 @@ struct HowItWorksView: View {
                             animateCards()
                         }
 
-                    // MARK: – Cards
                     VStack(spacing: 16) {
                         ForEach(cards.indices, id: \.self) { idx in
                             HowItWorksCard(
@@ -127,12 +123,10 @@ struct HowItWorksView: View {
     }
 }
 
-// MARK: – Helper: value clamping
 private func clamp<T: Comparable>(_ value: T, _ limits: ClosedRange<T>) -> T {
     min(max(value, limits.lowerBound), limits.upperBound)
 }
 
-// MARK: – Card animation
 private extension HowItWorksView {
     func animateCards() {
         for idx in cards.indices {

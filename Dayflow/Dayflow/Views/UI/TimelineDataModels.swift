@@ -8,7 +8,6 @@
 import Foundation
 import SwiftUI
 
-// MARK: - TimelineActivity
 
 /// Represents an activity in the timeline view
 struct TimelineActivity: Identifiable {
@@ -26,7 +25,6 @@ struct TimelineActivity: Identifiable {
     let appSites: AppSites?
 }
 
-// MARK: - Grid Timeline Models
 
 /// Configuration constants for the grid timeline
 struct GridConfig {
@@ -69,7 +67,6 @@ struct ActivityColumn {
     }
 }
 
-// MARK: - DatePickerSheet
 
 /// Sheet view for selecting a date
 struct DatePickerSheet: View {

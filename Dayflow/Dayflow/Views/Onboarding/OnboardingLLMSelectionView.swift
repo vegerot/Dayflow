@@ -13,7 +13,6 @@ struct OnboardingLLMSelectionView: View {
     var onBack: () -> Void
     var onNext: (String) -> Void  // Now passes the selected provider
     
-    // MARK: - State
     @AppStorage("selectedLLMProvider") private var selectedProvider: String = "gemini" // Default to "Bring your own API"
     @State private var titleOpacity: Double = 0
     @State private var cardsOpacity: Double = 0
@@ -204,7 +203,6 @@ struct OnboardingLLMSelectionView: View {
         ]
     }
     
-    // MARK: - Helper Methods
     private func saveProviderSelection() {
         let providerType: LLMProviderType
         
@@ -239,7 +237,6 @@ struct OnboardingLLMSelectionView: View {
     }
 }
 
-// MARK: - Preview
 struct OnboardingLLMSelectionView_Previews: PreviewProvider {
     static var previews: some View {
         OnboardingLLMSelectionView(

@@ -81,7 +81,6 @@ final class ThumbnailCache {
         fetchThumbnail(videoURL: videoURL, targetSize: targetSize) { _ in }
     }
 
-    // MARK: - Helpers
     private func cacheKey(url: String, mtime: TimeInterval?, size: CGSize) -> String {
         // Include size rounded to integers to separate entries
         let w = Int(size.width.rounded())

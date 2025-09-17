@@ -77,7 +77,6 @@ final class GeminiDirectProvider: LLMProvider {
         }
     }
 
-    // MARK: - Debug helpers
     private func truncate(_ text: String, max: Int = 2000) -> String {
         if text.count <= max { return text }
         let endIdx = text.index(text.startIndex, offsetBy: max)
@@ -378,31 +377,102 @@ final class GeminiDirectProvider: LLMProvider {
         return (observations, log)
     }
     
+    // MARK: - Error Classification for Unified Retry
+
+    private enum RetryStrategy {
+        case immediate           // Parsing/encoding errors - retry immediately
+        case shortBackoff       // Network timeouts - retry with 2s, 4s, 8s
+        case longBackoff        // Rate limits - retry with 30s, 60s, 120s
+        case enhancedPrompt     // Validation errors - retry with enhanced prompt
+        case noRetry            // Auth/permanent errors - don't retry
+    }
+
+    private func classifyError(_ error: Error) -> RetryStrategy {
+        // JSON/Parsing errors - should retry immediately (different LLM response likely)
+        if error is DecodingError {
+            return .immediate
+        }
+
+        // Network/Transport errors
+        if let nsError = error as NSError? {
+            switch nsError.domain {
+            case NSURLErrorDomain:
+                switch nsError.code {
+                case NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost,
+                     NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost,
+                     NSURLErrorNotConnectedToInternet:
+                    return .shortBackoff
+                default:
+                    return .noRetry
+                }
+
+            case "GeminiError":
+                switch nsError.code {
+                // Rate limiting
+                case 429:
+                    return .longBackoff
+                // Server errors
+                case 500...599:
+                    return .shortBackoff
+                // Auth errors
+                case 401, 403:
+                    return .noRetry
+                // Parsing/encoding errors
+                case 7, 9, 10:
+                    return .immediate
+                // Client errors (bad request, etc)
+                case 400...499:
+                    return .noRetry
+                default:
+                    return .shortBackoff
+                }
+
+            default:
+                break
+            }
+        }
+
+        // Default: short backoff for unknown errors
+        return .shortBackoff
+    }
+
+    private func delayForStrategy(_ strategy: RetryStrategy, attempt: Int) -> TimeInterval {
+        switch strategy {
+        case .immediate:
+            return 0
+        case .shortBackoff:
+            return pow(2.0, Double(attempt)) * 2.0  // 2s, 4s, 8s
+        case .longBackoff:
+            return pow(2.0, Double(attempt)) * 30.0 // 30s, 60s, 120s
+        case .enhancedPrompt:
+            return 1.0  // Brief delay for enhanced prompt
+        case .noRetry:
+            return 0
+        }
+    }
+
     func generateActivityCards(observations: [Observation], context: ActivityGenerationContext, batchId: Int64?) async throws -> (cards: [ActivityCardData], log: LLMCall) {
         let callStart = Date()
-        
+
         // Convert observations to human-readable format for the prompt
         let transcriptText = observations.map { obs in
             let startTime = formatTimestampForPrompt(obs.startTs)
             let endTime = formatTimestampForPrompt(obs.endTs)
-            
             return "[" + startTime + " - " + endTime + "]: " + obs.observation
         }.joined(separator: "\n")
-        
-        // Building transcript text from observations
-        
+
         // Convert existing cards to JSON string with pretty printing
         let encoder = JSONEncoder()
         encoder.outputFormatting = .prettyPrinted
         let existingCardsJSON = try encoder.encode(context.existingCards)
         let existingCardsString = String(data: existingCardsJSON, encoding: .utf8) ?? "[]"
-        
+
         let exampleCategory = context.categories.first?.name ?? "Work"
 
-        let activityGenerationPrompt = """
+        let basePrompt = """
         You are a digital anthropologist, observing a user's raw activity log. Your goal is to synthesize this log into a high-level, human-readable story of their session, presented as a series of timeline cards.
         THE GOLDEN RULE:
-        Your primary objective is to create long, meaningful cards that represent a cohesive session of activity, ideally 30-60 minutes+. However, thematic coherence is essential - a card must tell a coherent story. Avoid creating cards shorter than 15-20 minutes unless a major context switch forces it. 
+        Your primary objective is to create long, meaningful cards that represent a cohesive session of activity, ideally 30-60 minutes+. However, thematic coherence is essential - a card must tell a coherent story. Avoid creating cards shorter than 15-20 minutes unless a major context switch forces it.
         CRITICAL DATA INTEGRITY RULE:
         When you decide to extend a card, its original startTime is IMMUTABLE. You MUST carry over the startTime from the previous_card you are extending. Failure to preserve the original startTime is a critical error.
         CORE DIRECTIVES:
@@ -425,17 +495,14 @@ final class GeminiDirectProvider: LLMProvider {
         - Use specific verbs: "Debugged Python" not "Worked on project"
 
         Good examples:
-        WORK:
         - "Debugged auth flow in React"
         - "Excel budget analysis for Q4 report"
         - "Zoom call with design team"
 
-        PERSONAL:
         - "Booked flights on Expedia for Denver trip"
         - "Watched Succession finale on HBO"
         - "Grocery list and meal prep research"
 
-        DISTRACTION:
         - "Reddit rabbit hole about conspiracy theories"
         - "Random YouTube shorts for 30 minutes"
         - "Instagram reels and Twitter scrolling"
@@ -492,7 +559,7 @@ final class GeminiDirectProvider: LLMProvider {
 
         "Began by reviewing the codebase and then dove deep into implementing new features. The work involved multiple context switches between different parts of the application."
         (All filler, no actual information)
-        
+
         \(categoriesSection(from: context.categories))
 
         APP SITES (Website Logos)
@@ -535,12 +602,12 @@ final class GeminiDirectProvider: LLMProvider {
         Previous cards: \(existingCardsString)
         New observations: \(transcriptText)
         Return ONLY a JSON array with this EXACT structure:
-                
+
                 [
                   {
                     "startTime": "1:12 AM",
                     "endTime": "1:30 AM",
-                    "category": "\(exampleCategory)",
+                    "category": "Work",
                     "subcategory": "Coding",
                     "title": "Working on auth bug in Dayflow",
                     "summary": "Fixed authentication bug in the login flow and added error handling",
@@ -560,96 +627,124 @@ final class GeminiDirectProvider: LLMProvider {
                   }
                 ]
         """
-        
-        
-        // Initial request
-        var response = try await geminiCardsRequest(
-            prompt: activityGenerationPrompt,
-            batchId: batchId
-        )
-        var cards = normalizeCards(try parseActivityCards(response), descriptors: context.categories)
-        
-        // Track the actual prompt used for logging
-        var actualPromptUsed = activityGenerationPrompt
-        
-        // Combined validation and retry loop
-        var retryCount = 0
-        let maxRetries = 3
-        
-        while retryCount < maxRetries {
-            // Run both validations
-            let (coverageValid, coverageError) = validateTimeCoverage(existingCards: context.existingCards, newCards: cards)
-            let (durationValid, durationError) = validateTimeline(cards)
-            
-            // Check if both validations pass
-            if coverageValid && durationValid {
-                if retryCount > 0 {
-                } else {
+
+        // UNIFIED RETRY LOOP - Handles ALL errors comprehensively
+        let maxRetries = 4
+        var attempt = 0
+        var lastError: Error?
+        var actualPromptUsed = basePrompt
+        var finalResponse = ""
+        var finalCards: [ActivityCardData] = []
+
+        while attempt < maxRetries {
+            do {
+                // THE ENTIRE PIPELINE: Request → Parse → Validate
+                print("🔄 Activity cards attempt \(attempt + 1)/\(maxRetries)")
+
+                let response = try await geminiCardsRequest(
+                    prompt: actualPromptUsed,
+                    batchId: batchId
+                )
+
+                let cards = try parseActivityCards(response)
+                let normalizedCards = normalizeCards(cards, descriptors: context.categories)
+
+                // Validation phase
+                let (coverageValid, coverageError) = validateTimeCoverage(existingCards: context.existingCards, newCards: normalizedCards)
+                let (durationValid, durationError) = validateTimeline(normalizedCards)
+
+                if coverageValid && durationValid {
+                    // SUCCESS! All validations passed
+                    print("✅ Activity cards generation succeeded on attempt \(attempt + 1)")
+                    finalResponse = response
+                    finalCards = normalizedCards
+                    break
                 }
-                break
-            }
-            
-            retryCount += 1
-            
-            // Build error message combining both validation failures
-            var errorMessages: [String] = []
-            
-            if !coverageValid && coverageError != nil {
-                errorMessages.append("""
-                TIME COVERAGE ERROR:
-                \(coverageError!)
-                
-                You MUST ensure your output cards collectively cover ALL time periods from the input cards. Do not drop any time segments.
-                """)
-            }
-            
-            if !durationValid && durationError != nil {
-                if !coverageValid || retryCount == 1 {
-                    // Print raw output on first failure or if both validations fail
+
+                // Validation failed - this gets enhanced prompt treatment
+                print("⚠️ Validation failed on attempt \(attempt + 1)")
+
+                var errorMessages: [String] = []
+                if !coverageValid && coverageError != nil {
+                    errorMessages.append("""
+                    TIME COVERAGE ERROR:
+                    \(coverageError!)
+
+                    You MUST ensure your output cards collectively cover ALL time periods from the input cards. Do not drop any time segments.
+                    """)
                 }
-                errorMessages.append("""
-                DURATION ERROR:
-                \(durationError!)
-                
-                REMINDER: All cards except the last one must be at least 10 minutes long. Please merge short activities into longer, more meaningful cards that tell a coherent story.
-                """)
+
+                if !durationValid && durationError != nil {
+                    errorMessages.append("""
+                    DURATION ERROR:
+                    \(durationError!)
+
+                    REMINDER: All cards except the last one must be at least 10 minutes long. Please merge short activities into longer, more meaningful cards that tell a coherent story.
+                    """)
+                }
+
+                // Create enhanced prompt for validation retry
+                actualPromptUsed = basePrompt + """
+
+
+                PREVIOUS ATTEMPT FAILED - CRITICAL REQUIREMENTS NOT MET:
+
+                \(errorMessages.joined(separator: "\n\n"))
+
+                Please fix these issues and ensure your output meets all requirements.
+                """
+
+                // Brief delay for enhanced prompt retry
+                if attempt < maxRetries - 1 {
+                    try await Task.sleep(nanoseconds: UInt64(1.0 * 1_000_000_000))
+                }
+
+            } catch {
+                lastError = error
+                print("❌ Attempt \(attempt + 1) failed: \(error.localizedDescription)")
+
+                let strategy = classifyError(error)
+
+                // Check if we should retry
+                if strategy == .noRetry || attempt >= maxRetries - 1 {
+                    print("🚫 Not retrying: strategy=\(strategy), attempt=\(attempt + 1)/\(maxRetries)")
+                    throw error
+                }
+
+                // Apply appropriate delay based on error type
+                let delay = delayForStrategy(strategy, attempt: attempt)
+                if delay > 0 {
+                    print("⏳ Waiting \(String(format: "%.1f", delay))s before retry (strategy: \(strategy))")
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                }
+
+                // For non-validation errors, reset to base prompt
+                if strategy != .enhancedPrompt {
+                    actualPromptUsed = basePrompt
+                }
             }
-            
-            if retryCount >= maxRetries {
-                break
-            }
-            
-            
-            // Enhanced prompt with all error details
-            let retryPrompt = activityGenerationPrompt + """
-            
-            
-            PREVIOUS ATTEMPT FAILED - CRITICAL REQUIREMENTS NOT MET:
-            
-            \(errorMessages.joined(separator: "\n\n"))
-            
-            Please fix these issues and ensure your output meets all requirements.
-            """
-            
-            // Retry with enhanced prompt
-            actualPromptUsed = retryPrompt
-            response = try await geminiCardsRequest(prompt: retryPrompt, batchId: batchId)
-            cards = normalizeCards(try parseActivityCards(response), descriptors: context.categories)
+
+            attempt += 1
         }
-        
+
+        // If we get here and finalCards is empty, all retries were exhausted
+        if finalCards.isEmpty {
+            print("❌ All \(maxRetries) attempts failed")
+            throw lastError ?? NSError(domain: "GeminiError", code: 999, userInfo: [
+                NSLocalizedDescriptionKey: "Activity card generation failed after \(maxRetries) attempts"
+            ])
+        }
+
         let log = LLMCall(
             timestamp: callStart,
             latency: Date().timeIntervalSince(callStart),
             input: actualPromptUsed,
-            output: response
+            output: finalResponse
         )
-        
-        let duration = Date().timeIntervalSince(callStart)
-        
-        return (cards, log)
+
+        return (finalCards, log)
     }
     
-    // MARK: - Gemini-specific methods (from original GeminiService)
     
     private func uploadAndAwait(_ fileURL: URL, mimeType: String, key: String, maxWaitTime: TimeInterval = 3 * 60) async throws -> (fileSize: Int64, fileURI: String) {
         let fileData = try Data(contentsOf: fileURL)
@@ -1641,7 +1736,6 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
 
     // (no local logging helpers needed; centralized via LLMLogger)
     
-    // MARK: - Validation Helpers
     
     private struct TimeRange {
         let start: Double  // minutes from midnight
@@ -1900,7 +1994,6 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         return formatter.string(from: date)
     }
     
-    // MARK: - Gemini-specific types
     
     private struct GeminiFileMetadata: Codable {
         let file: GeminiFileInfo

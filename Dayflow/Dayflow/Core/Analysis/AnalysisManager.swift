@@ -11,7 +11,6 @@ import Foundation
 import AVFoundation
 import GRDB
 
-// MARK: – Public protocol ---------------------------------------------------
 
 protocol AnalysisManaging {
     func startAnalysisJob()
@@ -21,7 +20,6 @@ protocol AnalysisManaging {
     func reprocessSpecificBatches(_ batchIds: [Int64], progressHandler: @escaping (String) -> Void, completion: @escaping (Result<Void, Error>) -> Void)
 }
 
-// MARK: – Manager -----------------------------------------------------------
 
 final class AnalysisManager: AnalysisManaging {
     static let shared = AnalysisManager()
@@ -33,7 +31,6 @@ final class AnalysisManager: AnalysisManaging {
         videoProcessingService = VideoProcessingService()
     }
 
-    // MARK: – Private state
     private let store: any StorageManaging
     private let llmService: any LLMServicing
     
@@ -47,7 +44,6 @@ final class AnalysisManager: AnalysisManaging {
     private var isProcessing = false
     private let queue = DispatchQueue(label: "com.dayflow.geminianalysis.queue", qos: .utility)
 
-    // MARK: – Public API -----------------------------------------------------
 
     func startAnalysisJob() {
         stopAnalysisJob()               // ensure single timer
@@ -316,10 +312,8 @@ final class AnalysisManager: AnalysisManaging {
         }
     }
 
-    // MARK: – Timer
     @objc private func timerFired() { triggerAnalysisNow() }
 
-    // MARK: – Core work ------------------------------------------------------
 
     private func processRecordings() {
         guard !isProcessing else { return }; isProcessing = true
@@ -335,7 +329,6 @@ final class AnalysisManager: AnalysisManaging {
         for id in batchIDs { queueGeminiRequest(batchId: id) }
     }
 
-    // MARK: – LLM kick‑off ----------------------------------------------
 
     private func queueGeminiRequest(batchId: Int64) {
         let chunksInBatch = StorageManager.shared.chunksForBatch(batchId)
@@ -471,7 +464,6 @@ final class AnalysisManager: AnalysisManaging {
         }
     }
 
-    // MARK: – DB helpers -----------------------------------------------------
 
     private func markBatchFailed(batchId: Int64, reason: String) {
         store.markBatchFailed(batchId: batchId, reason: reason)
@@ -481,7 +473,6 @@ final class AnalysisManager: AnalysisManaging {
         store.updateBatchStatus(batchId: batchId, status: status)
     }
 
-    // MARK: – Batching logic -------------------------------------------------
 
     private struct AnalysisBatch { let chunks: [RecordingChunk]; let start: Int; let end: Int }
 
@@ -490,7 +481,6 @@ final class AnalysisManager: AnalysisManaging {
         return store.fetchUnprocessedChunks(olderThan: oldest)
     }
 
-    // MARK: – Batching logic -----------------------------------------------------
 
 private func createBatches(from chunks: [RecordingChunk]) -> [AnalysisBatch] {
     guard !chunks.isEmpty else { return [] }
@@ -558,7 +548,6 @@ private func createBatches(from chunks: [RecordingChunk]) -> [AnalysisBatch] {
         return store.saveBatch(startTs: batch.start, endTs: batch.end, chunkIds: ids)
     }
 
-    // MARK: - Timestamp conversion helpers
 
     // Parses a video timestamp like "05:30" into seconds
     private func parseVideoTimestamp(_ timestamp: String) -> TimeInterval? {

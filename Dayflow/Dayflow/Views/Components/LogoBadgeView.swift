@@ -126,7 +126,6 @@ struct LogoBadgeView: View {
     }
 }
 
-// MARK: - Gloss band primitive
 private struct GlossBand: View {
     // progressX: -1.2 (far left) ... 1.2 (far right)
     var progressX: CGFloat

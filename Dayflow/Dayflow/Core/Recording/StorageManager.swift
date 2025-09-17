@@ -31,7 +31,6 @@ extension DateFormatter {
     // }()
 }
 
-// MARK: - Date Helper Extension
 extension Date {
     /// Calculates the "day" based on a 4 AM start time.
     /// Returns the date string (YYYY-MM-DD) and the Date objects for the start and end of that day.
@@ -56,7 +55,6 @@ extension Date {
     }
 }
 
-// MARK: - Protocol ------------------------------------------------------------
 
 /// File + database persistence used by screen‑recorder & Gemini pipeline.
 ///
@@ -117,7 +115,6 @@ protocol StorageManaging: Sendable {
     func allBatches() -> [(id: Int64, start: Int, end: Int, status: String)]
 }
 
-// MARK: - Data Structures -----------------------------------------------------
 
 // NEW: Observation struct for first-class transcript storage
 struct Observation: Codable, Sendable {
@@ -253,7 +250,6 @@ struct TimelineCardWithTimestamps {
     let videoSummaryURL: String?
 }
 
-// MARK: - Implementation ------------------------------------------------------
 
 final class StorageManager: StorageManaging, @unchecked Sendable {
     static let shared = StorageManager()
@@ -276,7 +272,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         purgeIfNeeded()
     }
 
-    // MARK: – Schema / migrations
     private func migrate() {
         try? db.write { db in
             // Create all tables with their final schema
@@ -382,7 +377,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }
     }
 
-    // MARK: – Recording‑file helpers ------------------------------------------
 
     func nextFileURL() -> URL {
         let df = DateFormatter(); df.dateFormat = "yyyyMMdd_HHmmssSSS"
@@ -413,7 +407,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         try? fileMgr.removeItem(at: url)
     }
 
-    // MARK: – Queries used by AnalysisManager ---------------------------
 
     func fetchUnprocessedChunks(olderThan oldestAllowed: Int) -> [RecordingChunk] {
         (try? db.read { db in
@@ -511,7 +504,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }) ?? []
     }
 
-    // MARK: – Timeline‑cards --------------------------------------------------
 
     func saveTimelineCardShell(batchId: Int64, card: TimelineCardShell) -> Int64? {
         let encoder = JSONEncoder()
@@ -639,7 +631,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             }) ?? []
         }
 
-    // MARK: - Timeline Queries -----------------------------------------------
 
     func fetchTimelineCards(forDay day: String) -> [TimelineCard] {
         let decoder = JSONDecoder()
@@ -926,7 +917,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
     // Note: Transcript storage methods removed in favor of Observations table
     
-    // MARK: - Observations Storage (NEW) --------------------------------------
     
     func saveObservations(batchId: Int64, observations: [Observation]) {
         guard !observations.isEmpty else { return }
@@ -991,7 +981,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }) ?? []
     }
     
-    // MARK: - LLM Service Support Methods
     
     func getChunkFilesForBatch(batchId: Int64) -> [String] {
         return (try? db.read { db in
@@ -1036,7 +1025,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         return formatter
     }
 
-    // MARK: - LLM Calls Logging ----------------------------------------------
     func insertLLMCall(_ rec: LLMCallDBRecord) {
         try? db.write { db in
             try db.execute(sql: """
@@ -1091,7 +1079,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }) ?? []
     }
 
-    // MARK: - Helper for GeminiService – map file paths → timestamps
     func getTimestampsForVideoFiles(paths: [String]) -> [String: (startTs: Int, endTs: Int)] {
         guard !paths.isEmpty else { return [:] }
         var out: [String: (Int, Int)] = [:]
@@ -1110,7 +1097,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         return out
     }
 
-    // MARK: - Reprocessing Methods --------------------------------------------
     
     func deleteTimelineCards(forDay day: String) -> [String] {
         var videoPaths: [String] = []
@@ -1250,7 +1236,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }
     }
 
-    // MARK: – Purging Logic --------------------------------------------------
 
     private let purgeQ = DispatchQueue(label: "com.dayflow.storage.purge", qos: .background)
 
@@ -1323,7 +1308,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     }
 }
 
-// MARK: - File‑size helper -----------------------------------------------------
 
 private extension FileManager {
     func allocatedSizeOfDirectory(at url: URL) throws -> Int {

@@ -224,7 +224,6 @@ final class OllamaProvider: LLMProvider {
         }
     }
     
-    // MARK: - Frame Extraction
     
     private struct FrameData {
         let image: Data  // Base64 encoded image
@@ -320,7 +319,6 @@ final class OllamaProvider: LLMProvider {
         return jpegData
     }
     
-    // MARK: - OpenAI-Compatible API
     
     private struct ChatRequest: Codable {
         let model: String
@@ -541,7 +539,6 @@ final class OllamaProvider: LLMProvider {
         return response.choices.first?.message.content ?? ""
     }
     
-    // MARK: - Two-Pass Activity Card Generation
     
     private struct TitleSummaryResponse: Codable {
         let reasoning: String
@@ -911,7 +908,6 @@ final class OllamaProvider: LLMProvider {
         return Int(duration / 60)
     }
     
-    // MARK: - New Merging Logic
     
     private struct VideoSegment: Codable {
         let startTimestamp: String  // MM:SS format
