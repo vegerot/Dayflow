@@ -27,13 +27,11 @@ struct APIKeyInputView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Title
             Text(title)
                 .font(.custom("Nunito", size: 16))
                 .fontWeight(.semibold)
                 .foregroundColor(.black.opacity(0.9))
             
-            // Subtitle
             Text(subtitle)
                 .font(.custom("Nunito", size: 14))
                 .foregroundColor(.black.opacity(0.6))
@@ -41,7 +39,6 @@ struct APIKeyInputView: View {
             // Input field container
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 12) {
-                    // Text field
                     Group {
                         if showPassword {
                             TextField(placeholder, text: $apiKey)
@@ -57,7 +54,6 @@ struct APIKeyInputView: View {
                         validateKey(newValue)
                     }
                     
-                    // Show/Hide button
                     Button(action: { showPassword.toggle() }) {
                         Image(systemName: showPassword ? "eye.slash" : "eye")
                             .font(.system(size: 14, weight: .medium))

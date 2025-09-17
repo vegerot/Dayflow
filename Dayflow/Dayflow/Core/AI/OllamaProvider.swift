@@ -670,7 +670,6 @@ final class OllamaProvider: LLMProvider {
         
         let response = try await callTextAPI(prompt, expectJSON: true)
         
-        // Parse response
         guard let data = response.data(using: .utf8) else {
             throw NSError(domain: "OllamaProvider", code: 12, userInfo: [NSLocalizedDescriptionKey: "Failed to parse title/summary response"])
         }
@@ -750,7 +749,6 @@ final class OllamaProvider: LLMProvider {
         
         let response = try await callTextAPI(prompt, expectJSON: true)
         
-        // Parse response
         struct MergeDecision: Codable {
             let reason: String
             let combine: Bool
@@ -818,7 +816,6 @@ final class OllamaProvider: LLMProvider {
         
         let response = try await callTextAPI(prompt, expectJSON: true)
         
-        // Parse response
         struct MergedContent: Codable {
             let title: String
             let summary: String
@@ -1000,7 +997,6 @@ final class OllamaProvider: LLMProvider {
         
         let response = try await callTextAPI(mergePrompt, expectJSON: true)
         
-        // Parse the JSON response
         guard let responseData = response.data(using: String.Encoding.utf8) else {
             throw NSError(domain: "OllamaProvider", code: 8, userInfo: [NSLocalizedDescriptionKey: "Failed to parse merge response"])
         }

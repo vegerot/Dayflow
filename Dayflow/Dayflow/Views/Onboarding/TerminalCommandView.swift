@@ -18,13 +18,11 @@ struct TerminalCommandView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Title
             Text(title)
                 .font(.custom("Nunito", size: 16))
                 .fontWeight(.semibold)
                 .foregroundColor(.black.opacity(0.9))
             
-            // Subtitle
             Text(subtitle)
                 .font(.custom("Nunito", size: 14))
                 .foregroundColor(.black.opacity(0.6))
@@ -75,7 +73,6 @@ struct TerminalCommandView: View {
     }
     
     private func copyCommand() {
-        // Copy to clipboard
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(command, forType: .string)
         
@@ -84,12 +81,10 @@ struct TerminalCommandView: View {
             "title": title
         ])
 
-        // Show feedback
         withAnimation(.easeInOut(duration: 0.2)) {
             isCopied = true
         }
         
-        // Reset after 2 seconds
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             withAnimation(.easeInOut(duration: 0.2)) {
                 isCopied = false

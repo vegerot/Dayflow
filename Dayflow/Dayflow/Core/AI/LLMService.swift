@@ -26,7 +26,6 @@ final class LLMService: LLMServicing {
         let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
         print("\n🔍 [LLMService] Reading provider type at \(timestamp)")
         
-        // Read provider configuration from UserDefaults
         guard let savedData = UserDefaults.standard.data(forKey: "llmProviderType") else {
             print("⚠️ [LLMService] No saved provider type in UserDefaults - defaulting to Gemini")
             return .geminiDirect
@@ -180,8 +179,7 @@ final class LLMService: LLMServicing {
                     let duration = try await asset.load(.duration)
                     let durationSeconds = CMTimeGetSeconds(duration)
                     
-                    // Processing chunk
-                    
+        
                     if let track = try await asset.loadTracks(withMediaType: .video).first {
                         try compositionTrack.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: track, at: compositionTime)
                     }
@@ -190,8 +188,6 @@ final class LLMService: LLMServicing {
                 }
                 
                 let totalDuration = CMTimeGetSeconds(compositionTime)
-                // Total composition duration calculated
-                
                 // Export combined video to temporary file
                 let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).mp4")
                 
@@ -208,15 +204,11 @@ final class LLMService: LLMServicing {
                     throw NSError(domain: "LLMService", code: 5, userInfo: [NSLocalizedDescriptionKey: "Failed to export combined video"])
                 }
                 
-                // Load video data
                 let videoData = try Data(contentsOf: tempURL)
                 let mimeType = "video/mp4"
-                // Video exported successfully
-                
                 // Get batch start time for timestamp conversion
                 let batchStartDate = Date(timeIntervalSince1970: TimeInterval(batchStartTs))
                 
-                // Transcribe video
                 let (observations, transcribeLog) = try await provider.transcribeVideo(
                     videoData: videoData,
                     mimeType: mimeType,
@@ -229,7 +221,6 @@ final class LLMService: LLMServicing {
                 // Clean up temp file after transcription is complete
                 try? FileManager.default.removeItem(at: tempURL)
                 
-                // Save observations to database
                 StorageManager.shared.saveObservations(batchId: batchId, observations: observations)
                 
                 // If no observations, mark batch as complete with no activities

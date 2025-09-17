@@ -159,7 +159,6 @@ class GeminiAPIHelper {
             throw APIError.networkError("Status code: \(httpResponse.statusCode)")
         }
         
-        // Parse the response
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let candidates = json["candidates"] as? [[String: Any]],
               let firstCandidate = candidates.first,

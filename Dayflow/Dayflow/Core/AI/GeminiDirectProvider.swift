@@ -1911,7 +1911,6 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             
             // Check if times are in clock format (contains AM/PM)
             if startTime.contains("AM") || startTime.contains("PM") {
-                // Parse clock times
                 let formatter = DateFormatter()
                 formatter.dateFormat = "h:mm a"
                 formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -1964,7 +1963,6 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
     }
     
     private func parseVideoTimestamp(_ timestamp: String) -> Int {
-        // Parse timestamps like "00:00", "01:30", "00:00:00", "01:47:28"
         let components = timestamp.components(separatedBy: ":")
         
         if components.count == 2 {

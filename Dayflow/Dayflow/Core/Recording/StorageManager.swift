@@ -509,7 +509,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         let encoder = JSONEncoder()
         var lastId: Int64? = nil
         
-        // Parse clock times to Unix timestamps
         
         let timeFormatter = DateFormatter()
         timeFormatter.dateFormat = "h:mm a"
@@ -525,7 +524,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         
         let calendar = Calendar.current
         
-        // Parse start timestamp
         let startComponents = calendar.dateComponents([.hour, .minute], from: startTime)
         guard let startHour = startComponents.hour, let startMinute = startComponents.minute else { return nil }
         
@@ -538,7 +536,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         
         let startTs = Int(startDate.timeIntervalSince1970)
         
-        // Parse end timestamp
         let endComponents = calendar.dateComponents([.hour, .minute], from: endTime)
         guard let endHour = endComponents.hour, let endMinute = endComponents.minute else { return nil }
         
@@ -635,7 +632,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     func fetchTimelineCards(forDay day: String) -> [TimelineCard] {
         let decoder = JSONDecoder()
         
-        // Parse the day string to get the date
         guard let dayDate = dateFormatter.date(from: day) else {
             return []
         }
@@ -849,7 +845,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 let meta = TimelineMetadata(distractions: card.distractions, appSites: card.appSites)
                 let metadataString: String? = (try? encoder.encode(meta)).flatMap { String(data: $0, encoding: .utf8) }
                 
-                // Parse clock times to Unix timestamps
                 // Since we don't have the day anymore, we need to infer it from the time range
                 // Use the 'from' date as the base date for parsing
                 let calendar = Calendar.current
@@ -866,7 +861,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     continue
                 }
                 
-                // Parse start timestamp
                 let startComponents = calendar.dateComponents([.hour, .minute], from: startTime)
                 guard let startHour = startComponents.hour, let startMinute = startComponents.minute else { continue }
                 
@@ -879,7 +873,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 
                 let startTs = Int(startDate.timeIntervalSince1970)
                 
-                // Parse end timestamp
                 let endComponents = calendar.dateComponents([.hour, .minute], from: endTime)
                 guard let endHour = endComponents.hour, let endMinute = endComponents.minute else { continue }
                 
@@ -1101,7 +1094,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     func deleteTimelineCards(forDay day: String) -> [String] {
         var videoPaths: [String] = []
         
-        // Parse the day string to get the date
         guard let dayDate = dateFormatter.date(from: day) else {
             return []
         }
