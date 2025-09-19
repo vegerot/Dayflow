@@ -222,6 +222,7 @@ struct SettingsView: View {
                 showCurrentlySelected: true
             ),
             
+            /*
             FlexibleProviderCard(
                 id: "dayflow",
                 title: "Dayflow Pro",
@@ -240,10 +241,10 @@ struct SettingsView: View {
                 buttonMode: .settings(onSwitch: { switchToProvider("dayflow") }),
                 showCurrentlySelected: true
             )
+            */
         ]
     }
-    
-    
+
     private func loadCurrentProvider() {
         guard !hasLoadedProvider else { return }
         

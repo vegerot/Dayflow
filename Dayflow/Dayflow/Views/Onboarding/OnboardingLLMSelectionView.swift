@@ -166,6 +166,7 @@ struct OnboardingLLMSelectionView: View {
                 }
             ),
             
+            /*
             // Dayflow Pro card
             FlexibleProviderCard(
                 id: "dayflow",
@@ -200,6 +201,7 @@ struct OnboardingLLMSelectionView: View {
                     }
                 }
             )
+            */
         ]
     }
     
