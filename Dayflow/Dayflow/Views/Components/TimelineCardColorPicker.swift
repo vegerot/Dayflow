@@ -394,6 +394,7 @@ fileprivate struct CategoryView: View {
     @State private var localDetails: String = ""
     @State private var showHint: Bool = false
     @FocusState private var editing: Bool
+    private let detailsPlaceholder = "Add details to help teach the AI what belongs in this category. For example, \"Client meetings, Zoom calls, CRM updates.\""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -441,17 +442,36 @@ fileprivate struct CategoryView: View {
             }
 
             if expanded {
-                TextEditor(text: $localDetails)
-                    .font(.system(size: 12))
-                    .frame(minHeight: 60)
-                    .padding(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(Color(red: 0.89, green: 0.91, blue: 0.94), lineWidth: 1)
-                    )
-                    .focused($editing)
-                    .onDisappear { onDetailsChange(localDetails) }
-                    .onSubmit { onDetailsChange(localDetails) }
+                ZStack(alignment: .topLeading) {
+                    if localDetails.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(detailsPlaceholder)
+                            .font(.system(size: 12))
+                            .foregroundColor(Color.gray.opacity(0.55))
+                            .padding(.horizontal, 16)
+                            .padding(.top, 14)
+                            .allowsHitTesting(false)
+                    }
+
+                    TextEditor(text: $localDetails)
+                        .font(.system(size: 13))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 12)
+                        .background(Color.clear)
+                        .focused($editing)
+                        .onDisappear { onDetailsChange(localDetails) }
+                        .onSubmit { onDetailsChange(localDetails) }
+                        .modifier(HideTextEditorBackground())
+                }
+                .frame(minHeight: 120)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.white)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color(red: 0.87, green: 0.9, blue: 0.95), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.04), radius: 10, y: 3)
             }
         }
         .padding(12)
@@ -521,6 +541,20 @@ fileprivate struct CategoryView: View {
             }
             return true
         }
+        .zIndex((hovering || dragOver || expanded) ? 5 : 0)
+    }
+}
+
+private struct HideTextEditorBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 13.0, *) {
+            content
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)
+        } else {
+            content
+                .background(Color.clear)
+        }
     }
 }
 
@@ -528,6 +562,7 @@ fileprivate struct CategoryView: View {
 struct ColorOrganizerRoot: View {
     var showBackgroundGradient: Bool = true
     @EnvironmentObject private var categoryStore: CategoryStore
+    @Environment(\.dismiss) private var dismiss
     @State private var numPoints: Int = 3
     @State private var normalizedRadius: Double = 0.7
     @State private var currentAngle: Double = -Double.pi / 2
@@ -558,7 +593,7 @@ struct ColorOrganizerRoot: View {
             // Picker container (light slate with dot mask)
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(hex: "#F1F5F9"))
+                    .fill(Color.white)
                     .frame(width: 280, height: 280 + 12 + 28)
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
 
@@ -599,7 +634,7 @@ struct ColorOrganizerRoot: View {
 
             // Spectrum swatches
             VStack(alignment: .leading, spacing: 12) {
-                Text(isDragging ? "Drop on a category →" : "Spectrum Colors")
+                Text(isDragging ? "Drop on a category →" : "Drag a color onto a category")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(Color.gray.opacity(0.7))
 
@@ -699,13 +734,26 @@ struct ColorOrganizerRoot: View {
     }
 
     private var contentCard: some View {
-        VStack {
+        VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 48) {
                 leftPanel
                 rightPanel
             }
             .frame(maxWidth: 900)
             .padding(32)
+
+            Divider()
+                .padding(.horizontal, 32)
+
+            HStack {
+                Spacer()
+                SetupContinueButton(title: "Save", isEnabled: true) {
+                    categoryStore.persist()
+                    dismiss()
+                }
+                .padding(.horizontal, 32)
+                .padding(.vertical, 24)
+            }
         }
         .background(
             RoundedRectangle(cornerRadius: 20)

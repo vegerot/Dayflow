@@ -3,8 +3,8 @@ import AppKit
 import Foundation
 
 private struct CanvasConfig {
-    static let hourHeight: CGFloat = 120           // 120px per hour (Canvas look)
-    static let pixelsPerMinute: CGFloat = 2        // 2px = 1 minute (Canvas look)
+    static let hourHeight: CGFloat = 144           // 144px per hour (Canvas look)
+    static let pixelsPerMinute: CGFloat = 2.4      // 2.4px = 1 minute (Canvas look)
     static let timeColumnWidth: CGFloat = 60
     static let startHour: Int = 4                  // 4 AM baseline
     static let endHour: Int = 28                   // 4 AM next day
@@ -591,7 +591,7 @@ struct CanvasActivityCard: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .topLeading)
-        .background(style.isIdle ? Color.white.opacity(0.6) : Color.white.opacity(0.8))
+        .background(Color(hex: "FFF8F1"))
         .overlay(alignment: .leading) {
             Rectangle()
                 .fill(style.accent)

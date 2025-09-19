@@ -86,7 +86,7 @@ struct MainView: View {
                 case .timeline:
                     VStack(alignment: .leading, spacing: 20) {
                         // Header: Timeline title + Recording toggle (date controls moved to chips row)
-                        HStack {
+                        HStack(alignment: .top) {
                             Text("Timeline")
                                 .font(.custom("InstrumentSerif-Regular", size: 42))
                                 .foregroundColor(.primary)
@@ -95,19 +95,28 @@ struct MainView: View {
 
                             Spacer()
 
-                            // Recording toggle (replaces previous date controls spot)
-                            HStack(spacing: 8) {
-                                Text("Recording")
-                                    .font(
-                                        Font.custom("Nunito", size: 14)
-                                            .weight(.semibold)
-                                    )
-                                    .foregroundColor(.black)
+                            VStack(alignment: .trailing, spacing: 10) {
+                                // Recording toggle (kept alongside header)
+                                HStack(spacing: 8) {
+                                    Text("Recording")
+                                        .font(
+                                            Font.custom("Nunito", size: 14)
+                                                .weight(.semibold)
+                                        )
+                                        .foregroundColor(.black)
 
-                                Toggle("Recording", isOn: $appState.isRecording)
-                                    .labelsHidden()
-                                    .toggleStyle(SunriseGlassPillToggleStyle())
-                                    .accessibilityLabel(Text("Recording"))
+                                    Toggle("Recording", isOn: $appState.isRecording)
+                                        .labelsHidden()
+                                        .toggleStyle(SunriseGlassPillToggleStyle())
+                                        .accessibilityLabel(Text("Recording"))
+                                }
+
+                                DateNavigationControls(
+                                    selectedDate: $selectedDate,
+                                    showDatePicker: $showDatePicker,
+                                    lastDateNavMethod: $lastDateNavMethod,
+                                    previousDate: $previousDate
+                                )
                             }
                         }
                         .padding(.horizontal, 10)
@@ -120,13 +129,9 @@ struct MainView: View {
                                     TabFilterBar(
                                         categories: categoryStore.editableCategories,
                                         idleCategory: categoryStore.idleCategory,
-                                        onManageCategories: { showCategoryEditor = true },
-                                        selectedDate: $selectedDate,
-                                        showDatePicker: $showDatePicker,
-                                        lastDateNavMethod: $lastDateNavMethod,
-                                        previousDate: $previousDate
+                                        onManageCategories: { showCategoryEditor = true }
                                     )
-                                        .padding(.leading, -13) // nudge chips 13px left
+                                        .padding(.leading, 2)
                                         .opacity(contentOpacity)
 
                                     CanvasTimelineDataView(
@@ -373,6 +378,55 @@ struct TabFilterBar: View {
     let categories: [TimelineCategory]
     let idleCategory: TimelineCategory?
     let onManageCategories: () -> Void
+
+    private let editButtonSize: CGFloat = 34
+    private let chipRowHeight: CGFloat = 44
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack(alignment: .trailing) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(categories) { category in
+                            CategoryChip(category: category, isIdle: false)
+                        }
+
+                        if let idleCategory {
+                            CategoryChip(category: idleCategory, isIdle: true)
+                        }
+                    }
+                    .padding(.vertical, 6)
+                    .padding(.leading, 4)
+                    .padding(.trailing, 12)
+                }
+                .frame(height: chipRowHeight)
+                .background(Color.clear)
+                .overlay(alignment: .trailing) {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.2))
+                        .frame(width: editButtonSize + 18, height: chipRowHeight)
+                        .allowsHitTesting(false)
+                }
+
+                Button(action: onManageCategories) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Color.black.opacity(0.85))
+                        .frame(width: editButtonSize, height: editButtonSize)
+                        .background(Color.white.opacity(0.95))
+                        .clipShape(Circle())
+                        .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 2)
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 6)
+            }
+            .frame(height: chipRowHeight)
+        }
+        .padding(.leading, 15)
+    }
+}
+
+struct DateNavigationControls: View {
     @Binding var selectedDate: Date
     @Binding var showDatePicker: Bool
     @Binding var lastDateNavMethod: String?
@@ -380,83 +434,48 @@ struct TabFilterBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(categories) { category in
-                        CategoryChip(category: category, isIdle: false)
-                    }
-
-                    if let idleCategory {
-                        CategoryChip(category: idleCategory, isIdle: true)
-                    }
-
-                    Button(action: onManageCategories) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "slider.horizontal.3")
-                                .font(.system(size: 13, weight: .semibold))
-                            Text("Edit")
-                                .font(.system(size: 13, weight: .semibold))
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.white.opacity(0.85))
-                        .foregroundColor(.black)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 2)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.vertical, 4)
+            DayflowCircleButton {
+                let from = selectedDate
+                let to = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
+                previousDate = selectedDate
+                selectedDate = to
+                lastDateNavMethod = "prev"
+                AnalyticsService.shared.capture("date_navigation", [
+                    "method": "prev",
+                    "from_day": dayString(from),
+                    "to_day": dayString(to)
+                ])
+            } content: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(Color(red: 0.3, green: 0.3, blue: 0.3))
             }
-            .frame(height: 44)
 
-            Spacer(minLength: 0)
+            Button(action: { showDatePicker = true; lastDateNavMethod = "picker" }) {
+                DayflowPillButton(text: formatDateForDisplay(selectedDate))
+            }
+            .buttonStyle(PlainButtonStyle())
 
-            HStack(spacing: 12) {
-                DayflowCircleButton {
+            DayflowCircleButton {
+                let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
+                if tomorrow <= Date() {
                     let from = selectedDate
-                    let to = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
                     previousDate = selectedDate
-                    selectedDate = to
-                    lastDateNavMethod = "prev"
+                    selectedDate = tomorrow
+                    lastDateNavMethod = "next"
                     AnalyticsService.shared.capture("date_navigation", [
-                        "method": "prev",
+                        "method": "next",
                         "from_day": dayString(from),
-                        "to_day": dayString(to)
+                        "to_day": dayString(tomorrow)
                     ])
-                } content: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(Color(red: 0.3, green: 0.3, blue: 0.3))
                 }
-
-                Button(action: { showDatePicker = true; lastDateNavMethod = "picker" }) {
-                    DayflowPillButton(text: formatDateForDisplay(selectedDate))
-                }
-                .buttonStyle(PlainButtonStyle())
-
-                DayflowCircleButton {
-                    let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
-                    if tomorrow <= Date() {
-                        let from = selectedDate
-                        previousDate = selectedDate
-                        selectedDate = tomorrow
-                        lastDateNavMethod = "next"
-                        AnalyticsService.shared.capture("date_navigation", [
-                            "method": "next",
-                            "from_day": dayString(from),
-                            "to_day": dayString(tomorrow)
-                        ])
-                    }
-                } content: {
-                    let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(tomorrow > Date() ? Color.gray.opacity(0.3) : Color(red: 0.3, green: 0.3, blue: 0.3))
-                }
+            } content: {
+                let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(tomorrow > Date() ? Color.gray.opacity(0.3) : Color(red: 0.3, green: 0.3, blue: 0.3))
             }
         }
-        .padding(.leading, 15)
     }
 
     private func formatDateForDisplay(_ date: Date) -> String {
@@ -491,9 +510,11 @@ private extension TabFilterBar {
         var body: some View {
             let baseColor = Color(hex: category.colorHex)
             let textColor = isIdle ? baseColor : adaptiveTextColor(for: category.colorHex)
+            let pillCornerRadius: CGFloat = 1000
 
             return Text(category.name)
                 .font(.system(size: 13, weight: .semibold))
+                .lineLimit(1)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
                 .background(
@@ -505,12 +526,13 @@ private extension TabFilterBar {
                         }
                     }
                 )
-                .foregroundColor(isIdle ? textColor : textColor)
+                .foregroundColor(textColor)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous)
                         .stroke(borderColor(for: baseColor, isIdle: isIdle), style: borderStyle(for: isIdle))
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
                 .shadow(color: Color.black.opacity(isIdle ? 0 : 0.12), radius: isIdle ? 0 : 8, x: 0, y: isIdle ? 0 : 4)
         }
 

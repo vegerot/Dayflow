@@ -144,6 +144,10 @@ final class CategoryStore: ObservableObject {
         save()
     }
 
+    func persist() {
+        save()
+    }
+
     func snapshotForLLM() -> [LLMCategoryDescriptor] {
         categories
             .sorted { $0.order < $1.order }
