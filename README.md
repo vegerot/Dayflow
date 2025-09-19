@@ -33,7 +33,6 @@
   <a href="#how-it-works">How it works</a> •
   <a href="#installation">Installation</a> •
   <a href="#data--privacy">Data & Privacy</a> •
-  <a href="#cost-notes-gemini">Cost notes (Gemini)</a> •
   <a href="#debug--developer-tools">Debug & Developer Tools</a> •
   <a href="#auto-updates-sparkle">Auto‑updates</a> •
   <a href="#contributing">Contributing</a>
@@ -55,19 +54,66 @@ Dayflow is a **native macOS app** (SwiftUI) that records your screen at **1 FPS*
 - **Automatic timeline** of your day with concise summaries.
 - **1 FPS recording** - minimal CPU/storage impact.
 - **15-minute analysis intervals** for timely updates.
-- **Watch timelapses ** for each timeline card.
+- **Watch timelapses of your day**.
 - **Auto storage cleanup** - removes old recordings after 3 days.
 - **Distraction highlights** to see what pulled you off‑task.
 - **Native UX** built with **SwiftUI**.
 - **Auto‑updates** with **Sparkle** (daily check + background download).
 
+### Coming soon
+
+- **Infinitely customizable dashboard** — ask any question about your workday, pipe the answers into tiles you arrange yourself, and track trends over time.
+- **Daily journal** — review the highlights Dayflow captured, reflect with guided prompts, and drop screenshots or notes alongside your generated timeline.
+
+<div align="center">
+  <img src="docs/images/DashboardPreview.png" alt="Dayflow dashboard preview" width="800">
+</div>
+
+<div align="center">
+  <img src="docs/images/JournalPreview.png" alt="Dayflow journal preview" width="800">
+</div>
+
 ## How it works
 
-1) **Capture** — Records screen at 1 FPS in 15-second chunks.  
-2) **Analyze** — Every 15 minutes, sends recent footage to AI.  
-3) **Generate** — AI creates timeline cards with activity summaries.  
-4) **Display** — Shows your day as a visual timeline.  
+1) **Capture** — Records screen at 1 FPS in 15-second chunks.
+2) **Analyze** — Every 15 minutes, sends recent footage to AI.
+3) **Generate** — AI creates timeline cards with activity summaries.
+4) **Display** — Shows your day as a visual timeline.
 5) **Cleanup** — Auto-deletes recordings older than 3 days.
+
+### AI Processing Pipeline
+
+The efficiency of your timeline generation depends on your chosen AI provider:
+
+```mermaid
+flowchart LR
+    subgraph Gemini["Gemini Flow: 2 LLM Calls"]
+        direction LR
+        GV[Video] --> GU[Upload + Transcribe<br/>1 LLM call] --> GC[Generate Cards<br/>1 LLM call] --> GD[Done]
+    end
+
+    subgraph Local["Local Flow: 33+ LLM Calls"]
+        direction LR
+        LV[Video] --> LE[Extract 30 frames] --> LD[30 descriptions<br/>30 LLM calls] --> LM[Merge<br/>1 call] --> LT[Title<br/>1 call] --> LC[Merge Check<br/>1 call] --> LMC[Merge Cards<br/>1 call] --> LD2[Done]
+    end
+
+    %% Styling
+    classDef geminiFlow fill:#e8f5e8,stroke:#4caf50,stroke-width:2px
+    classDef localFlow fill:#fff8e1,stroke:#ff9800,stroke-width:2px
+    classDef geminiStep fill:#4caf50,color:#fff
+    classDef localStep fill:#ff9800,color:#fff
+    classDef processing fill:#f5f5f5,stroke:#666
+    classDef result fill:#e3f2fd,stroke:#1976d2
+
+    class Gemini geminiFlow
+    class Local localFlow
+    class GU,GC geminiStep
+    class LD,LM,LT,LC,LMC localStep
+    class GV,LV,LE processing
+    class GD,LD2 result
+```
+
+**Gemini** leverages native video understanding for direct analysis, while **Local models** reconstruct understanding from individual frame descriptions - resulting in dramatically different processing complexity.
 
 
 ---
@@ -152,38 +198,6 @@ Apple’s docs: https://support.apple.com/guide/mac-help/control-access-screen-s
 
 ---
 
-## Cost notes (Gemini)
-
-Dayflow lets you bring your own Gemini key. Costs depend on **model**, **how many batches you analyze**, and **how many tokens** (input + output) each batch uses.
-
-### A quick formula
-```
-Cost/day ≈ (#batches × input_tokens × input_rate + #batches × output_tokens × output_rate) / 1,000,000
-```
-> Use Google’s **token counting** helper in dev to measure real tokens: https://ai.google.dev/gemini-api/docs/token-counting
-
-### Example scenarios (text/image/video analysis)
-Using **Gemini 2.5 Flash (Standard)** prices — **Input: $0.30/M tokens**, **Output: $2.50/M tokens**  
-See latest pricing: https://ai.google.dev/gemini-api/docs/pricing
-
-| Scenario | Batches/day | Input tokens/batch | Output tokens/batch | Est. daily cost |
-|---|---:|---:|---:|---:|
-| Light (text + 1 image) | 24 | 2,000 | 200 | **$0.03** |
-| Medium (short clip per batch) | 96 | 20,000 | 300 | **$0.65** |
-| Heavy (longer clip per batch) | 160 | 64,000 | 500 | **$3.27** |
-
-Same math with **Gemini 1.5 Flash (≤128k prompt)** — **Input: $0.075/M**, **Output: $0.30/M**:
-
-| Scenario | Est. daily cost |
-|---|---:|
-| Light | **$0.01** |
-| Medium | **$0.15** |
-| Heavy | **$0.79** |
-
-> **Notes:** Token counts for **video** inputs vary widely. Always measure your own prompts/files in development. For ultra‑low cost at scale, consider the **Batch API** (≈50% off interactive rates).
-
----
-
 ## Configuration
 
 - **AI Provider**
@@ -206,42 +220,6 @@ You can click the Dayflow icon in the menu bar and view the saved recordings
 
 Dayflow integrates **Sparkle** via Swift Package Manager and shows the current version + a “Check for updates” action. By default, the updater **auto‑checks daily** and **auto‑downloads** updates.
 
----
-
-## Releasing
-
-### Local DMG build, sign, notarize
-```bash
-# First-time only: copy and edit your release env
-cp scripts/release.env.example scripts/release.env
-# Then:
-chmod +x scripts/release_dmg.sh
-./scripts/release_dmg.sh
-# Outputs: Dayflow.dmg (stapled if notarization creds provided)
-```
-
-**Prereqs**
-- Xcode toolchain
-- Developer ID Application certificate in your login Keychain
-- (Optional) `notarytool store-credentials` once, then export `NOTARY_PROFILE`, or pass Apple ID creds via env
-
-### One‑button release (tag, build, upload, appcast)
-```bash
-# bump minor version by default
-./scripts/release.sh
-# also available:
-./scripts/release.sh --major
-./scripts/release.sh --patch
-./scripts/release.sh --dry-run
-```
-
-What it does:
-- Reads `CFBundleShortVersionString`/`CFBundleVersion` from `Dayflow/Dayflow/Info.plist`
-- Bumps version/build and commits
-- Builds, signs (+ notarizes if configured)
-- Signs the DMG via Sparkle (`sign_update`)
-- Creates a **draft** GitHub Release and uploads the DMG via `gh`
-- Prepends a new `<item>` to `docs/appcast.xml`, commits, pushes, and **undrafts** the Release
 
 ## Project structure
 
