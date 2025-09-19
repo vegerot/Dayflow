@@ -1,3 +1,4 @@
+
 <div align="center">
   <img src="docs/images/dayflow_header.png" alt="Dayflow" width="400">
 </div>
@@ -20,6 +21,12 @@
   <img src="docs/images/hero_animation_1080p.gif" alt="Dayflow Hero Animation" width="800">
 </div>
 
+<div align="center">
+  <a href="https://github.com/JerryZLiu/Dayflow/releases/latest">
+    <img src="https://img.shields.io/badge/Download%20for%20Mac-⬇%20%20Dayflow.dmg-blue?style=for-the-badge&logo=apple" alt="Download for Mac">
+  </a>
+</div>
+
 <p align="center">
   <a href="#quickstart">Quickstart</a> •
   <a href="#features">Features</a> •
@@ -27,9 +34,8 @@
   <a href="#installation">Installation</a> •
   <a href="#data--privacy">Data & Privacy</a> •
   <a href="#cost-notes-gemini">Cost notes (Gemini)</a> •
-  <a href="#debug--developer-tools">Debug & Dev Tools</a> •
+  <a href="#debug--developer-tools">Debug & Developer Tools</a> •
   <a href="#auto-updates-sparkle">Auto‑updates</a> •
-  <a href="#releasing">Releasing</a> •
   <a href="#contributing">Contributing</a>
 </p>
 
@@ -37,11 +43,10 @@
 
 ## What is Dayflow?
 
-Dayflow is a **native macOS app** (SwiftUI) that records your screen at **1 FPS**, analyzes it **every 15 minutes** with AI, and generates a **timeline** of your activities with summaries. A built‑in **Debug** view lets you inspect each batch and every LLM request/response for full transparency.
+Dayflow is a **native macOS app** (SwiftUI) that records your screen at **1 FPS**, analyzes it **every 15 minutes** with AI, and generates a **timeline** of your activities with summaries. 
 
 > _Privacy‑minded by design_: You choose your AI provider. Use **Gemini** (bring your own API key) or **local models** (Ollama / LM Studio). See **Data & Privacy** for details.
 
-<!-- Placeholder asset list removed for public release -->
 
 ---
 
@@ -50,17 +55,11 @@ Dayflow is a **native macOS app** (SwiftUI) that records your screen at **1 FPS*
 - **Automatic timeline** of your day with concise summaries.
 - **1 FPS recording** - minimal CPU/storage impact.
 - **15-minute analysis intervals** for timely updates.
-- **Timelapse videos** for each activity.
+- **Watch timelapses ** for each timeline card.
 - **Auto storage cleanup** - removes old recordings after 3 days.
 - **Distraction highlights** to see what pulled you off‑task.
-- **Debug view** to replay batch video, expand cards, and inspect **every LLM call** (requests + responses, prettified JSON).
 - **Native UX** built with **SwiftUI**.
 - **Auto‑updates** with **Sparkle** (daily check + background download).
-- **One‑button release** scripts for DMG signing, notarization, appcast updates, and GitHub Releases.
-
-<!-- Feature screenshot placeholder removed -->
-
----
 
 ## How it works
 
@@ -70,7 +69,6 @@ Dayflow is a **native macOS app** (SwiftUI) that records your screen at **1 FPS*
 4) **Display** — Shows your day as a visual timeline.  
 5) **Cleanup** — Auto-deletes recordings older than 3 days.
 
-<!-- Architecture diagram placeholder removed -->
 
 ---
 
@@ -126,8 +124,8 @@ This section explains **what Dayflow stores locally**, **what leaves your machin
 - **Gemini (cloud, BYO key)** — Dayflow sends batch payloads to **Google’s Gemini API** for analysis.
 - **Local models (Ollama / LM Studio)** — Processing stays **on‑device**; Dayflow talks to a **local server** you run.
 
-### TL;DR: Gemini data handling (our reading of Google’s docs)
-- **Short answer: yes.** If you **enable Cloud Billing** on **at least one** Gemini API project, Google treats **all of your Gemini API and Google AI Studio usage** under the **“Paid Services”** data‑use rules — **even when you’re using unpaid/free quota**. Under Paid Services, **Google does not use your prompts/responses to improve Google products/models**.  
+### TL;DR: Gemini data handling (my reading of Google’s ToS)
+- **Short answer: There is a way to prevent Google from training on your data.** If you **enable Cloud Billing** on **at least one** Gemini API project, Google treats **all of your Gemini API and Google AI Studio usage** under the **“Paid Services”** data‑use rules — **even when you’re using unpaid/free quota**. Under Paid Services, **Google does not use your prompts/responses to improve Google products/models**.  
   - Terms: “When you activate a Cloud Billing account, all use of Gemini API and Google AI Studio is a ‘Paid Service’ with respect to how Google Uses Your Data, even when using Services that are offered free of charge.” ([Gemini API Additional Terms](https://ai.google.dev/gemini-api/terms#paid-services-how-google-uses-your-data))  
   - Abuse monitoring: even under Paid Services, Google **logs prompts/responses for a limited period** for **policy enforcement and legal compliance**. ([Same Terms](https://ai.google.dev/gemini-api/terms#paid-services-how-google-uses-your-data))  
   - **EEA/UK/Switzerland:** the **Paid‑style data handling applies by default** to **all Services** (including AI Studio and unpaid quota) **even without billing**. ([Same Terms](https://ai.google.dev/gemini-api/terms#unpaid-services-how-google-uses-your-data))
@@ -135,10 +133,7 @@ This section explains **what Dayflow stores locally**, **what leaves your machin
 **A couple useful nuances** (from docs + forum clarifications):
 - **AI Studio is still free** to use; enabling billing changes **data handling**, not whether Studio charges you. ([Pricing page](https://ai.google.dev/gemini-api/docs/pricing))  
 - **UI “Plan: Paid” check:** In **AI Studio → API keys**, you’ll typically see “Plan: Paid” once billing is enabled on any linked project (UI may evolve).  
-- **AI Studio “Apps” environment**: one forum reply suggests that, for **Apps**, you may need to **explicitly link** your billing‑enabled **Cloud project** to that app for “Paid Services” to apply within Apps. We rely on the **Terms** for policy, but note the nuance.  
-- **Workaround people ask about:** _“Make one project paid, keep using a free key elsewhere to get the best of both worlds.”_ The **Terms** imply **account‑level** coverage once any billing account is activated, but the **Apps** nuance above may limit this in specific UI contexts. **Treat this as an interpretation, not legal advice.**
-
-> Sources: Official **Gemini API Additional Terms** (Paid vs Unpaid data use, EEA/UK/CH default), **Pricing** (Studio is free), and Google forum clarifications. Always review the current Terms for your use case.
+- **Free workaround:** _“Make one project paid, keep using a free key elsewhere to get the best of both worlds.”_ The **Terms** imply **account‑level** coverage once any billing account is activated, but the **Apps** nuance above may limit this in specific UI contexts. **Treat this as an interpretation, not legal advice.**
 
 ### Local mode: privacy & trade‑offs
 - **Privacy:** With **Ollama/LM Studio**, prompts and model inference run on your machine. LM Studio documents full **offline** operation once models are downloaded.  
@@ -203,34 +198,13 @@ Same math with **Gemini 1.5 Flash (≤128k prompt)** — **Input: $0.075/M**, **
 
 ## Debug & Developer Tools
 
-Switch the top segmented control to **Debug** to:
-- Play back the full **batch video**.
-- Expand **timeline cards** to see summaries (and any inline video summaries).
-- Inspect a list of **every LLM call** for the batch, including full request/response with prettified JSON.
-
-<!-- Debug calls screenshot placeholder removed -->
+You can click the Dayflow icon in the menu bar and view the saved recordings
 
 ---
 
 ## Auto‑updates (Sparkle)
 
 Dayflow integrates **Sparkle** via Swift Package Manager and shows the current version + a “Check for updates” action. By default, the updater **auto‑checks daily** and **auto‑downloads** updates.
-
-**One‑time setup**
-1. Generate an **Ed25519** keypair using Sparkle’s `generate_keys`.
-2. Add the public key to `Info.plist` under `SUPublicEDKey`.
-3. Host your **appcast** (e.g., `docs/appcast.xml`) and set `SUFeedURL` accordingly.
-
-**Key management tip (optional)**
-- Store the private key in Keychain (Generic Password) and sign releases with a helper script — see `scripts/sparkle_sign_from_keychain.sh`.
-
-**Appcast**
-- Host at `docs/appcast.xml` on your default branch (enable **GitHub Pages**), or host the raw file.  
-- Minimum system version is currently set to `13.0` in the appcast generation script.
-
-Links:  
-- Sparkle project: https://github.com/sparkle-project/Sparkle  
-- Sparkle docs: https://sparkle-project.org/documentation/
 
 ---
 
@@ -269,11 +243,6 @@ What it does:
 - Creates a **draft** GitHub Release and uploads the DMG via `gh`
 - Prepends a new `<item>` to `docs/appcast.xml`, commits, pushes, and **undrafts** the Release
 
-**CI**  
-Add a GitHub Actions workflow to call the scripts above on tagged pushes if you’d like fully automated releases.
-
----
-
 ## Project structure
 
 ```
@@ -281,7 +250,6 @@ Dayflow/
 ├─ Dayflow/                 # SwiftUI app sources (timeline UI, debug UI, capture & analysis pipeline)
 ├─ docs/                    # Appcast and documentation assets (screenshots, videos)
 ├─ scripts/                 # Release automation (DMG, notarization, appcast, Sparkle signing, one-button release)
-└─ .github/workflows/       # (Optional) CI workflows for build/release
 ```
 
 ---
@@ -291,27 +259,21 @@ Dayflow/
 - **Screen capture is blank or fails**  
   Check System Settings → Privacy & Security → **Screen & System Audio Recording** and ensure **Dayflow** is enabled.
 - **API errors**  
-  Verify your `GEMINI_API_KEY` and network connectivity.
-- **Updates don’t appear**  
-  Confirm `SUFeedURL` points to your published appcast and that the DMG asset URL + Sparkle signature match the uploaded release.
+  Go into settings and verify your `GEMINI_API_KEY` and network connectivity.
 
 ---
 
 ## Roadmap
 
-- [ ] Export timeline summaries (Markdown/CSV)
-- [ ] Per‑app grouping and filters
-- [ ] Configurable chunk duration
-- [ ] In‑app redaction controls for sensitive windows
-- [ ] Optional local OCR pipeline for on‑device hints
-- [ ] Beta update channel
+- [ ] V1 of the Dashboard (track answers to custom questions)
+- [ ] V1 of the daily journal
+- [ ] Fine tuning a small VLM 
 
 ---
 
 ## Contributing
 
 PRs welcome! If you plan a larger change, please open an issue first to discuss scope and approach.  
-_Lint/style preferences or Swift formatters can be added here if you use them._
 
 ---
 
