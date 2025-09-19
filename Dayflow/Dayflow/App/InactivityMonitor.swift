@@ -9,15 +9,25 @@ final class InactivityMonitor: ObservableObject {
     @Published var pendingReset: Bool = false
 
     // Config
-    private let defaultsKey = "idleResetMinutes"
-    var thresholdMinutes: Int {
-        get { max(1, UserDefaults.standard.integer(forKey: defaultsKey) == 0 ? 15 : UserDefaults.standard.integer(forKey: defaultsKey)) }
-        set { UserDefaults.standard.set(newValue, forKey: defaultsKey) }
+    private let secondsOverrideKey = "idleResetSecondsOverride"
+    private let legacyMinutesKey = "idleResetMinutes"
+    private let defaultThresholdSeconds: TimeInterval = 15 * 60
+
+    var thresholdSeconds: TimeInterval {
+        let override = UserDefaults.standard.double(forKey: secondsOverrideKey)
+        if override > 0 { return override }
+
+        let legacyMinutes = UserDefaults.standard.integer(forKey: legacyMinutesKey)
+        if legacyMinutes > 0 {
+            return TimeInterval(legacyMinutes * 60)
+        }
+
+        return defaultThresholdSeconds
     }
 
     // State
     private var lastInteractionAt: Date = Date()
-    private var firedForCurrentIdle: Bool = false
+    private var lastResetAt: Date? = nil
     private var checkTimer: Timer?
     private var monitors: [Any] = []
 
@@ -81,13 +91,14 @@ final class InactivityMonitor: ObservableObject {
 
     private func handleInteraction() {
         lastInteractionAt = Date()
-        firedForCurrentIdle = false
+        lastResetAt = nil
         if pendingReset { pendingReset = false }
     }
 
     private func startTimer() {
         stopTimer()
-        checkTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
+        let interval = max(1.0, min(5.0, thresholdSeconds / 2))
+        checkTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.checkIdle()
             }
@@ -101,12 +112,15 @@ final class InactivityMonitor: ObservableObject {
 
     private func checkIdle() {
         let elapsed = Date().timeIntervalSince(lastInteractionAt)
-        let threshold = TimeInterval(thresholdMinutes * 60)
-        if elapsed >= threshold {
-            if !firedForCurrentIdle {
-                pendingReset = true
-                firedForCurrentIdle = true
-            }
+        let threshold = thresholdSeconds
+        guard elapsed >= threshold else { return }
+
+        let now = Date()
+        if let lastResetAt, now.timeIntervalSince(lastResetAt) < threshold {
+            return
         }
+
+        pendingReset = true
+        lastResetAt = now
     }
 }
