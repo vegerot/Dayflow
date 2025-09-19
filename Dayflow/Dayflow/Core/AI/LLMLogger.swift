@@ -34,16 +34,18 @@ enum LLMLogger {
         let record = makeRecord(ctx: ctx, http: http, status: .success, latencyMs: latencyMs, error: nil)
         StorageManager.shared.insertLLMCall(record)
         Task { @MainActor in
-            AnalyticsService.shared.withSampling(probability: 0.1) {
-                let ms = latencyMs
-                let bucket = ms < 500 ? "<500ms" : (ms < 1500 ? "0.5-1.5s" : ">=1.5s")
-                AnalyticsService.shared.capture("llm_api_call", [
-                    "provider": ctx.provider,
-                    "model": ctx.model ?? "unknown",
-                    "latency_ms_bucket": bucket,
-                    "outcome": "success"
-                ])
-            }
+            var props: [String: Any] = [
+                "provider": ctx.provider,
+                "model": ctx.model ?? "unknown",
+                "latency_ms": latencyMs,
+                "outcome": "success",
+                "operation": ctx.operation
+            ]
+
+            if let batchId = ctx.batchId { props["batch_id"] = batchId }
+            if let groupId = ctx.callGroupId { props["group_id"] = groupId }
+
+            AnalyticsService.shared.capture("llm_api_call", props)
         }
     }
 
@@ -52,17 +54,20 @@ enum LLMLogger {
         let record = makeRecord(ctx: ctx, http: http, status: .failure, latencyMs: latencyMs, error: (errorDomain, errorCode, errorMessage))
         StorageManager.shared.insertLLMCall(record)
         Task { @MainActor in
-            AnalyticsService.shared.withSampling(probability: 0.1) {
-                let ms = latencyMs
-                let bucket = ms < 500 ? "<500ms" : (ms < 1500 ? "0.5-1.5s" : ">=1.5s")
-                AnalyticsService.shared.capture("llm_api_call", [
-                    "provider": ctx.provider,
-                    "model": ctx.model ?? "unknown",
-                    "latency_ms_bucket": bucket,
-                    "outcome": "error",
-                    "error_code": errorCode ?? -1
-                ])
-            }
+            var props: [String: Any] = [
+                "provider": ctx.provider,
+                "model": ctx.model ?? "unknown",
+                "latency_ms": latencyMs,
+                "outcome": "error",
+                "operation": ctx.operation
+            ]
+
+            if let batchId = ctx.batchId { props["batch_id"] = batchId }
+            if let groupId = ctx.callGroupId { props["group_id"] = groupId }
+            if let errorCode { props["error_code"] = errorCode }
+            if let errorMessage, !errorMessage.isEmpty { props["error_message"] = errorMessage }
+
+            AnalyticsService.shared.capture("llm_api_call", props)
         }
     }
 

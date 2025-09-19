@@ -38,7 +38,7 @@ struct SettingsView: View {
 
                 // Analytics toggle (default ON)
                 Toggle(isOn: $analyticsEnabled) {
-                    Text("Share anonymous usage analytics")
+                    Text("Share crash reports and anonymous usage data")
                         .font(.custom("Nunito", size: 13))
                         .foregroundColor(.black.opacity(0.7))
                 }

@@ -118,10 +118,17 @@ final class LLMService: LLMServicing {
             }
             
             let (_, batchStartTs, batchEndTs, _) = batchInfo
-            
+            let processingStartTime = Date()
+
             do {
                 print("\n📦 [LLMService] Processing batch \(batchId)")
                 print("   Batch time: \(Date(timeIntervalSince1970: TimeInterval(batchStartTs))) to \(Date(timeIntervalSince1970: TimeInterval(batchEndTs)))")
+
+                // Track analysis batch started
+                await AnalyticsService.shared.capture("analysis_batch_started", [
+                    "batch_id": batchId,
+                    "total_duration_seconds": batchEndTs - batchStartTs
+                ])
                 
                 // Check provider inside the do block so errors go through catch
                 guard let provider = provider else {
@@ -312,7 +319,14 @@ final class LLMService: LLMServicing {
                 
                 // Mark batch as complete
                 StorageManager.shared.updateBatch(batchId, status: "analyzed")
-                
+
+                // Track analysis batch completed
+                await AnalyticsService.shared.capture("analysis_batch_completed", [
+                    "batch_id": batchId,
+                    "cards_generated": cards.count,
+                    "processing_duration_seconds": Int(Date().timeIntervalSince(processingStartTime))
+                ])
+
                 completion(.success(ProcessedBatchResult(cards: cards, cardIds: insertedCardIds)))
                 
             } catch {
@@ -320,7 +334,14 @@ final class LLMService: LLMServicing {
                 if let ns = error as NSError?, ns.domain == "GeminiError" {
                     print("🔎 GEMINI DEBUG: NSError.userInfo=\(ns.userInfo)")
                 }
-                
+
+                // Track analysis batch failed
+                await AnalyticsService.shared.capture("analysis_batch_failed", [
+                    "batch_id": batchId,
+                    "error_message": error.localizedDescription,
+                    "processing_duration_seconds": Int(Date().timeIntervalSince(processingStartTime))
+                ])
+
                 // Mark batch as failed
                 StorageManager.shared.updateBatch(batchId, status: "failed", reason: error.localizedDescription)
                 
