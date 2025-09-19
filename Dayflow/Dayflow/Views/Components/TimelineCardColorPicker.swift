@@ -106,7 +106,7 @@ fileprivate struct DotPattern: View {
                 let cols = Int(ceil(size.width / width))
                 let rows = Int(ceil(size.height / height))
                 let dot = Path(ellipseIn: CGRect(x: 0, y: 0, width: 2, height: 2))
-                let color = Color(.sRGB, red: 107/255, green: 114/255, blue: 128/255, opacity: 0.2)
+                let color = Color.white.opacity(0.35)
 
                 for i in 0..<cols {
                     for j in 0..<rows {
@@ -393,18 +393,21 @@ fileprivate struct CategoryView: View {
     @State private var dragOver = false
     @State private var localDetails: String = ""
     @State private var showHint: Bool = false
-    @FocusState private var editing: Bool
+    @State private var focusToken: Int = 0
     private let detailsPlaceholder = "Add details to help teach the AI what belongs in this category. For example, \"Client meetings, Zoom calls, CRM updates.\""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 HStack(spacing: 8) {
-                    Circle()
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
                         .fill(Color(hex: category.colorHex))
                         .frame(width: 20, height: 20)
-                        .overlay(Circle().stroke(.white, lineWidth: 2))
-                        .shadow(radius: 2, y: 1)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .stroke(Color.white, lineWidth: 2)
+                        )
+                        .shadow(color: Color.black.opacity(0.15), radius: 2, y: 1)
                     Text(category.name)
                         .font(.system(size: 14, weight: .medium))
                 }
@@ -447,22 +450,16 @@ fileprivate struct CategoryView: View {
                         Text(detailsPlaceholder)
                             .font(.system(size: 12))
                             .foregroundColor(Color.gray.opacity(0.55))
-                            .padding(.horizontal, 16)
-                            .padding(.top, 14)
+                            .padding(.horizontal, 18)
+                            .padding(.top, 16)
                             .allowsHitTesting(false)
                     }
 
-                    TextEditor(text: $localDetails)
-                        .font(.system(size: 13))
+                    CategoryDetailTextView(text: $localDetails, focusToken: focusToken)
+                        .frame(height: 120)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 12)
-                        .background(Color.clear)
-                        .focused($editing)
-                        .onDisappear { onDetailsChange(localDetails) }
-                        .onSubmit { onDetailsChange(localDetails) }
-                        .modifier(HideTextEditorBackground())
                 }
-                .frame(minHeight: 120)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(Color.white)
@@ -471,7 +468,6 @@ fileprivate struct CategoryView: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .stroke(Color(red: 0.87, green: 0.9, blue: 0.95), lineWidth: 1)
                 )
-                .shadow(color: Color.black.opacity(0.04), radius: 10, y: 3)
             }
         }
         .padding(12)
@@ -485,7 +481,11 @@ fileprivate struct CategoryView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             expanded.toggle()
-            if expanded { editing = true }
+            if expanded {
+                focusToken &+= 1
+            } else {
+                onDetailsChange(localDetails)
+            }
         }
         .onHover { hovering in self.hovering = hovering }
         .onAppear {
@@ -498,7 +498,12 @@ fileprivate struct CategoryView: View {
         .onChange(of: category.details) { newValue in
             localDetails = newValue
         }
-        .overlay(alignment: .center) {
+        .onChange(of: localDetails) { newValue in
+            if expanded {
+                onDetailsChange(newValue)
+            }
+        }
+        .overlay(alignment: .topLeading) {
             if showHint, category.colorHex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text("← Drop a color here")
                     .font(.system(size: 11))
@@ -507,7 +512,7 @@ fileprivate struct CategoryView: View {
                     .padding(.horizontal, 10)
                     .background(Color.black.opacity(0.8))
                     .clipShape(RoundedRectangle(cornerRadius: 4))
-                    .offset(x: -140)
+                    .offset(x: -140, y: -20)
                     .allowsHitTesting(false)
             }
             if hovering, !expanded, localDetails.isEmpty {
@@ -518,8 +523,9 @@ fileprivate struct CategoryView: View {
                     .padding(.horizontal, 8)
                     .background(Color.black.opacity(0.8))
                     .clipShape(RoundedRectangle(cornerRadius: 4))
-                    .offset(x: -100, y: 40)
+                    .offset(x: 0, y: -50)
                     .allowsHitTesting(false)
+                    .zIndex(100)
             }
         }
         .onDrop(of: [UTType.plainText], isTargeted: $dragOver) { providers in
@@ -541,19 +547,73 @@ fileprivate struct CategoryView: View {
             }
             return true
         }
-        .zIndex((hovering || dragOver || expanded) ? 5 : 0)
+        .zIndex((hovering || dragOver || expanded) ? 50 : 0)
+        .onDisappear {
+            onDetailsChange(localDetails)
+        }
     }
 }
 
-private struct HideTextEditorBackground: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(macOS 13.0, *) {
-            content
-                .scrollContentBackground(.hidden)
-                .background(Color.clear)
-        } else {
-            content
-                .background(Color.clear)
+private struct CategoryDetailTextView: NSViewRepresentable {
+    @Binding var text: String
+    var focusToken: Int
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: CategoryDetailTextView
+        var lastFocusToken: Int = -1
+
+        init(parent: CategoryDetailTextView) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            parent.text = textView.string
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let textView = NSTextView()
+        textView.isRichText = false
+        textView.drawsBackground = false
+        textView.backgroundColor = .clear
+        textView.font = NSFont.systemFont(ofSize: 13)
+        textView.textColor = NSColor.labelColor
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainerInset = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        textView.isVerticallyResizable = false
+        textView.isHorizontallyResizable = false
+        textView.delegate = context.coordinator
+        textView.textContainer?.widthTracksTextView = true
+
+        textView.string = text
+
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.documentView = textView
+        scrollView.contentView.postsBoundsChangedNotifications = false
+        return scrollView
+    }
+
+    func updateNSView(_ nsView: NSScrollView, context: Context) {
+        guard let textView = nsView.documentView as? NSTextView else { return }
+        if textView.string != text {
+            textView.string = text
+        }
+
+        if focusToken != context.coordinator.lastFocusToken {
+            context.coordinator.lastFocusToken = focusToken
+            DispatchQueue.main.async {
+                nsView.window?.makeFirstResponder(textView)
+            }
         }
     }
 }
@@ -771,6 +831,7 @@ struct ColorOrganizerRoot: View {
             }
             contentCard
         }
+        .background(Color.clear)
         .onAppear {
             showFirstTimeHints = !UserDefaults.standard.bool(forKey: CategoryStore.StoreKeys.hasUsedApp)
         }
