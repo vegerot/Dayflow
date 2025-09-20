@@ -265,10 +265,26 @@ struct MainView: View {
             // Safety: stop timer if view disappears
             stopDayChangeTimer()
         }
-        .sheet(isPresented: $showCategoryEditor) {
-            ColorOrganizerRoot(showBackgroundGradient: false)
-                .environmentObject(categoryStore)
-                .frame(minWidth: 860, minHeight: 600)
+        .overlay {
+            if showCategoryEditor {
+                ZStack {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            showCategoryEditor = false
+                        }
+
+                    ColorOrganizerRoot(
+                        showBackgroundGradient: false,
+                        onDismiss: { showCategoryEditor = false }
+                    )
+                    .environmentObject(categoryStore)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        // Block tap from reaching backdrop
+                    }
+                }
+            }
         }
     }
     

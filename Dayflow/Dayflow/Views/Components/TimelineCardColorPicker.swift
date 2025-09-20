@@ -106,7 +106,7 @@ fileprivate struct DotPattern: View {
                 let cols = Int(ceil(size.width / width))
                 let rows = Int(ceil(size.height / height))
                 let dot = Path(ellipseIn: CGRect(x: 0, y: 0, width: 2, height: 2))
-                let color = Color.white.opacity(0.35)
+                let color = Color(.sRGB, red: 107/255, green: 114/255, blue: 128/255, opacity: 0.22)
 
                 for i in 0..<cols {
                     for j in 0..<rows {
@@ -585,7 +585,7 @@ private struct CategoryDetailTextView: NSViewRepresentable {
         textView.textColor = NSColor.labelColor
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainerInset = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = false
         textView.isHorizontallyResizable = false
         textView.delegate = context.coordinator
@@ -621,8 +621,8 @@ private struct CategoryDetailTextView: NSViewRepresentable {
 
 struct ColorOrganizerRoot: View {
     var showBackgroundGradient: Bool = true
+    var onDismiss: (() -> Void)?
     @EnvironmentObject private var categoryStore: CategoryStore
-    @Environment(\.dismiss) private var dismiss
     @State private var numPoints: Int = 3
     @State private var normalizedRadius: Double = 0.7
     @State private var currentAngle: Double = -Double.pi / 2
@@ -653,19 +653,19 @@ struct ColorOrganizerRoot: View {
             // Picker container (light slate with dot mask)
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.white)
-                    .frame(width: 280, height: 280 + 12 + 28)
+                    .fill(Color(hex: "#F1F5F9"))
+                    .frame(width: 290, height: 224 + 12 + 28)
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
 
                 VStack(spacing: 8) {
                     ZStack {
                         DotPattern(width: 10, height: 10)
-                            .frame(width: 280, height: 280)
+                            .frame(width: 224, height: 224)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                             .zIndex(10)
 
                         ColorPickerView(
-                            size: 280,
+                            size: 224,
                             padding: 20,
                             bulletRadius: 24,
                             spreadFactor: 0.4,
@@ -717,7 +717,7 @@ struct ColorOrganizerRoot: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .shadow(color: Color.black.opacity(0.1), radius: 3, y: 1)
         }
-        .frame(width: 280)
+        .frame(width: 290)
     }
 
     private var rightPanel: some View {
@@ -788,52 +788,56 @@ struct ColorOrganizerRoot: View {
                 }
                 .buttonStyle(.plain)
             }
-            .frame(width: 280)
+            .frame(width: 224)
         }
-        .frame(width: 280)
+        .frame(width: 224)
     }
 
     private var contentCard: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 48) {
+            HStack(alignment: .top, spacing: 38) {
                 leftPanel
                 rightPanel
             }
-            .frame(maxWidth: 900)
-            .padding(32)
-
-            Divider()
-                .padding(.horizontal, 32)
+            .frame(maxWidth: 780)
+            .padding(.horizontal, 26)
+            .padding(.top, 26)
+            .padding(.bottom, 13)
 
             HStack {
                 Spacer()
                 SetupContinueButton(title: "Save", isEnabled: true) {
                     categoryStore.persist()
-                    dismiss()
+                    onDismiss?()
                 }
-                .padding(.horizontal, 32)
-                .padding(.vertical, 24)
             }
+            .padding(.trailing, 26)
+            .padding(.bottom, 26)
         }
         .background(
             RoundedRectangle(cornerRadius: 20)
                 .fill(Color.white)
                 .shadow(color: Color.black.opacity(0.3), radius: 60, y: 20)
         )
-        .padding()
+        .padding(.horizontal, 64)
+        .padding(.vertical, 32)
     }
 
     var body: some View {
-        ZStack {
-            if showBackgroundGradient {
+        if showBackgroundGradient {
+            ZStack {
                 backgroundGradient
                     .ignoresSafeArea()
+                contentCard
             }
+            .onAppear {
+                showFirstTimeHints = !UserDefaults.standard.bool(forKey: CategoryStore.StoreKeys.hasUsedApp)
+            }
+        } else {
             contentCard
-        }
-        .background(Color.clear)
-        .onAppear {
-            showFirstTimeHints = !UserDefaults.standard.bool(forKey: CategoryStore.StoreKeys.hasUsedApp)
+                .onAppear {
+                    showFirstTimeHints = !UserDefaults.standard.bool(forKey: CategoryStore.StoreKeys.hasUsedApp)
+                }
         }
     }
 
