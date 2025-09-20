@@ -20,6 +20,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBar: StatusBarController!
     private var recorder : ScreenRecorder!
     private var analyticsSub: AnyCancellable?
+    private var powerObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ note: Notification) {
         // Block termination by default; only specific flows enable it.
@@ -104,6 +105,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 AnalyticsService.shared.capture("recording_toggled", ["enabled": enabled, "reason": "user"]) 
                 AnalyticsService.shared.setPersonProperties(["recording_enabled": enabled])
             }
+
+        powerObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.willPowerOffNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            AppDelegate.allowTermination = true
+        }
     }
     
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -139,6 +148,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        if let observer = powerObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            powerObserver = nil
+        }
         // If onboarding not completed, mark abandoned with last step
         let didOnboard = UserDefaults.standard.bool(forKey: "didOnboard")
         if !didOnboard {
