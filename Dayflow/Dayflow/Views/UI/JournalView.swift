@@ -26,7 +26,7 @@ struct JournalView: View {
                         .foregroundColor(.black)
                         .multilineTextAlignment(.center)
 
-                    Text("A narrative overview of how you spent your day — highlighting focus blocks, key apps and sites, context switches, and distractions — perfect for reflection or sharing.")
+                    Text("A narrative overview of how you spent your day, highlighting focus blocks, key apps and sites, context switches, and distractions; perfect for reflection or sharing.")
                         .font(.system(size: 13))
                         .foregroundColor(Color.black.opacity(0.8))
                         .multilineTextAlignment(.center)

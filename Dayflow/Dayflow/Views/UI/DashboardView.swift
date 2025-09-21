@@ -29,7 +29,7 @@ struct DashboardView: View {
                         .foregroundColor(.black)
                         .multilineTextAlignment(.center)
 
-                    Text("Ask and track answers to any question about your day — e.g., ‘How many times did I check Twitter today?’, ‘How long did I spend in Figma?’, or ‘What was my longest deep‑work block?’")
+                    Text("Ask and track answers to any question about your day, such as ‘How many times did I check Twitter today?’, ‘How long did I spend in Figma?’, or ‘What was my longest deep-work block?’")
                         .font(.system(size: 13))
                         .foregroundColor(Color.black.opacity(0.8))
                         .multilineTextAlignment(.center)
