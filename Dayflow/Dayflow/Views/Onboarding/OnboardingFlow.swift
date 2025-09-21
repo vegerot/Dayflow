@@ -340,6 +340,12 @@ struct CompletionView: View {
     
     var body: some View {
         VStack(spacing: 32) {
+            Image("DayflowLogoMainApp")
+                .resizable()
+                .renderingMode(.original)
+                .scaledToFit()
+                .frame(height: 64)
+
             // Title section
             VStack(spacing: 12) {
                 Text("You are ready to go!")
@@ -354,30 +360,14 @@ struct CompletionView: View {
             }
             
             // Preview area
-            RoundedRectangle(cornerRadius: 12)
-                .fill(
-                    LinearGradient(
-                        gradient: Gradient(colors: [
-                            Color(red: 1, green: 0.98, blue: 0.94),
-                            Color(red: 1, green: 0.96, blue: 0.88)
-                        ]),
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(height: 280)
-                .overlay(
-                    // Timeline image
-                    VStack {
-                        Image("OnboardingTimeline")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxHeight: 260)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                    .padding(10)
-                )
-            
+            Image("OnboardingTimeline")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: 720)
+                .frame(maxHeight: 400)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .shadow(color: Color.black.opacity(0.12), radius: 18, x: 0, y: 10)
+
             // Proceed button
             DayflowSurfaceButton(
                 action: onFinish,
@@ -396,13 +386,9 @@ struct CompletionView: View {
                 showOverlayStroke: true
             )
         }
-        .padding(48)
-        .frame(width: 640)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.white)
-                .shadow(color: Color.black.opacity(0.1), radius: 20, x: 0, y: 10)
-        )
+        .padding(.horizontal, 48)
+        .padding(.vertical, 60)
+        .frame(maxWidth: 720)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
