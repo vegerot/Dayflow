@@ -9,11 +9,11 @@ import SwiftUI
 
 struct TestConnectionView: View {
     let onTestComplete: ((Bool) -> Void)?
-    
+
     @State private var isTesting = false
     @State private var testResult: TestResult?
     @State private var isHovered = false
-    
+
     init(onTestComplete: ((Bool) -> Void)? = nil) {
         self.onTestComplete = onTestComplete
     }
@@ -99,7 +99,7 @@ struct TestConnectionView: View {
             return Color(red: 1, green: 0.42, blue: 0.02)
         }
     }
-    
+
     private var buttonBorder: Color {
         if testResult?.isSuccess == true {
             return Color(red: 0.34, green: 1, blue: 0.45).opacity(0.5)

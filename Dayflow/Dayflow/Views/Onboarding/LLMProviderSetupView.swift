@@ -172,7 +172,12 @@ struct LLMProviderSetupView: View {
                         content: {
                             AsyncImage(url: URL(string: "https://ollama.com/public/ollama.png")) { phase in
                                 switch phase {
-                                case .success(let image): image.resizable().scaledToFit()
+                                case .success(let image):
+                                    image
+                                        .renderingMode(.template)
+                                        .resizable()
+                                        .scaledToFit()
+                                        .foregroundColor(.white)
                                 case .failure(_): Image(systemName: "shippingbox").resizable().scaledToFit().foregroundColor(.white.opacity(0.6))
                                 case .empty: ProgressView().scaleEffect(0.7)
                                 @unknown default: EmptyView()
@@ -741,7 +746,10 @@ struct LocalLLMTestView: View {
     let engine: LocalEngine
     var showInputs: Bool = true
     let onTestComplete: (Bool) -> Void
-    
+
+    private let accentColor = Color(red: 0.25, green: 0.17, blue: 0)
+    private let successAccentColor = Color(red: 0.34, green: 1, blue: 0.45)
+
     @State private var isTesting = false
     @State private var resultMessage: String?
     @State private var success: Bool = false
@@ -778,9 +786,9 @@ struct LocalLLMTestView: View {
                         Text(isTesting ? "Testing..." : (success ? "Test Successful!" : "Test Local API")).font(.custom("Nunito", size: 14)).fontWeight(.semibold)
                     }
                 },
-                background: success ? Color(red: 0.34, green: 1, blue: 0.45).opacity(0.2) : Color(red: 0.25, green: 0.17, blue: 0),
+                background: success ? successAccentColor.opacity(0.2) : accentColor,
                 foreground: success ? .black : .white,
-                borderColor: success ? Color(red: 0.34, green: 1, blue: 0.45).opacity(0.3) : .clear,
+                borderColor: success ? successAccentColor.opacity(0.3) : .clear,
                 cornerRadius: 8,
                 horizontalPadding: 24,
                 verticalPadding: 12,
@@ -802,7 +810,6 @@ struct LocalLLMTestView: View {
             }
         }
     }
-    
     private func runTest() {
         guard !isTesting else { return }
         isTesting = true

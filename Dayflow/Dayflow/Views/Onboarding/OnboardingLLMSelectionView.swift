@@ -77,10 +77,10 @@ struct OnboardingLLMSelectionView: View {
                     Group {
                         Text("Not sure which to choose? ")
                             .foregroundColor(.black.opacity(0.6))
-                        + Text("Try Dayflow Pro free for 1 month")
+                        + Text("Bring your own keys is the easiest setup (30s).")
                             .fontWeight(.semibold)
                             .foregroundColor(.black.opacity(0.8))
-                        + Text(" - no credit card required.")
+                        + Text(" You can switch at any time in the settings.")
                             .foregroundColor(.black.opacity(0.6))
                     }
                     .font(.custom("Nunito", size: 14))

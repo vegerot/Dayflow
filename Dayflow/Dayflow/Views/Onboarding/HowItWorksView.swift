@@ -81,11 +81,11 @@ struct HowItWorksView: View {
                     Spacer()
                     
                     DayflowSurfaceButton(
-                        action: { if let url = URL(string: "https://github.com/teleportlabs/Dayflow") { NSWorkspace.shared.open(url) } },
+                        action: { if let url = URL(string: "https://github.com/jerryzliu/Dayflow") { NSWorkspace.shared.open(url) } },
                         content: {
                             HStack(spacing: 12) {
                                 Image("GithubIcon").resizable().aspectRatio(contentMode: .fit).frame(width: 20, height: 20).colorInvert()
-                                Text("Read the code on GitHub").font(.custom("Nunito", size: 14)).fontWeight(.medium)
+                                Text("Star Dayflow on GitHub").font(.custom("Nunito", size: 14)).fontWeight(.medium)
                             }
                         },
                         background: Color(red: 0.25, green: 0.17, blue: 0),
