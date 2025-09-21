@@ -24,126 +24,121 @@ struct SettingsView: View {
     }()
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Header - left aligned
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Settings")
-                    .font(.custom("InstrumentSerif-Regular", size: 42))
-                    .foregroundColor(.black.opacity(0.9))
-                    .padding(.leading, 10)
-                
-                Text("Manage how Dayflow is run")
-                    .font(.custom("Nunito", size: 14))
-                    .foregroundColor(.black.opacity(0.6))
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 24) {
+                // Header - left aligned
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Settings")
+                        .font(.custom("InstrumentSerif-Regular", size: 42))
+                        .foregroundColor(.black.opacity(0.9))
+                        .padding(.leading, 10)
+                    
+                    Text("Manage how Dayflow is run")
+                        .font(.custom("Nunito", size: 14))
+                        .foregroundColor(.black.opacity(0.6))
 
-                // Analytics toggle (default ON)
-                Toggle(isOn: $analyticsEnabled) {
-                    Text("Share crash reports and anonymous usage data")
-                        .font(.custom("Nunito", size: 13))
-                        .foregroundColor(.black.opacity(0.7))
-                }
-                .toggleStyle(.switch)
-                .frame(maxWidth: 340, alignment: .leading)
-
-                // Simple update status + action
-                HStack(spacing: 14) {
-                    let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
-                    Text("Dayflow v\(version)")
-                        .font(.custom("Nunito", size: 13))
-                        .foregroundColor(.black.opacity(0.65))
-
-                    Text(updater.statusText.isEmpty ? "" : updater.statusText)
-                        .font(.custom("Nunito", size: 13))
-                        .foregroundColor(.black.opacity(0.45))
-
-                    Spacer()
-
-                    Button(action: { updater.checkForUpdates() }) {
-                        if updater.isChecking {
-                            ProgressView().scaleEffect(0.6)
-                        } else {
-                            Text("Check for updates")
-                        }
+                    // Analytics toggle (default ON)
+                    Toggle(isOn: $analyticsEnabled) {
+                        Text("Share crash reports and anonymous usage data")
+                            .font(.custom("Nunito", size: 13))
+                            .foregroundColor(.black.opacity(0.7))
                     }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.black.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                }
-                .frame(maxWidth: 520)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            
-            // Provider Cards + Test Section - centered within content area
-            ScrollView {
-                VStack(alignment: .center, spacing: 24) {
-                    // Cards row
-                    HStack(spacing: 20) {
-                        ForEach(providerCards, id: \.id) { card in
-                            card
-                                .frame(maxWidth: 350)
-                                .frame(height: 420)
-                        }
-                    }
+                    .toggleStyle(.switch)
+                    .frame(maxWidth: 340, alignment: .leading)
 
-                    // Test connection section adapts to selection
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Test Connection")
-                            .font(.custom("Nunito", size: 16))
-                            .fontWeight(.semibold)
-                            .foregroundColor(.black.opacity(0.9))
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                    // Simple update status + action
+                    HStack(spacing: 14) {
+                        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+                        Text("Dayflow v\(version)")
+                            .font(.custom("Nunito", size: 13))
+                            .foregroundColor(.black.opacity(0.65))
 
-                        Group {
-                            if currentProvider == "gemini" {
-                                TestConnectionView(onTestComplete: { success in
-                                    // Optional: analytics event already captured inside TestConnectionView
-                                })
-                            } else if currentProvider == "ollama" {
-                                LocalLLMTestView(
-                                    baseURL: $localBaseURL,
-                                    modelId: $localModelId,
-                                    engine: localEngine,
-                                    showInputs: false,
-                                    onTestComplete: { success in
-                                        // Persist any updated values back (defensive)
-                                        UserDefaults.standard.set(localBaseURL, forKey: "llmLocalBaseURL")
-                                        UserDefaults.standard.set(localModelId, forKey: "llmLocalModelId")
-                                    }
-                                )
-                            } else if currentProvider == "dayflow" {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "info.circle").font(.system(size: 12)).foregroundColor(.black.opacity(0.5))
-                                    Text("Testing Dayflow Pro connection isn’t available yet.")
-                                        .font(.custom("Nunito", size: 13))
-                                        .foregroundColor(.black.opacity(0.6))
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(updater.statusText.isEmpty ? "" : updater.statusText)
+                            .font(.custom("Nunito", size: 13))
+                            .foregroundColor(.black.opacity(0.45))
+
+                        Spacer()
+
+                        Button(action: { updater.checkForUpdates() }) {
+                            if updater.isChecking {
+                                ProgressView().scaleEffect(0.6)
                             } else {
-                                // Unknown provider fallback
-                                HStack(spacing: 8) {
-                                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 12)).foregroundColor(Color(hex: "E91515"))
-                                    Text("Unknown provider – please reselect above.")
-                                        .font(.custom("Nunito", size: 13))
-                                        .foregroundColor(Color(hex: "E91515"))
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                Text("Check for updates")
                             }
                         }
-                        .frame(maxWidth: 520, alignment: .leading)
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.black.opacity(0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
-                    .padding(16)
-                    .background(Color.white.opacity(0.5))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.black.opacity(0.06), lineWidth: 1)
-                    )
-                    .cornerRadius(6)
-                    .frame(maxWidth: 600)
+                    .frame(maxWidth: 520)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Test connection section adapts to selection
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Test LLM Connection")
+                        .font(.custom("Nunito", size: 16))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.black.opacity(0.9))
+
+                    Group {
+                        if currentProvider == "gemini" {
+                            TestConnectionView(onTestComplete: { _ in })
+                        } else if currentProvider == "ollama" {
+                            LocalLLMTestView(
+                                baseURL: $localBaseURL,
+                                modelId: $localModelId,
+                                engine: localEngine,
+                                showInputs: false,
+                                onTestComplete: { _ in
+                                    // Persist any updated values back (defensive)
+                                    UserDefaults.standard.set(localBaseURL, forKey: "llmLocalBaseURL")
+                                    UserDefaults.standard.set(localModelId, forKey: "llmLocalModelId")
+                                }
+                            )
+                        } else if currentProvider == "dayflow" {
+                            HStack(spacing: 8) {
+                                Image(systemName: "info.circle")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.black.opacity(0.5))
+                                Text("Testing Dayflow Pro connection isn’t available yet.")
+                                    .font(.custom("Nunito", size: 13))
+                                    .foregroundColor(.black.opacity(0.6))
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            // Unknown provider fallback
+                            HStack(spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(Color(hex: "E91515"))
+                                Text("Unknown provider – please reselect above.")
+                                    .font(.custom("Nunito", size: 13))
+                                    .foregroundColor(Color(hex: "E91515"))
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .frame(maxWidth: 520, alignment: .leading)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 10)
+
+                // Provider cards row
+                HStack(spacing: 20) {
+                    ForEach(providerCards, id: \.id) { card in
+                        card
+                            .frame(maxWidth: 350)
+                            .frame(height: 420)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 10)
             }
-            .frame(maxWidth: .infinity)  // Center the scrollview content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, 40)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
