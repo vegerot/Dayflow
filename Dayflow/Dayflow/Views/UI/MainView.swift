@@ -396,7 +396,7 @@ struct TabFilterBar: View {
     let onManageCategories: () -> Void
 
     private let chipRowHeight: CGFloat = 44
-    private var editButtonSize: CGFloat { chipRowHeight }
+    private let chipVerticalPadding: CGFloat = 6
 
     var body: some View {
         HStack(spacing: 12) {
@@ -411,7 +411,7 @@ struct TabFilterBar: View {
                             CategoryChip(category: idleCategory, isIdle: true)
                         }
                     }
-                    .padding(.vertical, 6)
+                    .padding(.vertical, chipVerticalPadding)
                     .padding(.leading, 4)
                     .padding(.trailing, 12)
                 }
@@ -420,16 +420,23 @@ struct TabFilterBar: View {
                 .overlay(alignment: .trailing) {
                     Rectangle()
                         .fill(Color.white.opacity(0.2))
-                        .frame(width: editButtonSize + 18, height: chipRowHeight)
+                        .frame(width: chipRowHeight + 18, height: chipRowHeight)
                         .allowsHitTesting(false)
                 }
 
                 Button(action: onManageCategories) {
                     Image(systemName: "pencil")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(Color.black.opacity(0.85))
-                        .frame(width: editButtonSize, height: editButtonSize)
+                        .foregroundColor(Color.black.opacity(0.75))
+                        .frame(
+                            width: chipRowHeight - (chipVerticalPadding * 2),
+                            height: chipRowHeight - (chipVerticalPadding * 2)
+                        )
                         .background(Color.white.opacity(0.95))
+                        .overlay(
+                            Circle()
+                                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                        )
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
