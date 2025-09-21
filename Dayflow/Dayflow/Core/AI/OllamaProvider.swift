@@ -391,21 +391,23 @@ final class OllamaProvider: LLMProvider {
             ]
         )
         
-        let response = try await callChatAPI(request)
+        let response = try await callChatAPI(request, operation: "describe_frame")
         
         // Return the raw text response (no JSON parsing needed for simple descriptions)
         return response.choices.first?.message.content.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
     
-    private func callChatAPI(_ request: ChatRequest) async throws -> ChatResponse {
+    private func callChatAPI(_ request: ChatRequest, operation: String) async throws -> ChatResponse {
         let url = URL(string: "\(endpoint)/v1/chat/completions")!
         
         // Retry logic with exponential backoff
         let maxRetries = 3
         var lastError: Error?
-        
+
         let callGroupId = UUID().uuidString
         for attempt in 0..<maxRetries {
+            var ctxForAttempt: LLMCallContext?
+            var didLogFailureThisAttempt = false
             do {
                 var urlRequest = URLRequest(url: url)
                 urlRequest.httpMethod = "POST"
@@ -417,19 +419,27 @@ final class OllamaProvider: LLMProvider {
                 urlRequest.timeoutInterval = 30.0  // 30-second timeout
                 
                 let apiStart = Date()
+                let requestBodyForLogging: Data?
+                if operation == "describe_frame" {
+                    // Don't persist raw base64 image payloads to the LLM call log (SQLite)
+                    requestBodyForLogging = nil
+                } else {
+                    requestBodyForLogging = urlRequest.httpBody
+                }
                 let ctx = LLMCallContext(
                     batchId: nil,
                     callGroupId: callGroupId,
                     attempt: attempt + 1,
                     provider: "ollama",
                     model: request.model,
-                    operation: "chat_completion",
+                    operation: operation,
                     requestMethod: urlRequest.httpMethod,
                     requestURL: urlRequest.url,
                     requestHeaders: urlRequest.allHTTPHeaderFields,
-                    requestBody: urlRequest.httpBody,
+                    requestBody: requestBodyForLogging,
                     startedAt: apiStart
                 )
+                ctxForAttempt = ctx
                 let (data, response) = try await URLSession.shared.data(for: urlRequest)
                 let apiTime = Date().timeIntervalSince(apiStart)
                 
@@ -452,6 +462,7 @@ final class OllamaProvider: LLMProvider {
                         errorCode: httpResponse.statusCode,
                         errorMessage: errorBody
                     )
+                    didLogFailureThisAttempt = true
                     throw NSError(domain: "OllamaProvider", code: 4, userInfo: [NSLocalizedDescriptionKey: "Ollama API request failed with status \(httpResponse.statusCode): \(errorBody)"])
                 }
                 
@@ -481,6 +492,7 @@ final class OllamaProvider: LLMProvider {
                         errorCode: (error as NSError).code,
                         errorMessage: (error as NSError).localizedDescription
                     )
+                    didLogFailureThisAttempt = true
                     throw error
                 }
                 
@@ -494,27 +506,36 @@ final class OllamaProvider: LLMProvider {
                     try await Task.sleep(nanoseconds: UInt64(backoffDelay * 1_000_000_000))
                 }
                 // Network error log without http info
-                let ctx = LLMCallContext(
-                    batchId: nil,
-                    callGroupId: callGroupId,
-                    attempt: attempt + 1,
-                    provider: "ollama",
-                    model: request.model,
-                    operation: "chat_completion",
-                    requestMethod: "POST",
-                    requestURL: url,
-                    requestHeaders: ["Content-Type": "application/json"],
-                    requestBody: try? JSONEncoder().encode(request),
-                    startedAt: Date()
-                )
-                LLMLogger.logFailure(
-                    ctx: ctx,
-                    http: nil,
-                    finishedAt: Date(),
-                    errorDomain: (error as NSError).domain,
-                    errorCode: (error as NSError).code,
-                    errorMessage: (error as NSError).localizedDescription
-                )
+                if !didLogFailureThisAttempt {
+                    let fallbackBodyForLogging: Data?
+                    if operation == "describe_frame" {
+                        fallbackBodyForLogging = nil
+                    } else {
+                        fallbackBodyForLogging = try? JSONEncoder().encode(request)
+                    }
+                    let ctx = ctxForAttempt ?? LLMCallContext(
+                        batchId: nil,
+                        callGroupId: callGroupId,
+                        attempt: attempt + 1,
+                        provider: "ollama",
+                        model: request.model,
+                        operation: operation,
+                        requestMethod: "POST",
+                        requestURL: url,
+                        requestHeaders: ["Content-Type": "application/json"],
+                        requestBody: fallbackBodyForLogging,
+                        startedAt: Date()
+                    )
+                    LLMLogger.logFailure(
+                        ctx: ctx,
+                        http: nil,
+                        finishedAt: Date(),
+                        errorDomain: (error as NSError).domain,
+                        errorCode: (error as NSError).code,
+                        errorMessage: (error as NSError).localizedDescription
+                    )
+                    didLogFailureThisAttempt = true
+                }
             }
         }
         
@@ -522,9 +543,9 @@ final class OllamaProvider: LLMProvider {
     }
 
     // (no local logging helpers needed; centralized via LLMLogger)
-    
+
     // Helper method for text-only requests
-    private func callTextAPI(_ prompt: String, expectJSON: Bool = false) async throws -> String {
+    private func callTextAPI(_ prompt: String, operation: String, expectJSON: Bool = false) async throws -> String {
         let systemPrompt = expectJSON ? "You are a helpful assistant. Always respond with valid JSON." : "You are a helpful assistant."
         
         let request = ChatRequest(
@@ -535,7 +556,7 @@ final class OllamaProvider: LLMProvider {
             ]
         )
         
-        let response = try await callChatAPI(request)
+        let response = try await callChatAPI(request, operation: operation)
         return response.choices.first?.message.content ?? ""
     }
     
@@ -668,7 +689,7 @@ final class OllamaProvider: LLMProvider {
         }
         """
         
-        let response = try await callTextAPI(prompt, expectJSON: true)
+        let response = try await callTextAPI(prompt, operation: "generate_title_summary", expectJSON: true)
         
         guard let data = response.data(using: .utf8) else {
             throw NSError(domain: "OllamaProvider", code: 12, userInfo: [NSLocalizedDescriptionKey: "Failed to parse title/summary response"])
@@ -747,7 +768,7 @@ final class OllamaProvider: LLMProvider {
         }
         """
         
-        let response = try await callTextAPI(prompt, expectJSON: true)
+        let response = try await callTextAPI(prompt, operation: "evaluate_card_merge", expectJSON: true)
         
         struct MergeDecision: Codable {
             let reason: String
@@ -814,7 +835,7 @@ final class OllamaProvider: LLMProvider {
         }
         """
         
-        let response = try await callTextAPI(prompt, expectJSON: true)
+        let response = try await callTextAPI(prompt, operation: "merge_cards", expectJSON: true)
         
         struct MergedContent: Codable {
             let title: String
@@ -995,7 +1016,7 @@ final class OllamaProvider: LLMProvider {
         REMEMBER: Output EXACTLY 2-5 segments. If you output more than 5 segments, you have failed the task.
         """
         
-        let response = try await callTextAPI(mergePrompt, expectJSON: true)
+        let response = try await callTextAPI(mergePrompt, operation: "segment_video_activity", expectJSON: true)
         
         guard let responseData = response.data(using: String.Encoding.utf8) else {
             throw NSError(domain: "OllamaProvider", code: 8, userInfo: [NSLocalizedDescriptionKey: "Failed to parse merge response"])
