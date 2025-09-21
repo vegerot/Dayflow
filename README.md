@@ -29,6 +29,7 @@
 
 <p align="center">
   <a href="#quickstart">Quickstart</a> •
+  <a href="#why-i-built-dayflow">Why I built Dayflow</a> •
   <a href="#features">Features</a> •
   <a href="#how-it-works">How it works</a> •
   <a href="#installation">Installation</a> •
@@ -47,6 +48,13 @@ Dayflow is a **native macOS app** (SwiftUI) that records your screen at **1 FPS*
 > _Privacy‑minded by design_: You choose your AI provider. Use **Gemini** (bring your own API key) or **local models** (Ollama / LM Studio). See **Data & Privacy** for details.
 
 
+## Why I built Dayflow
+
+I built Dayflow after realizing that my calendar wasn't the source of truth for how I actually spent my time. My screen was. I wanted a calm, trustworthy timeline that let me see my workday without turning into yet another dashboard I had to maintain.
+
+Dayflow stands for ownership and privacy by default. You control the data, you choose the AI provider, and you can keep everything local if that's what makes you comfortable. It's MIT licensed and fully open source because anything that watches your screen all day should be completely transparent about what it does with that information. The app should feel like a quiet assistant: respectful of your attention, honest about what it captures, and easy to shut off.
+
+
 ---
 
 ## Features
@@ -63,15 +71,16 @@ Dayflow is a **native macOS app** (SwiftUI) that records your screen at **1 FPS*
 ### Coming soon
 
 - **Infinitely customizable dashboard** — ask any question about your workday, pipe the answers into tiles you arrange yourself, and track trends over time.
+
+  <div align="center">
+    <img src="docs/images/DashboardPreview.png" alt="Dayflow dashboard preview" width="800">
+  </div>
+
 - **Daily journal** — review the highlights Dayflow captured, reflect with guided prompts, and drop screenshots or notes alongside your generated timeline.
 
-<div align="center">
-  <img src="docs/images/DashboardPreview.png" alt="Dayflow dashboard preview" width="800">
-</div>
-
-<div align="center">
-  <img src="docs/images/JournalPreview.png" alt="Dayflow journal preview" width="800">
-</div>
+  <div align="center">
+    <img src="docs/images/JournalPreview.png" alt="Dayflow journal preview" width="800">
+  </div>
 
 ## How it works
 
