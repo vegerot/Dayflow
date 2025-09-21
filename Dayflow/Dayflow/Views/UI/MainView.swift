@@ -395,8 +395,8 @@ struct TabFilterBar: View {
     let idleCategory: TimelineCategory?
     let onManageCategories: () -> Void
 
-    private let editButtonSize: CGFloat = 34
     private let chipRowHeight: CGFloat = 44
+    private var editButtonSize: CGFloat { chipRowHeight }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -431,7 +431,6 @@ struct TabFilterBar: View {
                         .frame(width: editButtonSize, height: editButtonSize)
                         .background(Color.white.opacity(0.95))
                         .clipShape(Circle())
-                        .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 2)
                 }
                 .buttonStyle(.plain)
                 .padding(.trailing, 6)
@@ -549,7 +548,6 @@ private extension TabFilterBar {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
                 .contentShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
-                .shadow(color: Color.black.opacity(isIdle ? 0 : 0.12), radius: isIdle ? 0 : 8, x: 0, y: isIdle ? 0 : 4)
         }
 
         private func borderColor(for color: Color, isIdle: Bool) -> Color {

@@ -136,7 +136,7 @@ struct CanvasTimelineDataView: View {
             ForEach(0..<(CanvasConfig.endHour - CanvasConfig.startHour), id: \.self) { _ in
                 VStack(spacing: 0) {
                     Rectangle()
-                        .fill(Color(hex: "E5E4E4"))
+                        .fill(Color(hex: "E2A97B"))
                         .frame(height: 1)
                     Spacer()
                 }

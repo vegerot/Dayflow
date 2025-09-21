@@ -94,10 +94,6 @@ struct OnboardingFlow: View {
                 
             case .categories:
                 OnboardingCategorySetupView(
-                    onBack: {
-                        step.prev()
-                        savedStepRawValue = step.rawValue
-                    },
                     onNext: {
                         advance()
                     }
@@ -308,64 +304,34 @@ struct WelcomeView: View {
 }
 
 struct OnboardingCategorySetupView: View {
-    let onBack: () -> Void
     let onNext: () -> Void
     @EnvironmentObject private var categoryStore: CategoryStore
 
     var body: some View {
-        VStack(spacing: 24) {
-            HStack {
-                Button(action: onBack) {
-                    Label("Back", systemImage: "chevron.left")
-                        .labelStyle(.titleAndIcon)
-                }
-                .buttonStyle(.plain)
-                .padding(10)
-                .background(Color.white.opacity(0.6))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                Spacer()
-
-                Button(action: onNext) {
-                    Text("Next")
-                        .font(.system(size: 15, weight: .semibold))
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 10)
-                        .background(Color.black.opacity(0.85))
-                        .foregroundColor(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-                .buttonStyle(.plain)
-            }
-
-            VStack(alignment: .leading, spacing: 12) {
+        VStack(spacing: 32) {
+            // Centered title section
+            VStack(alignment: .center, spacing: 12) {
                 Text("Customize your categories")
-                    .font(.system(size: 30, weight: .bold))
+                    .font(.system(size: 36, weight: .bold))
                     .foregroundColor(.white)
-
-                Text("Drag colors onto categories to set their palette. You can add, rename, or remove categories at any time from the timeline.")
-                    .font(.system(size: 15))
-                    .foregroundColor(Color.white.opacity(0.9))
+                    .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: 800)
 
-            ColorOrganizerRoot(showBackgroundGradient: false)
+            // Full-width ColorOrganizerRoot with see-through effect
+            ColorOrganizerRoot(showBackgroundGradient: false, onDismiss: {
+                // Save button now advances to next step
+                onNext()
+            })
                 .environmentObject(categoryStore)
-                .frame(maxWidth: 900)
-                .frame(minHeight: 540)
-                .background(
-                    RoundedRectangle(cornerRadius: 24)
-                        .fill(Color.white.opacity(0.88))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 24)
-                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-                        )
-                )
-                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 600)
 
-            Spacer()
+            Spacer(minLength: 40)
         }
-        .padding(40)
+        .padding(.horizontal, 40)
+        .padding(.vertical, 60)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

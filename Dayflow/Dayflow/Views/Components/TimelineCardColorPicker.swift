@@ -357,7 +357,6 @@ fileprivate struct ColorSwatch: View {
                 .fill(Color(hex: hex))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white, lineWidth: 2))
                 .frame(width: 60, height: 36)
-                .shadow(radius: hovering ? 12 : 8, y: hovering ? 4 : 2)
                 .offset(y: hovering ? -2 : 0)
                 .animation(.easeInOut(duration: 0.15), value: hovering)
 
@@ -648,14 +647,19 @@ struct ColorOrganizerRoot: View {
         return LinearGradient(gradient: Gradient(colors: [start, end]), startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
+    private var hasExactlyDefaultCategories: Bool {
+        let editableCategories = categoryStore.editableCategories
+        let defaultNames = Set(["Work", "Personal", "Distraction"])
+        let currentNames = Set(editableCategories.map { $0.name })
+        return editableCategories.count == 3 && currentNames == defaultNames
+    }
+
     private var leftPanel: some View {
         VStack(alignment: .leading, spacing: 24) {
-            // Picker container (light slate with dot mask)
+            // Picker container (translucent with dot mask)
             ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(hex: "#F1F5F9"))
+                Color.clear
                     .frame(width: 290, height: 224 + 12 + 28)
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.clear, lineWidth: 0))
 
                 VStack(spacing: 8) {
                     ZStack {
@@ -692,11 +696,11 @@ struct ColorOrganizerRoot: View {
                 .padding(12)
             }
 
-            // Spectrum swatches
-            VStack(alignment: .leading, spacing: 12) {
+            // Spectrum swatches (centered)
+            VStack(alignment: .center, spacing: 12) {
                 Text(isDragging ? "Drop on a category →" : "Drag a color onto a category")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(Color.gray.opacity(0.7))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Color.primary.opacity(0.8))
 
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
                     ForEach(Array(spectrumColors.enumerated()), id: \.offset) { i, hex in
@@ -713,36 +717,64 @@ struct ColorOrganizerRoot: View {
                 }
             }
             .padding(16)
-            .background(Color.white)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .shadow(color: Color.black.opacity(0.1), radius: 3, y: 1)
+            .frame(maxWidth: .infinity)
         }
-        .frame(width: 290)
+        .frame(minWidth: 320, maxWidth: 400)
     }
 
     private var rightPanel: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Categories")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(Color(hex: "#2D3748"))
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(.primary)
 
             let visibleCategories = categoryStore.editableCategories
+            let isShowingDefaultCategoriesOnly = hasExactlyDefaultCategories
 
             if visibleCategories.isEmpty && newCategoryName.isEmpty {
-                VStack(spacing: 6) {
-                    Text("No categories yet.")
-                    Text("Create one below and drag colors to assign them!")
+                VStack(spacing: 4) {
+                    Text("No categories yet")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.primary.opacity(0.9))
+
+                    Text("Create one below and drag colors to assign them")
+                        .font(.system(size: 13))
+                        .foregroundColor(.primary.opacity(0.6))
+                        .multilineTextAlignment(.center)
                 }
-                .font(.system(size: 13))
-                .foregroundColor(Color.gray.opacity(0.7))
                 .frame(maxWidth: .infinity)
-                .padding(20)
-                .background(Color(hex: "#F7FAFC"))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color(hex: "#CBD5E0"), style: StrokeStyle(lineWidth: 2, dash: [6, 6]))
+                .padding(.vertical, 32)
+                .padding(.horizontal, 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(.primary.opacity(0.02))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(.primary.opacity(0.08), lineWidth: 1)
+                        )
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else if isShowingDefaultCategoriesOnly {
+                VStack(spacing: 4) {
+                    Text("These categories are a great starting point")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.primary.opacity(0.9))
+
+                    Text("Drag colors to customize them, click to add descriptions, or create new ones below. You can always adjust these later in the Timeline view.")
+                        .font(.system(size: 13))
+                        .foregroundColor(.primary.opacity(0.6))
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 32)
+                .padding(.horizontal, 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(.primary.opacity(0.02))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(.primary.opacity(0.08), lineWidth: 1)
+                        )
+                )
             }
 
             VStack(spacing: 8) {
@@ -763,15 +795,23 @@ struct ColorOrganizerRoot: View {
                 }
             }
 
-            HStack(spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
                 TextField("Add category...", text: $newCategoryName, onCommit: {
                     categoryStore.addCategory(name: newCategoryName)
                     showFirstTimeHints = false
                     newCategoryName = ""
                 })
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
                 .font(.system(size: 14))
-                .frame(height: 30)
+                .foregroundColor(.primary)
+                .padding(.horizontal, 12)
+                .frame(height: 40)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.white)
+                        .stroke(.primary.opacity(newCategoryName.isEmpty ? 0.12 : 0.25), lineWidth: 1)
+                        .animation(.easeOut(duration: 0.2), value: newCategoryName.isEmpty)
+                )
 
                 Button {
                     categoryStore.addCategory(name: newCategoryName)
@@ -781,46 +821,38 @@ struct ColorOrganizerRoot: View {
                     Text("Add")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.white)
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 12)
-                        .background(Color(hex: "#4A5568"))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 16)
+                        .background(Color(red: 0.25, green: 0.17, blue: 0))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
             }
-            .frame(width: 224)
+            .frame(minWidth: 280)
         }
-        .frame(width: 224)
+        .frame(minWidth: 280, maxWidth: 360)
     }
 
     private var contentCard: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 38) {
-                leftPanel
-                rightPanel
-            }
-            .frame(maxWidth: 780)
-            .padding(.horizontal, 26)
-            .padding(.top, 26)
-            .padding(.bottom, 13)
+        HStack(alignment: .top, spacing: 60) {
+            leftPanel
 
-            HStack {
-                Spacer()
-                SetupContinueButton(title: "Save", isEnabled: true) {
-                    categoryStore.persist()
-                    onDismiss?()
+            VStack(spacing: 0) {
+                rightPanel
+
+                HStack {
+                    Spacer()
+                    SetupContinueButton(title: "Save", isEnabled: !categoryStore.editableCategories.isEmpty) {
+                        categoryStore.persist()
+                        onDismiss?()
+                    }
                 }
+                .padding(.top, 24)
             }
-            .padding(.trailing, 26)
-            .padding(.bottom, 26)
         }
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white)
-                .shadow(color: Color.black.opacity(0.3), radius: 60, y: 20)
-        )
-        .padding(.horizontal, 64)
-        .padding(.vertical, 32)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 80)
+        .padding(.vertical, 40)
     }
 
     var body: some View {

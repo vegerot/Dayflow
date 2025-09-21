@@ -261,24 +261,24 @@ enum CategoryPersistence {
         let base: [(String, String, Bool, Bool, String)] = [
             (
                 "Work",
-                "#4F80EB",
+                "#B984FF",
                 false,
                 false,
                 "Professional, school, or career-focused tasks (coding, design, meetings, research)."
             ),
             (
                 "Personal",
-                "#8F6FED",
+                "#6AADFF",
                 false,
                 false,
                 "Intentional non-work activities for life, wellbeing, hobbies, or personal errands."
             ),
             (
                 "Distraction",
-                "#F86E5A",
+                "#FF5950",
                 false,
                 false,
-                "Unplanned, aimless, or compulsive time sinks (doomscrolling, rabbit holes)."
+                "Unplanned, aimless, or compulsive time sinks (social media, doomscrolling, non-work videos, rabbit holes)."
             ),
             (
                 "Idle",
