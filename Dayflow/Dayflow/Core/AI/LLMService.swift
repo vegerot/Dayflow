@@ -248,6 +248,12 @@ final class LLMService: LLMServicing {
                     from: oneHourAgo,
                     to: currentTime
                 )
+
+                print("[DEBUG] LLMService fetched \(recentObservations.count) observations")
+                for (i, obs) in recentObservations.enumerated() {
+                    print("  [\(i)] observation type: \(type(of: obs.observation))")
+                    print("       observation: \(obs.observation)")
+                }
                 
                 // Fetch existing timeline cards that overlap with the last hour
                 let existingTimelineCards = StorageManager.shared.fetchTimelineCardsByTimeRange(
@@ -271,11 +277,18 @@ final class LLMService: LLMServicing {
                 }
                 
                 // Prepare context for activity generation
+                let categories = CategoryStore.descriptorsForLLM()
+                print("[DEBUG] LLMService loaded \(categories.count) categories")
+                for (i, cat) in categories.enumerated() {
+                    print("  [\(i)] name type: \(type(of: cat.name)), value: \(cat.name)")
+                    print("       description type: \(type(of: cat.description)), value: \(cat.description ?? "nil")")
+                }
+
                 let context = ActivityGenerationContext(
                     batchObservations: observations,
                     existingCards: existingActivityCards,
                     currentTime: currentTime,
-                    categories: CategoryStore.descriptorsForLLM()
+                    categories: categories
                 )
                 
                 // Generate activity cards using sliding window observations
