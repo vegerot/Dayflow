@@ -30,7 +30,8 @@ final class UpdaterManager: NSObject, ObservableObject {
         let c = SPUStandardUpdaterController(startingUpdater: true,
                                              updaterDelegate: self,
                                              userDriverDelegate: nil)
-        c.updater.automaticallyChecksForUpdates = false
+        // Keep automatic checks enabled on the shared preference so the silent updater stays active
+        c.updater.automaticallyChecksForUpdates = true
         c.updater.automaticallyDownloadsUpdates = true
         c.updater.updateCheckInterval = TimeInterval(60 * 60) // hourly cadence
         return c
@@ -71,12 +72,33 @@ final class UpdaterManager: NSObject, ObservableObject {
 
 
 extension UpdaterManager: SPUUpdaterDelegate {
+    nonisolated func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
+        Task { @MainActor in
+            AppDelegate.allowTermination = true
+        }
+    }
+
+    nonisolated func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
+        Task { @MainActor in
+            AppDelegate.allowTermination = true
+        }
+    }
+
+    nonisolated func updater(_ updater: SPUUpdater, userDidMake choice: SPUUserUpdateChoice, forUpdate item: SUAppcastItem, state: SPUUserUpdateState) {
+        if choice != .install {
+            Task { @MainActor in
+                AppDelegate.allowTermination = false
+            }
+        }
+    }
+
     nonisolated func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
         Task { @MainActor in
             self.updateAvailable = true
             self.latestVersionString = item.displayVersionString ?? item.versionString
             self.statusText = "Update available: v\(self.latestVersionString ?? "?")"
             self.isChecking = false
+            AppDelegate.allowTermination = false
         }
     }
 
@@ -85,6 +107,7 @@ extension UpdaterManager: SPUUpdaterDelegate {
             self.updateAvailable = false
             self.statusText = "Latest version"
             self.isChecking = false
+            AppDelegate.allowTermination = false
         }
     }
 
@@ -94,6 +117,7 @@ extension UpdaterManager: SPUUpdaterDelegate {
         let nsError = error as NSError
         let domain = nsError.domain
         let code = nsError.code
+        print("[Sparkle] updater error: \(domain) \(code) - \(error.localizedDescription)")
         let needsInteraction = (domain == "SUSparkleErrorDomain") && [
             4001, // SUAuthenticationFailure
             4008, // SUInstallationAuthorizeLaterError
@@ -104,6 +128,7 @@ extension UpdaterManager: SPUUpdaterDelegate {
         Task { @MainActor in
             self.isChecking = false
             self.statusText = needsInteraction ? "Update needs authorization" : "Update check failed"
+            AppDelegate.allowTermination = needsInteraction
             if needsInteraction {
                 // Trigger interactive updater; if a download already exists, Sparkle resumes and prompts
                 self.interactiveController.updater.checkForUpdates()

@@ -16,6 +16,7 @@ private struct CanvasPositionedActivity: Identifiable {
     let activity: TimelineActivity
     let yPosition: CGFloat
     let height: CGFloat
+    let durationMinutes: Double
     let title: String
     let timeLabel: String
     let categoryName: String
@@ -174,6 +175,7 @@ struct CanvasTimelineDataView: View {
                     title: item.title,
                     time: item.timeLabel,
                     height: item.height,
+                    durationMinutes: item.durationMinutes,
                     style: style(for: item.categoryName),
                     isSelected: selectedCardId == item.id,
                     onTap: {
@@ -240,6 +242,7 @@ struct CanvasTimelineDataView: View {
                     activity: seg.activity,
                     yPosition: y + 2, // 2px top spacing like original Canvas
                     height: height,
+                    durationMinutes: durationMinutes,
                     title: seg.activity.title,
                     timeLabel: formatRange(start: seg.start, end: seg.end),
                     categoryName: seg.activity.category,
@@ -562,20 +565,23 @@ struct CanvasActivityCard: View {
     let title: String
     let time: String
     let height: CGFloat
+    let durationMinutes: Double
     let style: CanvasActivityCardStyle
     let isSelected: Bool
     let onTap: () -> Void
     let faviconPrimaryHost: String?
     let faviconSecondaryHost: String?
-    
+
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             FaviconOrSparkleView(primaryHost: faviconPrimaryHost, secondaryHost: faviconSecondaryHost)
                 .frame(width: 16, height: 16)
 
-            Text(title)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(style.text)
+            if durationMinutes >= 10 {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(style.text)
+            }
 
             Spacer()
 
@@ -638,14 +644,13 @@ private struct FaviconOrSparkleView: View {
                     .frame(width: 16, height: 16)
                     .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
             } else {
-                Text("✨")
-                    .font(.system(size: 12))
-                    .frame(width: 16, height: 16, alignment: .center)
+                Color.clear
             }
         }
         .onAppear {
             guard !didStart else { return }
             didStart = true
+            guard primaryHost != nil || secondaryHost != nil else { return }
             Task { @MainActor in
                 if let img = await FaviconService.shared.fetchFavicon(primary: primaryHost, secondary: secondaryHost) {
                     self.image = img

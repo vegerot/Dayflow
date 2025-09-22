@@ -28,6 +28,17 @@ final class OllamaProvider: LLMProvider {
     init(endpoint: String = "http://localhost:1234") {
         self.endpoint = endpoint
     }
+
+    // Strip user references from observations to prevent LLM from using third-person language
+    // For some reason, even after adding negative prompts during observation generation,
+    // it still generates text with "a user" and "the user", which poisons the context
+    // for the summary prompt and makes it more likely to write in 3rd person.
+    // TODO: Remove this when observation generation is fixed upstream
+    private func stripUserReferences(_ text: String) -> String {
+        return text
+            .replacingOccurrences(of: "The user", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "A user", with: "", options: .caseInsensitive)
+    }
     
     func transcribeVideo(videoData: Data, mimeType: String, prompt: String, batchStartTime: Date, videoDuration: TimeInterval, batchId: Int64?) async throws -> (observations: [Observation], log: LLMCall) {
         let callStart = Date()
@@ -651,7 +662,7 @@ final class OllamaProvider: LLMProvider {
             print("[DEBUG] generateSummary processing observation: \(obs.observation)")
             return "[\(startTime) - \(endTime)]: \(obs.observation)"
         }
-        let observationsText: String = observationLines.joined(separator: "\n\n")
+        let observationsText: String = stripUserReferences(observationLines.joined(separator: "\n\n"))
 
         print("[DEBUG] generateSummary observationsText:")
         print(observationsText)
@@ -681,38 +692,46 @@ final class OllamaProvider: LLMProvider {
         Activity periods:
         \(observationsText)
 
-        Create a summary that captures what happened during this time period.
+          Create a summary that captures what happened during this time period.
 
-        SUMMARY GUIDELINES:
-        - Write in first person without using "I" (like a personal journal entry)
-        - Start sentences with action verbs: "Managed...", "Browsed...", "Searched..."
-        - 2-3 sentences maximum
-        - Include specific details (app names, search topics, etc.)
-        - Natural, conversational tone
+          SUMMARY GUIDELINES:
+          - Write in first person without using "I" (like a personal journal entry)
+          - Start sentences with action verbs: "Managed...", "Browsed...", "Searched..."
+          - 2-3 sentences maximum
+          - Include specific details (app names, search topics, etc.)
+          - Natural, conversational tone
 
-        GOOD EXAMPLES:
-        "Managed Mac system preferences focusing on software updates and accessibility settings. Browsed Chrome searching for iPhone wireless charging info while checking Twitter and Slack messages."
+          GOOD EXAMPLES:
+          "Managed Mac system preferences focusing on software updates and accessibility settings. Browsed Chrome searching for iPhone wireless charging info while
+          checking Twitter and Slack messages."
 
-        "Configured GitHub Actions pipeline for automated testing. Quick Slack check interrupted focus, then back to debugging deployment issues."
+          "Configured GitHub Actions pipeline for automated testing. Quick Slack check interrupted focus, then back to debugging deployment issues."
 
-        "Researched React performance optimization techniques in Chrome, reading articles about useMemo patterns. Switched between documentation tabs and took notes in Notion about component re-rendering."
+          "Researched React performance optimization techniques in Chrome, reading articles about useMemo patterns. Switched between documentation tabs and took notes in
+           Notion about component re-rendering."
 
-        "Updated Xcode project dependencies and resolved build errors in SwiftUI views. Tested app on simulator while responding to client messages about timeline changes."
+          "Updated Xcode project dependencies and resolved build errors in SwiftUI views. Tested app on simulator while responding to client messages about timeline
+          changes."
 
-        BAD EXAMPLES:
-        - "The user did various computer activities" (too vague, wrong perspective)
-        - "I was working on my computer doing different tasks" (uses "I", not specific)
-        - "Spent time on multiple applications and websites" (generic, no details)
+          "Browsed Instagram and TikTok while listening to Spotify playlist. Responded to personal messages on WhatsApp about weekend plans."
+
+          "Researched vacation destinations on travel websites and compared flight prices. Checked weather forecasts for different cities while reading travel reviews."
+
+          BAD EXAMPLES:
+          - "The user did various computer activities" (too vague, wrong perspective, never say the user)
+          - "I was working on my computer doing different tasks" (uses "I", not specific)
+          - "Spent time on multiple applications and websites" (generic, no details)
 
         CATEGORIES:
         Choose exactly one:
         \(categoriesSection)
 
-        REASONING:
-        Explain your thinking process:
-        1. What were the main activities?
-        2. Which category best fits the overall session?
-        3. How did you structure the summary?
+          REASONING:
+          Explain your thinking process:
+          1. What were the main activities and how much time was spent on each?
+          2. Was this primarily work-related, personal, or brief distractions?
+          3. Which category best fits based on the MAJORITY of time and focus?
+          4. How did you structure the summary to capture the most important activities?
 
         Return JSON:
         {
@@ -1017,24 +1036,27 @@ final class OllamaProvider: LLMProvider {
         Summary: \(newCard.summary)
 
         Create a unified title and summary that covers the entire period from \(previousCard.startTime) to \(newCard.endTime).
-        Title: Natural, conversational (5-10 words). Synthesize both activities.
-        Summary: First person without "I", 2-3 sentences max. Tell the complete story.
+        Title: 5-10 words, conversational, explicitly name every distinct site, app, or topic mentioned in the inputs, and tie them together with active verbs instead of
+          umbrella categories.
+          Summary: Two or three sentences, first-person perspective without using the word I. Retell the actions in chronological order and reuse the specific proper nouns
+          from the inputs; describe each step with concrete verbs (e.g., read, replied, compared) rather than grouping them under generic labels.
+          Avoid the words social, media, platform, platforms, interaction, interactions, various, engaged, blend, activity, activities.
+          Do not refer to the user; write from the user’s perspective.
 
-        GOOD EXAMPLES:
+          GOOD EXAMPLES:
+          Card 1: Customer interviews wrap-up + Card 2: Insights deck synthesis
+          Merged Title: Shaped customer story for insights deck
+          Merged Summary: Logged interview quotes into Airtable. Highlighted the strongest themes and molded them into the insights deck outline.
 
-        Card 1: "Debugging login flow" + Card 2: "Fixed auth bug and testing"
-        MERGED Title: "Fixed authentication race condition bug"
-        MERGED Summary: "Debugged race condition in auth token refresh logic. Implemented fix for stale tokens, verified with end-to-end tests."
+          Card 1: QA-ing mobile release + Card 2: Answering support tickets
+          Merged Title: Balanced mobile QA with support triage
+          Merged Summary: Ran through the iOS smoke checklist in TestFlight. Swapped over to Help Scout to clear the high-priority tickets.
 
-        Card 1: "Writing marketing copy" + Card 2: "Designing social assets"
-        MERGED Title: "Built new product launch campaign assets"
-        MERGED Summary: "Drafted launch messaging in Google Docs. Paired the copy with fresh social graphics in Figma."
-
-        BAD EXAMPLES:
-        ✗ Title: "Productivity session" (too generic)
-        ✗ Summary: "User worked on various tasks" (vague, says "User")
-        ✗ Summary listing bullet points or more than 3 sentences
-        ✗ Title mentions only one of the two activities
+          BAD EXAMPLES:
+          ✗ Title: Busy afternoon session (too vague)
+          ✗ Summary: Worked on several things across platforms (generic, missing specifics)
+          ✗ Summary that omits a named site/app/topic from the inputs
+          ✗ Summary longer than three sentences or formatted as bullet points
 
         Return JSON:
         {

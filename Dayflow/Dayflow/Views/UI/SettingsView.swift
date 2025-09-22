@@ -59,7 +59,7 @@ struct SettingsView: View {
 
                         Spacer()
 
-                        Button(action: { updater.checkForUpdates() }) {
+                        Button(action: { updater.checkForUpdates(showUI: true) }) {
                             if updater.isChecking {
                                 ProgressView().scaleEffect(0.6)
                             } else {
