@@ -119,31 +119,48 @@ final class OllamaProvider: LLMProvider {
                 print("[DEBUG] Skipping merge - last card already \(lastCardDuration) minutes")
                 allCards.append(initialCard)
             } else {
-                let (shouldMerge, mergeLog) = try await checkShouldMerge(
-                    previousCard: lastExistingCard,
-                    newCard: initialCard,
-                    batchId: batchId
-                )
-                logs.append(mergeLog)
-                
-                print("[DEBUG] Merge decision: \(shouldMerge)")
-                
-                if shouldMerge {
-                    let (mergedCard, mergeCreateLog) = try await mergeTwoCards(
-                        previousCard: lastExistingCard,
-                        newCard: initialCard,
-                        batchId: batchId
-                    )
-                    logs.append(mergeCreateLog)
-                    
-                    let mergedDuration = calculateDurationInMinutes(from: mergedCard.startTime, to: mergedCard.endTime)
-                    print("[DEBUG] Merged card: \(mergedCard.startTime) - \(mergedCard.endTime) (\(mergedDuration) minutes)")
-                    
-                    // Replace the last card with the merged version
-                    allCards[allCards.count - 1] = mergedCard
-                } else {
-                    // Add as new card
+                let gapMinutes = calculateDurationInMinutes(from: lastExistingCard.endTime, to: initialCard.startTime)
+                if gapMinutes > 5 {
+                    print("[DEBUG] Skipping merge - gap between cards is \(gapMinutes) minutes")
                     allCards.append(initialCard)
+                } else {
+                    let candidateDuration = calculateDurationInMinutes(from: lastExistingCard.startTime, to: initialCard.endTime)
+                    if candidateDuration > 60 {
+                        print("[DEBUG] Skipping merge - merged card would be \(candidateDuration) minutes")
+                        allCards.append(initialCard)
+                    } else {
+                        let (shouldMerge, mergeLog) = try await checkShouldMerge(
+                            previousCard: lastExistingCard,
+                            newCard: initialCard,
+                            batchId: batchId
+                        )
+                        logs.append(mergeLog)
+
+                        print("[DEBUG] Merge decision: \(shouldMerge)")
+
+                        if shouldMerge {
+                            let (mergedCard, mergeCreateLog) = try await mergeTwoCards(
+                                previousCard: lastExistingCard,
+                                newCard: initialCard,
+                                batchId: batchId
+                            )
+
+                            let mergedDuration = calculateDurationInMinutes(from: mergedCard.startTime, to: mergedCard.endTime)
+                            print("[DEBUG] Merged card: \(mergedCard.startTime) - \(mergedCard.endTime) (\(mergedDuration) minutes)")
+
+                            if mergedDuration > 60 {
+                                print("[DEBUG] Discarding merged card - duration exceeds safety cap")
+                                allCards.append(initialCard)
+                            } else {
+                                logs.append(mergeCreateLog)
+                                // Replace the last card with the merged version
+                                allCards[allCards.count - 1] = mergedCard
+                            }
+                        } else {
+                            // Add as new card
+                            allCards.append(initialCard)
+                        }
+                    }
                 }
             }
         } else {
@@ -387,9 +404,10 @@ final class OllamaProvider: LLMProvider {
         ✗ "Working on computer" (completely non-specific)
         """
         
-        // Convert base64 data back to string
+        // Convert base64 data back to string (return nil if we can't decode)
         guard let base64String = String(data: frame.image, encoding: .utf8) else {
-            throw NSError(domain: "OllamaProvider", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to convert image data"])
+            print("[OLLAMA] ⚠️ Failed to decode frame image — skipping frame")
+            return nil
         }
         
         // Build message content with image and text
@@ -597,6 +615,12 @@ final class OllamaProvider: LLMProvider {
         let title: String
     }
 
+    private struct MergeDecision: Codable {
+        let reason: String
+        let combine: Bool
+        let confidence: Double
+    }
+
     private func normalizeCategory(_ raw: String, categories: [LLMCategoryDescriptor]) -> String {
         let cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty else { return categories.first?.name ?? "" }
@@ -621,34 +645,35 @@ final class OllamaProvider: LLMProvider {
             print("       observation value: \(obs.observation)")
         }
 
-        let observationsText = observations.map { obs in
+        let observationLines: [String] = observations.map { obs in
             let startTime = formatTimestampForPrompt(obs.startTs)
             let endTime = formatTimestampForPrompt(obs.endTs)
             print("[DEBUG] generateSummary processing observation: \(obs.observation)")
             return "[\(startTime) - \(endTime)]: \(obs.observation)"
-        }.joined(separator: "
-
-")
+        }
+        let observationsText: String = observationLines.joined(separator: "\n\n")
 
         print("[DEBUG] generateSummary observationsText:")
         print(observationsText)
 
         let descriptorList = categories.isEmpty ? CategoryStore.descriptorsForLLM() : categories
-        let categoriesSection = descriptorList.enumerated().map { index, descriptor in
+        let categoryLines: [String] = descriptorList.enumerated().map { index, descriptor in
             var description = descriptor.description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if descriptor.isIdle && description.isEmpty {
                 description = "Use when the user is idle for most of the period."
             }
             let dashDescription = description.isEmpty ? "" : " — \(description)"
             print("[DEBUG] generateSummary processing category: \(descriptor.name)")
-            return "- "\(descriptor.name)"\(dashDescription)"
-        }.joined(separator: "
-")
+            return "- \"\(descriptor.name)\"\(dashDescription)"
+        }
+        let categoriesSection: String = categoryLines.joined(separator: "\n")
 
         print("[DEBUG] generateSummary categoriesSection:")
         print(categoriesSection)
 
-        let allowedValues = descriptorList.map { ""\($0.name)"" }.joined(separator: ", ")
+        let allowedValues: String = descriptorList
+            .map { "\"\($0.name)\"" }
+            .joined(separator: ", ")
 
         let basePrompt = """
         You are analyzing someone's computer activity from the last 15 minutes.
@@ -698,10 +723,6 @@ final class OllamaProvider: LLMProvider {
         """
 
         print("[DEBUG] generateSummary final prompt:")
-        print("Contains GRDB SQL: \(basePrompt.contains("SQL(elements:"))")
-        if basePrompt.contains("SQL(elements:") {
-            print("GRDB DETECTED IN SUMMARY PROMPT!")
-        }
 
         let maxAttempts = 3
         var prompt = basePrompt
@@ -745,102 +766,98 @@ final class OllamaProvider: LLMProvider {
     }
 
 
-private func generateTitle(summary: String, batchId: Int64?) async throws -> (TitleResponse, String) {
-    print("[DEBUG] generateTitle - Input summary:")
-    print("Summary type: \(type(of: summary))")
-    print("Summary value: \(summary)")
+    private func generateTitle(summary: String, batchId: Int64?) async throws -> (TitleResponse, String) {
+        print("[DEBUG] generateTitle - Input summary:")
+        print("Summary type: \(type(of: summary))")
+        print("Summary value: \(summary)")
 
-    let basePrompt = """
-    Create a casual, conversational title for this activity summary.
+        let basePrompt = """
+        Create a casual, conversational title for this activity summary.
 
-    INPUT SUMMARY:
-    "\(summary)"
+        INPUT SUMMARY:
+        "\(summary)"
 
-    TITLE GUIDELINES:
-    Write like you're texting a friend about what you did today. Keep it 5-8 words maximum.
-    Be specific about what you actually did, not generic descriptions.
-    ⚠️ ONLY use details that exist in the summary - don't add information that wasn't mentioned.
+        TITLE GUIDELINES:
+        Write like you're texting a friend about what you did today. Keep it 5-8 words maximum.
+        Be specific about what you actually did, not generic descriptions.
+        ⚠️ ONLY use details that exist in the summary - don't add information that wasn't mentioned.
 
-    GOOD EXAMPLES:
-    "Fixed CORS bugs in API endpoints"
-    "Mac settings while researching chargers"
-    "Wrote docs, kept checking Twitter"
-    "iPhone wireless charging research session"
-    "Debugged auth flow, tested endpoints"
-    "Reddit rabbit hole about React patterns"
+        GOOD EXAMPLES:
+        "Fixed CORS bugs in API endpoints"
+        "Mac settings while researching chargers"
+        "Wrote docs, kept checking Twitter"
+        "iPhone wireless charging research session"
+        "Debugged auth flow, tested endpoints"
+        "Reddit rabbit hole about React patterns"
 
-    BAD EXAMPLES (with explanations):
+        BAD EXAMPLES (with explanations):
 
-    ✗ "User engaging in video calls, software updates, and browsing system preferences"
-      WHY BAD: Too long (11 words), formal "engaging", says "User" instead of natural first-person
+        ✗ "User engaging in video calls, software updates, and browsing system preferences"
+          WHY BAD: Too long (11 words), formal "engaging", says "User" instead of natural first-person
 
-    ✗ "Browsing and Browsing, Responding to Slack"
-      WHY BAD: Repetitive "Browsing and Browsing", unclear what was browsed, awkward phrasing
+        ✗ "Browsing and Browsing, Responding to Slack"
+          WHY BAD: Repetitive "Browsing and Browsing", unclear what was browsed, awkward phrasing
 
-    ✗ "Browsing social media and coding project updates"
-      WHY BAD: Generic "browsing social media", vague "project updates", doesn't match actual activity
+        ✗ "Browsing social media and coding project updates"
+          WHY BAD: Generic "browsing social media", vague "project updates", doesn't match actual activity
 
-    ✗ "(Debugging & Coding) User's Time Spans"
-      WHY BAD: Weird parentheses format, formal "Time Spans", says "User's" instead of natural language
+        ✗ "(Debugging & Coding) User's Time Spans"
+          WHY BAD: Weird parentheses format, formal "Time Spans", says "User's" instead of natural language
 
-    ✗ "User Engages in Social Media Activities"
-      WHY BAD: Formal corporate speak ("engages", "activities"), says "User", too generic
+        ✗ "User Engages in Social Media Activities"
+          WHY BAD: Formal corporate speak ("engages", "activities"), says "User", too generic
 
-    ✗ "Working on computer tasks and applications"
-      WHY BAD: Completely generic, "working on" is lazy, could describe any computer use
+        ✗ "Working on computer tasks and applications"
+          WHY BAD: Completely generic, "working on" is lazy, could describe any computer use
 
-    Return JSON:
-    {
-      "reasoning": "Explain how you chose the title",
-      "title": "5-8 word conversational title using only summary facts"
-    }
-    """
-
-    print("[DEBUG] generateTitle final prompt:")
-    print("Contains GRDB SQL: \(basePrompt.contains("SQL(elements:"))")
-    if basePrompt.contains("SQL(elements:") {
-        print("GRDB DETECTED IN TITLE PROMPT!")
-    }
-
-    let maxAttempts = 3
-    var prompt = basePrompt
-    var lastError: Error?
-
-    for attempt in 1...maxAttempts {
-        do {
-            print("[DEBUG] generateTitle attempt \(attempt)")
-            let response = try await callTextAPI(prompt, operation: "generate_title", expectJSON: true, batchId: batchId)
-
-            guard let data = response.data(using: .utf8) else {
-                throw NSError(domain: "OllamaProvider", code: 12, userInfo: [NSLocalizedDescriptionKey: "Failed to parse title response"])
-            }
-
-            let result = try parseJSONResponse(TitleResponse.self, from: data)
-
-            print("[DEBUG] Title generation result:")
-            print("  Reasoning: \(result.reasoning)")
-            print("  Title: \(result.title)")
-
-            return (result, response)
-        } catch {
-            lastError = error
-            if attempt == maxAttempts {
-                throw error
-            }
-
-            print("[OLLAMA] ⚠️ generateTitle attempt \(attempt) failed: \(error.localizedDescription)")
-
-            prompt = basePrompt + """
-
-
-            PREVIOUS ATTEMPT FAILED — The response was invalid (error: \(error.localizedDescription)).
-            Respond with ONLY the JSON object described above. Ensure the title uses 5-8 words drawn from the summary details.
-            """
+        Return JSON:
+        {
+          "reasoning": "Explain how you chose the title",
+          "title": "5-8 word conversational title using only summary facts"
         }
-    }
+        """
 
-    throw lastError ?? NSError(domain: "OllamaProvider", code: 12, userInfo: [NSLocalizedDescriptionKey: "Failed to generate title after multiple attempts"])
-}
+        print("[DEBUG] generateTitle final prompt:")
+
+        let maxAttempts = 3
+        var prompt = basePrompt
+        var lastError: Error?
+
+        for attempt in 1...maxAttempts {
+            do {
+                print("[DEBUG] generateTitle attempt \(attempt)")
+                let response = try await callTextAPI(prompt, operation: "generate_title", expectJSON: true, batchId: batchId)
+
+                guard let data = response.data(using: .utf8) else {
+                    throw NSError(domain: "OllamaProvider", code: 12, userInfo: [NSLocalizedDescriptionKey: "Failed to parse title response"])
+                }
+
+                let result = try parseJSONResponse(TitleResponse.self, from: data)
+
+                print("[DEBUG] Title generation result:")
+                print("  Reasoning: \(result.reasoning)")
+                print("  Title: \(result.title)")
+
+                return (result, response)
+            } catch {
+                lastError = error
+                if attempt == maxAttempts {
+                    throw error
+                }
+
+                print("[OLLAMA] ⚠️ generateTitle attempt \(attempt) failed: \(error.localizedDescription)")
+
+                prompt = basePrompt + """
+
+
+                PREVIOUS ATTEMPT FAILED — The response was invalid (error: \(error.localizedDescription)).
+                Respond with ONLY the JSON object described above. Ensure the title uses 5-8 words drawn from the summary details.
+                """
+            }
+        }
+
+        throw lastError ?? NSError(domain: "OllamaProvider", code: 12, userInfo: [NSLocalizedDescriptionKey: "Failed to generate title after multiple attempts"])
+    }
 
     private func generateTitleAndSummary(observations: [Observation], categories: [LLMCategoryDescriptor], batchId: Int64?) async throws -> (TitleSummaryResponse, String) {
         print("[DEBUG] generateTitleAndSummary - Starting two-step approach")
@@ -877,192 +894,210 @@ private func generateTitle(summary: String, batchId: Int64?) async throws -> (Ti
     }
     
 
-private func checkShouldMerge(previousCard: ActivityCardData, newCard: ActivityCardData, batchId: Int64?) async throws -> (Bool, String) {
-    let basePrompt = """
-    Look at these two consecutive activity periods and decide if they should be combined into one card.
+    private func checkShouldMerge(previousCard: ActivityCardData, newCard: ActivityCardData, batchId: Int64?) async throws -> (Bool, String) {
+        let basePrompt = """
+        Look at these two consecutive activity periods and decide if they should be combined into one card.
 
-    Previous activity (\(previousCard.startTime) - \(previousCard.endTime)):
-    Title: \(previousCard.title)
-    Summary: \(previousCard.summary)
+        Previous activity (\(previousCard.startTime) - \(previousCard.endTime)):
+        Title: \(previousCard.title)
+        Summary: \(previousCard.summary)
 
-    New activity (\(newCard.startTime) - \(newCard.endTime)):
-    Title: \(newCard.title)
-    Summary: \(newCard.summary)
+        New activity (\(newCard.startTime) - \(newCard.endTime)):
+        Title: \(newCard.title)
+        Summary: \(newCard.summary)
 
-    MERGE DECISION RULE:
-    The Golden Rule: When merged, they should tell one coherent story, not two different ones
+        MERGE DECISION RULE:
+        The Golden Rule: When merged, they should tell one coherent story, not two different ones
 
-    ⚠️ BE STRICT! When in doubt, keep them separate.
+        ⚠️ BE STRICT! When in doubt, keep them separate.
 
-    MERGE ONLY IF:
-    ✓ Same project or closely related task
-    ✓ Not a context switch
-    ✓ You're 80%+ confident they're the same activity
+        MERGE ONLY IF:
+        ✓ Same project or closely related task
+        ✓ Not a context switch
+        ✓ You're 80%+ confident they're the same activity
 
-    GOOD MERGING EXAMPLES:
-    ✓ MERGE: "Debugging auth flow in VS Code" + "Testing auth endpoints in Postman"
-      (Same exact auth bug work continuing, confidence: 0.95)
-    ✓ MERGE: "Writing Q3 report in Docs" + "Adding charts to Q3 report"
-      (Same document, natural progression, confidence: 0.92)
-    ✓ MERGE: "Refactoring UserProfile component" + "Testing UserProfile after refactor"
-      (Same component, testing what was just built, confidence: 0.91)
+        GOOD MERGING EXAMPLES:
+        ✓ MERGE: "Debugging auth flow in VS Code" + "Testing auth endpoints in Postman"
+          (Same exact auth bug work continuing, confidence: 0.95)
+        ✓ MERGE: "Writing Q3 report in Docs" + "Adding charts to Q3 report"
+          (Same document, natural progression, confidence: 0.92)
+        ✓ MERGE: "Refactoring UserProfile component" + "Testing UserProfile after refactor"
+          (Same component, testing what was just built, confidence: 0.91)
 
-    BAD MERGING EXAMPLES:
-    ✗ DON'T MERGE: "Debugging Dayflow timeline cards" + "Checking Twitter & Reddit"
-      (Work interrupted by social media = context switch, confidence: 0.4)
-    ✗ DON'T MERGE: "Fixed CORS bug in API" + "Started implementing user dashboard"
-      (Different features, even same project, confidence: 0.6)
-    ✗ DON'T MERGE: "Writing docs for API" + "Debugging API endpoints"
-      (Documentation vs. coding = different mental modes, confidence: 0.7)
-    ✗ DON'T MERGE: "Reviewing PR comments" + "Working on new feature"
-      (Review work vs. creation work, confidence: 0.5)
-    ✗ DON'T MERGE: "Python data analysis" + "Answering Slack messages"
-      (Deep work vs. communication, confidence: 0.3)
-    ✗ DON'T MERGE: "Researching React patterns" + "Implementing React component"
-      (Research/learning vs. actual coding, confidence: 0.8)
-    ✗ DON'T MERGE: "Email, Twitter, general browsing" + "More email and browsing"
-      (Too vague - what emails? what browsing?, confidence: 0.4)
+        BAD MERGING EXAMPLES:
+        ✗ DON'T MERGE: "Debugging Dayflow timeline cards" + "Checking Twitter & Reddit"
+          (Work interrupted by social media = context switch, confidence: 0.4)
+        ✗ DON'T MERGE: "Fixed CORS bug in API" + "Started implementing user dashboard"
+          (Different features, even same project, confidence: 0.6)
+        ✗ DON'T MERGE: "Writing docs for API" + "Debugging API endpoints"
+          (Documentation vs. coding = different mental modes, confidence: 0.7)
+        ✗ DON'T MERGE: "Reviewing PR comments" + "Working on new feature"
+          (Review work vs. creation work, confidence: 0.5)
+        ✗ DON'T MERGE: "Python data analysis" + "Answering Slack messages"
+          (Deep work vs. communication, confidence: 0.3)
+        ✗ DON'T MERGE: "Researching React patterns" + "Implementing React component"
+          (Research/learning vs. actual coding, confidence: 0.8)
+        ✗ DON'T MERGE: "Email, Twitter, general browsing" + "More email and browsing"
+          (Too vague - what emails? what browsing?, confidence: 0.4)
 
-    CONFIDENCE SCORING:
-    - 0.9-1.0: Same exact activity continuing (merge)
-    - 0.7-0.9: Related but slightly different (probably don't merge)
-    - 0.5-0.7: Somewhat related (don't merge)
-    - 0.0-0.5: Different activities (definitely don't merge)
+        CONFIDENCE SCORING:
+        - 0.9-1.0: Same exact activity continuing (merge)
+        - 0.7-0.9: Related but slightly different (probably don't merge)
+        - 0.5-0.7: Somewhat related (don't merge)
+        - 0.0-0.5: Different activities (definitely don't merge)
 
-    Remember: You need 0.8+ confidence to merge!
+        Remember: You need 0.8+ confidence to merge!
 
-    Return JSON:
-    {
-      "reason": "Brief explanation of your decision",
-      "combine": true or false,
-      "confidence": 0.0 to 1.0
-    }
-    """
-
-    let confidenceThreshold = 0.8
-    let maxAttempts = 3
-    var prompt = basePrompt
-    var lastError: Error?
-
-    for attempt in 1...maxAttempts {
-        do {
-            let response = try await callTextAPI(prompt, operation: "evaluate_card_merge", expectJSON: true, batchId: batchId)
-
-            guard let data = response.data(using: String.Encoding.utf8) else {
-                throw NSError(domain: "OllamaProvider", code: 13, userInfo: [NSLocalizedDescriptionKey: "Failed to parse merge decision"])
-            }
-
-            let decision = try parseJSONResponse(MergeDecision.self, from: data)
-
-            let shouldMerge = decision.combine && decision.confidence >= confidenceThreshold
-
-            print("[DEBUG] Merge check input:")
-            print("  Previous: \(previousCard.title) (\(previousCard.startTime) - \(previousCard.endTime))")
-            print("  New: \(newCard.title) (\(newCard.startTime) - \(newCard.endTime))")
-            print("[DEBUG] Merge check result:")
-            print("  Raw decision: \(decision.combine ? "MERGE" : "KEEP SEPARATE")")
-            print("  Confidence: \(String(format: "%.2f", decision.confidence))")
-            print("  Final decision: \(shouldMerge ? "MERGE" : "KEEP SEPARATE") (threshold: \(confidenceThreshold))")
-            print("  Reason: \(decision.reason)")
-
-            return (shouldMerge, response)
-        } catch {
-            lastError = error
-            if attempt == maxAttempts {
-                throw error
-            }
-
-            print("[OLLAMA] ⚠️ evaluate_card_merge attempt \(attempt) failed: \(error.localizedDescription)")
-
-            prompt = basePrompt + """
-
-
-            PREVIOUS ATTEMPT FAILED — The response was invalid (error: \(error.localizedDescription)).
-            Return ONLY the JSON object described above with "reason", "combine", and "confidence" fields.
-            """
+        Return JSON:
+        {
+          "reason": "Brief explanation of your decision",
+          "combine": true or false,
+          "confidence": 0.0 to 1.0
         }
-    }
+        """
 
-    throw lastError ?? NSError(domain: "OllamaProvider", code: 13, userInfo: [NSLocalizedDescriptionKey: "Failed to evaluate merge decision after multiple attempts"])
-}
+        let confidenceThreshold = 0.8
+        let maxAttempts = 3
+        var prompt = basePrompt
+        var lastError: Error?
+
+        for attempt in 1...maxAttempts {
+            do {
+                let response = try await callTextAPI(prompt, operation: "evaluate_card_merge", expectJSON: true, batchId: batchId)
+
+                guard let data = response.data(using: String.Encoding.utf8) else {
+                    throw NSError(domain: "OllamaProvider", code: 13, userInfo: [NSLocalizedDescriptionKey: "Failed to parse merge decision"])
+                }
+
+                let decision = try parseJSONResponse(MergeDecision.self, from: data)
+
+                let shouldMerge = decision.combine && decision.confidence >= confidenceThreshold
+
+                print("[DEBUG] Merge check input:")
+                print("  Previous: \(previousCard.title) (\(previousCard.startTime) - \(previousCard.endTime))")
+                print("  New: \(newCard.title) (\(newCard.startTime) - \(newCard.endTime))")
+                print("[DEBUG] Merge check result:")
+                print("  Raw decision: \(decision.combine ? "MERGE" : "KEEP SEPARATE")")
+                print("  Confidence: \(String(format: "%.2f", decision.confidence))")
+                print("  Final decision: \(shouldMerge ? "MERGE" : "KEEP SEPARATE") (threshold: \(confidenceThreshold))")
+                print("  Reason: \(decision.reason)")
+
+                return (shouldMerge, response)
+            } catch {
+                lastError = error
+                if attempt == maxAttempts {
+                    throw error
+                }
+
+                print("[OLLAMA] ⚠️ evaluate_card_merge attempt \(attempt) failed: \(error.localizedDescription)")
+
+                prompt = basePrompt + """
+
+
+                PREVIOUS ATTEMPT FAILED — The response was invalid (error: \(error.localizedDescription)).
+                Return ONLY the JSON object described above with "reason", "combine", and "confidence" fields.
+                """
+            }
+        }
+
+        throw lastError ?? NSError(domain: "OllamaProvider", code: 13, userInfo: [NSLocalizedDescriptionKey: "Failed to evaluate merge decision after multiple attempts"])
+    }
     
+
     private func mergeTwoCards(previousCard: ActivityCardData, newCard: ActivityCardData, batchId: Int64?) async throws -> (ActivityCardData, String) {
-        let prompt = """
+        let basePrompt = """
         Create a single activity card that covers both time periods.
-        
+
         Activity 1 (\(previousCard.startTime) - \(previousCard.endTime)):
         Title: \(previousCard.title)
         Summary: \(previousCard.summary)
-        
+
         Activity 2 (\(newCard.startTime) - \(newCard.endTime)):
         Title: \(newCard.title)
         Summary: \(newCard.summary)
-        
+
         Create a unified title and summary that covers the entire period from \(previousCard.startTime) to \(newCard.endTime).
         Title: Natural, conversational (5-10 words). Synthesize both activities.
         Summary: First person without "I", 2-3 sentences max. Tell the complete story.
-        
+
         GOOD EXAMPLES:
-        
+
         Card 1: "Debugging login flow" + Card 2: "Fixed auth bug and testing"
         MERGED Title: "Fixed authentication race condition bug"
-        MERGED Summary: "Debugged race condition in auth token refresh logic. Implemented mutex lock solution and verified fix through integration tests."
-        
-        Card 1: "Email campaign planning" + Card 2: "Creating email templates"
-        MERGED Title: "Q4 email campaign setup in Mailchimp"
-        MERGED Summary: "Planned Q4 newsletter strategy with topic outline. Created two template variations in Mailchimp and configured A/B testing."
-        
-        Card 1: "Research React patterns" + Card 2: "Refactoring components"
-        MERGED Title: "Refactored React components with modern patterns"
-        MERGED Summary: "Researched component composition patterns and custom hooks. Applied learnings to refactor Dashboard components."
-        
+        MERGED Summary: "Debugged race condition in auth token refresh logic. Implemented fix for stale tokens, verified with end-to-end tests."
+
+        Card 1: "Writing marketing copy" + Card 2: "Designing social assets"
+        MERGED Title: "Built new product launch campaign assets"
+        MERGED Summary: "Drafted launch messaging in Google Docs. Paired the copy with fresh social graphics in Figma."
+
+        BAD EXAMPLES:
+        ✗ Title: "Productivity session" (too generic)
+        ✗ Summary: "User worked on various tasks" (vague, says "User")
+        ✗ Summary listing bullet points or more than 3 sentences
+        ✗ Title mentions only one of the two activities
+
         Return JSON:
         {
-          "title": "Your merged title",
-          "summary": "Your merged summary"
+          "title": "Merged title",
+          "summary": "Merged summary"
         }
         """
-        
-        let response = try await callTextAPI(prompt, operation: "merge_cards", expectJSON: true, batchId: batchId)
-        
+
+        let maxAttempts = 3
+        var prompt = basePrompt
+        var lastError: Error?
+
         struct MergedContent: Codable {
             let title: String
             let summary: String
         }
-        
-        guard let data = response.data(using: .utf8) else {
-            throw NSError(domain: "OllamaProvider", code: 14, userInfo: [NSLocalizedDescriptionKey: "Failed to parse merged card"])
+
+        for attempt in 1...maxAttempts {
+            do {
+                let response = try await callTextAPI(prompt, operation: "merge_cards", expectJSON: true, batchId: batchId)
+
+                guard let data = response.data(using: .utf8) else {
+                    throw NSError(domain: "OllamaProvider", code: 14, userInfo: [NSLocalizedDescriptionKey: "Failed to parse merged card"])
+                }
+
+                let merged = try parseJSONResponse(MergedContent.self, from: data)
+
+                // Use known chronological order: previous card comes first, new card follows.
+                // Avoid re-parsing string timestamps, which breaks across midnight boundaries.
+                let mergedStartTime = previousCard.startTime
+                let mergedEndTime = newCard.endTime
+
+                let mergedCard = ActivityCardData(
+                    startTime: mergedStartTime,
+                    endTime: mergedEndTime,
+                    category: previousCard.category,
+                    subcategory: previousCard.subcategory,
+                    title: merged.title,
+                    summary: merged.summary,
+                    detailedSummary: previousCard.detailedSummary,
+                    distractions: previousCard.distractions,
+                    appSites: previousCard.appSites
+                )
+
+                return (mergedCard, response)
+            } catch {
+                lastError = error
+                if attempt == maxAttempts {
+                    throw error
+                }
+
+                print("[OLLAMA] ⚠️ merge_cards attempt \(attempt) failed: \(error.localizedDescription)")
+
+                prompt = basePrompt + """
+
+
+                PREVIOUS ATTEMPT FAILED — The response was invalid (error: \(error.localizedDescription)).
+                Respond with ONLY the JSON object described above containing merged "title" and "summary" fields.
+                """
+            }
         }
-        
-        let merged = try parseJSONResponse(MergedContent.self, from: data)
-        
-        // Handle both chronological orders - use earliest start and latest end
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        
-        let prevStart = formatter.date(from: previousCard.startTime) ?? Date()
-        let prevEnd = formatter.date(from: previousCard.endTime) ?? Date()
-        let newStart = formatter.date(from: newCard.startTime) ?? Date()
-        let newEnd = formatter.date(from: newCard.endTime) ?? Date()
-        
-        // Use the earlier start time and later end time
-        let mergedStartTime = prevStart < newStart ? previousCard.startTime : newCard.startTime
-        let mergedEndTime = prevEnd > newEnd ? previousCard.endTime : newCard.endTime
-        
-        let mergedCard = ActivityCardData(
-            startTime: mergedStartTime,
-            endTime: mergedEndTime,
-            category: previousCard.category,
-            subcategory: previousCard.subcategory,
-            title: merged.title,
-            summary: merged.summary,
-            detailedSummary: previousCard.detailedSummary,
-            distractions: previousCard.distractions,
-            appSites: previousCard.appSites
-        )
-        
-        
-        return (mergedCard, response)
+
+        throw lastError ?? NSError(domain: "OllamaProvider", code: 14, userInfo: [NSLocalizedDescriptionKey: "Failed to merge cards after multiple attempts"])
     }
     
     private func parseJSONResponse<T: Codable>(_ type: T.Type, from data: Data) throws -> T {
@@ -1245,7 +1280,63 @@ private func checkShouldMerge(previousCard: ActivityCardData, newCard: ActivityC
 
         return (observations, coverage)
     }
-    
+
+    private func observationsFromFrames(
+        _ frameDescriptions: [(timestamp: TimeInterval, description: String)],
+        batchStartTime: Date,
+        videoDuration: TimeInterval
+    ) throws -> [Observation] {
+        guard !frameDescriptions.isEmpty else {
+            throw NSError(
+                domain: "OllamaProvider",
+                code: 11,
+                userInfo: [NSLocalizedDescriptionKey: "No valid observations generated from frame fallback"]
+            )
+        }
+
+        let sortedFrames = frameDescriptions.sorted { $0.timestamp < $1.timestamp }
+        let durationCap = videoDuration > 0 ? videoDuration : nil
+        var observations: [Observation] = []
+
+        for (index, frame) in sortedFrames.enumerated() {
+            let startSeconds = max(0, frame.timestamp)
+            var endSeconds = startSeconds + frameExtractionInterval
+
+            if index + 1 < sortedFrames.count {
+                endSeconds = min(endSeconds, sortedFrames[index + 1].timestamp)
+            }
+
+            if let cap = durationCap {
+                endSeconds = min(endSeconds, cap)
+            }
+
+            if endSeconds <= startSeconds {
+                endSeconds = startSeconds + max(1, frameExtractionInterval)
+                if let cap = durationCap {
+                    endSeconds = min(endSeconds, cap)
+                }
+            }
+
+            let startDate = batchStartTime.addingTimeInterval(startSeconds)
+            let endDate = batchStartTime.addingTimeInterval(endSeconds)
+
+            observations.append(
+                Observation(
+                    id: nil,
+                    batchId: 0,
+                    startTs: Int(startDate.timeIntervalSince1970),
+                    endTs: Int(endDate.timeIntervalSince1970),
+                    observation: frame.description,
+                    metadata: nil,
+                    llmModel: nil,
+                    createdAt: Date()
+                )
+            )
+        }
+
+        return observations
+    }
+
     private func mergeFrameDescriptions(_ frameDescriptions: [(timestamp: TimeInterval, description: String)],
                                       batchStartTime: Date,
                                       videoDuration: TimeInterval,
@@ -1277,7 +1368,7 @@ private func checkShouldMerge(previousCard: ActivityCardData, newCard: ActivityC
 
         Respond with a JSON object using this exact shape:
         {
-          "reasoning": "Explain in 1-2 sentences how you grouped the segments",
+          "reasoning": "Use this space to think through how you're going to construct the segments",
           "segments": [
             {
               "startTimestamp": "MM:SS",
@@ -1295,7 +1386,7 @@ private func checkShouldMerge(previousCard: ActivityCardData, newCard: ActivityC
         - Never output additional text outside the JSON object.
         """
 
-        let maxAttempts = 3
+        let maxAttempts = 2
         var prompt = basePrompt
         var lastError: Error?
 
@@ -1329,7 +1420,12 @@ private func checkShouldMerge(previousCard: ActivityCardData, newCard: ActivityC
             } catch let coverageError as SegmentCoverageError {
                 lastError = coverageError
                 if attempt == maxAttempts {
-                    throw coverageError.asNSError()
+                    print("[OLLAMA] ❌ segment_video_activity retries exhausted (coverage) — returning raw frame observations")
+                    return try observationsFromFrames(
+                        frameDescriptions,
+                        batchStartTime: batchStartTime,
+                        videoDuration: videoDuration
+                    )
                 }
 
                 let coveragePercent = max(0, min(100, Int(coverageError.coverageRatio * 100)))
@@ -1344,7 +1440,12 @@ private func checkShouldMerge(previousCard: ActivityCardData, newCard: ActivityC
             } catch {
                 lastError = error
                 if attempt == maxAttempts {
-                    throw error
+                    print("[OLLAMA] ❌ segment_video_activity retries exhausted (error: \(error.localizedDescription)) — returning raw frame observations")
+                    return try observationsFromFrames(
+                        frameDescriptions,
+                        batchStartTime: batchStartTime,
+                        videoDuration: videoDuration
+                    )
                 }
 
                 print("[OLLAMA] ⚠️ segment_video_activity attempt \(attempt) failed: \(error.localizedDescription)")
