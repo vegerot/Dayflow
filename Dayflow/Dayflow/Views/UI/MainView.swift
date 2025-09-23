@@ -89,7 +89,7 @@ struct MainView: View {
                         HStack(alignment: .top) {
                             Text("Timeline")
                                 .font(.custom("InstrumentSerif-Regular", size: 42))
-                                .foregroundColor(.primary)
+                                .foregroundColor(Color.black)
                                 .offset(x: timelineOffset)
                                 .opacity(timelineOpacity)
 
@@ -291,17 +291,13 @@ struct MainView: View {
     private func formatDateForDisplay(_ date: Date) -> String {
         let formatter = DateFormatter()
         let calendar = Calendar.current
-        
+
         if calendar.isDateInToday(date) {
             formatter.dateFormat = "'Today,' MMM d"
-        } else if calendar.isDateInYesterday(date) {
-            formatter.dateFormat = "'Yesterday,' MMM d"
-        } else if calendar.isDateInTomorrow(date) {
-            formatter.dateFormat = "'Tomorrow,' MMM d"
         } else {
             formatter.dateFormat = "E, MMM d"
         }
-        
+
         return formatter.string(from: date)
     }
 
@@ -366,8 +362,6 @@ struct SidebarIconButton: View {
                         .resizable()
                         .interpolation(.high)
                         .renderingMode(.original)
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 40, height: 40)
                 }
 
                 if let asset = icon.assetName {
@@ -382,11 +376,13 @@ struct SidebarIconButton: View {
                     Image(systemName: sys)
                         .font(.system(size: 18))
                         .foregroundColor(isSelected ? Color(hex: "F96E00") : Color(red: 0.6, green: 0.4, blue: 0.3))
-                        .frame(width: 40, height: 40)
                 }
             }
+            .frame(width: 40, height: 40)
+            .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
+        .contentShape(Rectangle())
     }
 }
 
@@ -701,6 +697,7 @@ struct ActivityCard: View {
                     Text(activity.title)
                         .font(.title3)
                         .fontWeight(.semibold)
+                        .foregroundColor(.black)
                     Spacer()
                 }
 
@@ -719,7 +716,7 @@ struct ActivityCard: View {
 
                 Text("\(timeFormatter.string(from: activity.startTime)) to \(timeFormatter.string(from: activity.endTime))")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
                 
                 // Video thumbnail placeholder
                 if let videoURL = activity.videoSummaryURL {
@@ -826,11 +823,11 @@ struct ActivityCard: View {
             Text("SUMMARY")
                 .font(.caption)
                 .fontWeight(.semibold)
-                .foregroundColor(.secondary)
+                .foregroundColor(Color(red: 0.45, green: 0.45, blue: 0.45))
             
             Text(activity.summary)
                 .font(.system(size: 12))
-                .foregroundColor(.primary)
+                .foregroundColor(.black)
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
             
@@ -838,12 +835,12 @@ struct ActivityCard: View {
                 Text("DETAILED SUMMARY")
                     .font(.caption)
                     .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Color(red: 0.45, green: 0.45, blue: 0.45))
                     .padding(.top, 8)
                 
                 Text(activity.detailedSummary)
                     .font(.system(size: 12))
-                    .foregroundColor(.primary)
+                    .foregroundColor(.black)
                     .lineLimit(nil)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -890,7 +887,7 @@ struct MetricRow: View {
             Text(label)
                 .font(.caption2)
                 .fontWeight(.medium)
-                .foregroundColor(.secondary)
+                .foregroundColor(Color(red: 0.45, green: 0.45, blue: 0.45))
             
             HStack {
                 Text("\(value)%")

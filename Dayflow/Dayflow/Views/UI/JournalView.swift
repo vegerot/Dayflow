@@ -5,7 +5,7 @@ struct JournalView: View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Journal")
                 .font(.custom("InstrumentSerif-Regular", size: 42))
-                .foregroundColor(.primary)
+                .foregroundColor(.black)
                 .padding(.leading, 10) // Match Timeline header inset
 
             // Preview area fills the remaining content space (static image)

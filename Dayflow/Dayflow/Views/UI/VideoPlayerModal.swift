@@ -200,7 +200,7 @@ struct VideoPlayerModal: View {
                         if let startTime = startTime, let endTime = endTime {
                             Text("\(timeFormatter.string(from: startTime)) to \(timeFormatter.string(from: endTime))")
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
                         }
                     }
                     Spacer()

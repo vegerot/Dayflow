@@ -574,25 +574,25 @@ struct CanvasActivityCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            FaviconOrSparkleView(primaryHost: faviconPrimaryHost, secondaryHost: faviconSecondaryHost)
-                .frame(width: 16, height: 16)
-
             if durationMinutes >= 10 {
+                FaviconOrSparkleView(primaryHost: faviconPrimaryHost, secondaryHost: faviconSecondaryHost)
+                    .frame(width: 16, height: 16)
+
                 Text(title)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(style.text)
+
+                Spacer()
+
+                Text(time)
+                    .font(
+                        Font.custom("Nunito", size: 10)
+                            .weight(.medium)
+                    )
+                    .foregroundColor(style.time)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
-
-            Spacer()
-
-            Text(time)
-                .font(
-                    Font.custom("Nunito", size: 10)
-                        .weight(.medium)
-                )
-                .foregroundColor(style.time)
-                .lineLimit(1)
-                .truncationMode(.tail)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)

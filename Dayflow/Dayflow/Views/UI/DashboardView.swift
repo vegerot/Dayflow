@@ -7,7 +7,7 @@ struct DashboardView: View {
             // Header (matches Timeline positioning & padding is applied on parent)
             Text("Dashboard")
                 .font(.custom("InstrumentSerif-Regular", size: 42))
-                .foregroundColor(.primary)
+                .foregroundColor(.black)
                 .padding(.leading, 10) // Match Timeline header inset
 
             // Preview area lives BELOW the dashboard title and within panel padding
