@@ -36,6 +36,7 @@ struct SettingsView: View {
                     Text("Manage how Dayflow is run")
                         .font(.custom("Nunito", size: 14))
                         .foregroundColor(.black.opacity(0.6))
+                        .padding(.leading, 10)
 
                     // Analytics toggle (default ON)
                     Toggle(isOn: $analyticsEnabled) {
@@ -45,34 +46,14 @@ struct SettingsView: View {
                     }
                     .toggleStyle(.switch)
                     .frame(maxWidth: 340, alignment: .leading)
+                    .padding(.leading, 10)
 
-                    // Simple update status + action
-                    HStack(spacing: 14) {
-                        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
-                        Text("Dayflow v\(version)")
-                            .font(.custom("Nunito", size: 13))
-                            .foregroundColor(.black.opacity(0.65))
-
-                        Text(updater.statusText.isEmpty ? "" : updater.statusText)
-                            .font(.custom("Nunito", size: 13))
-                            .foregroundColor(.black.opacity(0.45))
-
-                        Spacer()
-
-                        Button(action: { updater.checkForUpdates(showUI: true) }) {
-                            if updater.isChecking {
-                                ProgressView().scaleEffect(0.6)
-                            } else {
-                                Text("Check for updates")
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color.black.opacity(0.06))
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    }
-                    .frame(maxWidth: 520)
+                    // App version (update UI hidden per design feedback)
+                    Text("Dayflow v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")")
+                        .font(.custom("Nunito", size: 13))
+                        .foregroundColor(.black.opacity(0.65))
+                        .padding(.top, 4)
+                        .padding(.leading, 10)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -126,6 +107,8 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 10)
 
+                Spacer(minLength: 30)
+
                 // Provider cards row
                 HStack(spacing: 20) {
                     ForEach(providerCards, id: \.id) { card in
@@ -136,6 +119,8 @@ struct SettingsView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 10)
+
+                Spacer(minLength: 30)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.bottom, 40)
