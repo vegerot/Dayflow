@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Release helper for Dayflow: builds, signs, notarizes, and packages a DMG.
+# Release helper for Dayflow: builds, signs, notarizes, and packages a DMG for distribution.
 #
 # Usage:
 #   ./scripts/release_dmg.sh
