@@ -474,7 +474,10 @@ struct DateNavigationControls: View {
             }
 
             Button(action: { showDatePicker = true; lastDateNavMethod = "picker" }) {
-                DayflowPillButton(text: formatDateForDisplay(selectedDate))
+                DayflowPillButton(
+                    text: formatDateForDisplay(selectedDate),
+                    fixedWidth: calculateOptimalPillWidth()
+                )
             }
             .buttonStyle(PlainButtonStyle())
 
@@ -506,10 +509,6 @@ struct DateNavigationControls: View {
 
         if calendar.isDateInToday(date) {
             formatter.dateFormat = "'Today,' MMM d"
-        } else if calendar.isDateInYesterday(date) {
-            formatter.dateFormat = "'Yesterday,' MMM d"
-        } else if calendar.isDateInTomorrow(date) {
-            formatter.dateFormat = "'Tomorrow,' MMM d"
         } else {
             formatter.dateFormat = "E, MMM d"
         }
@@ -521,6 +520,14 @@ struct DateNavigationControls: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
+    }
+
+    private func calculateOptimalPillWidth() -> CGFloat {
+        let sampleText = "Today, Sep 30"
+        let nsFont = NSFont(name: "InstrumentSerif-Regular", size: 18) ?? NSFont.systemFont(ofSize: 18)
+        let textSize = sampleText.size(withAttributes: [.font: nsFont])
+        let horizontalPadding: CGFloat = 11.77829 * 2
+        return textSize.width + horizontalPadding + 8
     }
 }
 

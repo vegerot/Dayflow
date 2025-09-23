@@ -8,32 +8,6 @@
 import SwiftUI
 
 
-struct DayflowAngularGradient {
-    static let gradient = AngularGradient(
-        gradient: Gradient(stops: [
-            // CLOSE THE LOOP — same color at 0.0 and 1.0
-            .init(color: Color(hex: "FFF1D3").opacity(0.50), location: 0.00),
-            
-            .init(color: Color(hex: "FF8904").opacity(0.50), location: 0.03),
-            .init(color: Color(hex: "FF8904").opacity(0.35), location: 0.09),
-            .init(color: .white, location: 0.17),
-            .init(color: .white.opacity(0.75), location: 0.23), // Smoother at ~83°
-            .init(color: .white.opacity(0.50), location: 0.25), // At 90°
-            .init(color: .white.opacity(0.50), location: 0.30),
-            .init(color: Color(hex: "FF8904").opacity(0.35), location: 0.52),
-            .init(color: Color(hex: "FFE0A5"), location: 0.58),
-            .init(color: .white, location: 0.80),
-            .init(color: Color(hex: "FFF1D3").opacity(0.50), location: 0.91),
-            
-            // mirror the first stop so 1.0 == 0.0
-            .init(color: Color(hex: "FFF1D3").opacity(0.50), location: 1.00)
-        ]),
-        center: .center,
-        startAngle: .degrees(0),
-        endAngle: .degrees(360)
-    )
-}
-
 struct DayflowShadowModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -52,50 +26,49 @@ extension View {
     }
     
     /// Applies complete Dayflow style with rounded rectangle shape
-    func dayflowStyle(cornerRadius: CGFloat = 735.4068, strokeWidth: CGFloat = 0.61771, backgroundOpacity: CGFloat = 0.3) -> some View {
+    func dayflowStyle(
+        cornerRadius: CGFloat = 735.4068,
+        backgroundColor: Color = .white
+    ) -> some View {
         self
-            .background(.white.opacity(backgroundOpacity))
+            .background(backgroundColor)
             .cornerRadius(cornerRadius)
-            .dayflowShadow()
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .inset(by: 0.31)
-                    .stroke(DayflowAngularGradient.gradient, lineWidth: strokeWidth)
-            )
     }
     
     /// Applies complete Dayflow style with circle shape
-    func dayflowCircleStyle(strokeWidth: CGFloat = 0.61771, backgroundOpacity: CGFloat = 0.3) -> some View {
+    func dayflowCircleStyle(backgroundColor: Color = .white) -> some View {
         self
-            .background(.white.opacity(backgroundOpacity))
+            .background(backgroundColor)
             .clipShape(Circle())
-            .dayflowShadow()
-            .overlay(
-                Circle()
-                    .inset(by: 0.31)
-                    .stroke(DayflowAngularGradient.gradient, lineWidth: strokeWidth)
-            )
     }
 }
 
-struct DayflowCircleButton: View {
+struct DayflowCircleButton<Content: View>: View {
     let action: () -> Void
-    let content: () -> AnyView
     let size: CGSize
+    @ViewBuilder let content: () -> Content
     
-    init(width: CGFloat = 31.40301, height: CGFloat = 30.4514, action: @escaping () -> Void, @ViewBuilder content: @escaping () -> some View) {
+    init(
+        width: CGFloat = 31.40301,
+        height: CGFloat = 30.4514,
+        action: @escaping () -> Void,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
         self.size = CGSize(width: width, height: height)
         self.action = action
-        self.content = { AnyView(content()) }
+        self.content = content
     }
     
     var body: some View {
         Button(action: action) {
             content()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(.plain)
         .frame(width: size.width, height: size.height)
         .dayflowCircleStyle()
+        .contentShape(Circle())
     }
 }
 
@@ -105,27 +78,37 @@ struct DayflowPillButton: View {
     let foregroundColor: Color
     let horizontalPadding: CGFloat
     let height: CGFloat
-    
+    let fixedWidth: CGFloat?
+
     init(
         text: String,
         font: Font = .custom("InstrumentSerif-Regular", size: 18),
         foregroundColor: Color = Color(red: 0.2, green: 0.2, blue: 0.2),
         horizontalPadding: CGFloat = 11.77829,
-        height: CGFloat = 30.4514
+        height: CGFloat = 30.4514,
+        fixedWidth: CGFloat? = nil
     ) {
         self.text = text
         self.font = font
         self.foregroundColor = foregroundColor
         self.horizontalPadding = horizontalPadding
         self.height = height
+        self.fixedWidth = fixedWidth
     }
-    
+
     var body: some View {
         Text(text)
             .font(font)
             .foregroundColor(foregroundColor)
-            .padding(.horizontal, horizontalPadding)
-            .frame(height: height)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .if(fixedWidth != nil) { view in
+                view.frame(width: fixedWidth!, height: height)
+            }
+            .if(fixedWidth == nil) { view in
+                view.padding(.horizontal, horizontalPadding)
+                    .frame(height: height)
+            }
             .dayflowStyle()
     }
 }
