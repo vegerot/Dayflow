@@ -135,6 +135,12 @@ flowchart LR
 2. Open the app; grant **Screen & System Audio Recording** when prompted:  
    macOS → **System Settings** → **Privacy & Security** → **Screen & System Audio Recording** → enable **Dayflow**.
 
+<div align="center">
+  <a href="https://github.com/JerryZLiu/Dayflow/releases/latest">
+    <img src="https://img.shields.io/badge/Download%20for%20Mac-⬇%20%20Dayflow.dmg-blue?style=for-the-badge&logo=apple" alt="Download the latest Dayflow.dmg">
+  </a>
+</div>
+
 **Build from source (developers)**
 1. Install **Xcode 15+** and open `Dayflow.xcodeproj`.
 2. Run the `Dayflow` scheme on macOS 13+.
@@ -152,6 +158,12 @@ flowchart LR
 ### From Releases
 1. Download `Dayflow.dmg` and drag **Dayflow** into **Applications**.
 2. Launch and grant the **Screen & System Audio Recording** permission.
+
+<div align="center">
+  <a href="https://github.com/JerryZLiu/Dayflow/releases/latest">
+    <img src="https://img.shields.io/badge/Download%20for%20Mac-⬇%20%20Dayflow.dmg-blue?style=for-the-badge&logo=apple" alt="Download the latest Dayflow.dmg">
+  </a>
+</div>
 
 ### From source
 ```bash
