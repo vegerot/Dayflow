@@ -319,7 +319,7 @@ struct OnboardingCategorySetupView: View {
             .frame(maxWidth: 800)
 
             // Full-width ColorOrganizerRoot with see-through effect
-            ColorOrganizerRoot(showBackgroundGradient: false, onDismiss: {
+            ColorOrganizerRoot(backgroundStyle: .none, onDismiss: {
                 // Save button now advances to next step
                 onNext()
             })

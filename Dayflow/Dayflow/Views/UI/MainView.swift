@@ -275,7 +275,7 @@ struct MainView: View {
                         }
 
                     ColorOrganizerRoot(
-                        showBackgroundGradient: false,
+                        backgroundStyle: .color(.clear),
                         onDismiss: { showCategoryEditor = false }
                     )
                     .environmentObject(categoryStore)

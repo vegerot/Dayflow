@@ -514,18 +514,6 @@ fileprivate struct CategoryView: View {
                     .offset(x: -140, y: -20)
                     .allowsHitTesting(false)
             }
-            if hovering, !expanded, localDetails.isEmpty {
-                Text("Click to add details")
-                    .font(.system(size: 11))
-                    .foregroundColor(.white)
-                    .padding(.vertical, 4)
-                    .padding(.horizontal, 8)
-                    .background(Color.black.opacity(0.8))
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
-                    .offset(x: 0, y: -50)
-                    .allowsHitTesting(false)
-                    .zIndex(100)
-            }
         }
         .onDrop(of: [UTType.plainText], isTargeted: $dragOver) { providers in
             guard category.isSystem == false else { return false }
@@ -618,8 +606,14 @@ private struct CategoryDetailTextView: NSViewRepresentable {
 }
 
 
+enum ColorOrganizerBackgroundStyle {
+    case none
+    case gradient
+    case color(Color)
+}
+
 struct ColorOrganizerRoot: View {
-    var showBackgroundGradient: Bool = true
+    var backgroundStyle: ColorOrganizerBackgroundStyle = .gradient
     var onDismiss: (() -> Void)?
     @EnvironmentObject private var categoryStore: CategoryStore
     @State private var numPoints: Int = 3
@@ -700,7 +694,7 @@ struct ColorOrganizerRoot: View {
             VStack(alignment: .center, spacing: 12) {
                 Text(isDragging ? "Drop on a category →" : "Drag a color onto a category")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(Color.primary.opacity(0.8))
+                    .foregroundColor(Color(red: 0.3, green: 0.3, blue: 0.3))
 
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
                     ForEach(Array(spectrumColors.enumerated()), id: \.offset) { i, hex in
@@ -726,7 +720,7 @@ struct ColorOrganizerRoot: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Categories")
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(.primary)
+                .foregroundColor(.black)
 
             let visibleCategories = categoryStore.editableCategories
             let isShowingDefaultCategoriesOnly = hasExactlyDefaultCategories
@@ -735,11 +729,11 @@ struct ColorOrganizerRoot: View {
                 VStack(spacing: 4) {
                     Text("No categories yet")
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.primary.opacity(0.9))
+                        .foregroundColor(Color(red: 0.1, green: 0.1, blue: 0.1))
 
                     Text("Create one below and drag colors to assign them")
                         .font(.system(size: 13))
-                        .foregroundColor(.primary.opacity(0.6))
+                        .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
                         .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
@@ -747,21 +741,21 @@ struct ColorOrganizerRoot: View {
                 .padding(.horizontal, 24)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(.primary.opacity(0.02))
+                        .fill(Color.black.opacity(0.02))
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
-                                .stroke(.primary.opacity(0.08), lineWidth: 1)
+                                .stroke(Color.black.opacity(0.08), lineWidth: 1)
                         )
                 )
             } else if isShowingDefaultCategoriesOnly {
                 VStack(spacing: 4) {
                     Text("These categories are a great starting point")
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.primary.opacity(0.9))
+                        .foregroundColor(Color(red: 0.1, green: 0.1, blue: 0.1))
 
                     Text("Drag colors to customize them, click to add descriptions, or create new ones below. You can always adjust these later in the Timeline view.")
                         .font(.system(size: 13))
-                        .foregroundColor(.primary.opacity(0.6))
+                        .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
                         .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
@@ -769,10 +763,10 @@ struct ColorOrganizerRoot: View {
                 .padding(.horizontal, 24)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(.primary.opacity(0.02))
+                        .fill(Color.black.opacity(0.02))
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
-                                .stroke(.primary.opacity(0.08), lineWidth: 1)
+                                .stroke(Color.black.opacity(0.08), lineWidth: 1)
                         )
                 )
             }
@@ -803,13 +797,13 @@ struct ColorOrganizerRoot: View {
                 })
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
-                .foregroundColor(.primary)
+                .foregroundColor(.black)
                 .padding(.horizontal, 12)
                 .frame(height: 40)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
                         .fill(Color.white)
-                        .stroke(.primary.opacity(newCategoryName.isEmpty ? 0.12 : 0.25), lineWidth: 1)
+                        .stroke(Color.black.opacity(newCategoryName.isEmpty ? 0.12 : 0.25), lineWidth: 1)
                         .animation(.easeOut(duration: 0.2), value: newCategoryName.isEmpty)
                 )
 
@@ -830,6 +824,7 @@ struct ColorOrganizerRoot: View {
             }
             .frame(minWidth: 280)
         }
+        .padding(24)
         .frame(minWidth: 280, maxWidth: 360)
     }
 
@@ -850,26 +845,45 @@ struct ColorOrganizerRoot: View {
                 .padding(.top, 24)
             }
         }
-        .frame(maxWidth: .infinity)
         .padding(.horizontal, 80)
         .padding(.vertical, 40)
+        .background(
+            Group {
+                if case .none = backgroundStyle {
+                    // Onboarding: No background, completely transparent
+                    Color.clear
+                } else {
+                    // Main app: White background for visibility over timeline
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(Color.white.opacity(0.95))
+                        .shadow(color: Color.black.opacity(0.15), radius: 20, x: 0, y: 8)
+                }
+            }
+        )
+        .padding(.horizontal, 60)
+    }
+
+    @ViewBuilder
+    private var backgroundView: some View {
+        switch backgroundStyle {
+        case .gradient:
+            backgroundGradient
+                .ignoresSafeArea()
+        case .color(let color):
+            color
+                .ignoresSafeArea()
+        case .none:
+            EmptyView()
+        }
     }
 
     var body: some View {
-        if showBackgroundGradient {
-            ZStack {
-                backgroundGradient
-                    .ignoresSafeArea()
-                contentCard
-            }
-            .onAppear {
-                showFirstTimeHints = !UserDefaults.standard.bool(forKey: CategoryStore.StoreKeys.hasUsedApp)
-            }
-        } else {
+        ZStack {
+            backgroundView
             contentCard
-                .onAppear {
-                    showFirstTimeHints = !UserDefaults.standard.bool(forKey: CategoryStore.StoreKeys.hasUsedApp)
-                }
+        }
+        .onAppear {
+            showFirstTimeHints = !UserDefaults.standard.bool(forKey: CategoryStore.StoreKeys.hasUsedApp)
         }
     }
 
