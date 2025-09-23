@@ -14,27 +14,17 @@ final class UpdaterManager: NSObject, ObservableObject {
 
     private let userDriver = SilentUserDriver()
     private lazy var updater: SPUUpdater = {
-        let u = SPUUpdater(hostBundle: .main,
-                           applicationBundle: .main,
-                           userDriver: userDriver,
-                           delegate: self)
-        // Prefer background checks and automatic downloads
-        u.automaticallyChecksForUpdates = true
-        u.automaticallyDownloadsUpdates = true
-        u.updateCheckInterval = TimeInterval(60 * 60) // hourly cadence
-        return u
+        SPUUpdater(hostBundle: .main,
+                   applicationBundle: .main,
+                   userDriver: userDriver,
+                   delegate: self)
     }()
 
     // Fallback interactive updater for cases requiring authorization/UI
     private lazy var interactiveController: SPUStandardUpdaterController = {
-        let c = SPUStandardUpdaterController(startingUpdater: true,
-                                             updaterDelegate: self,
-                                             userDriverDelegate: nil)
-        // Keep automatic checks enabled on the shared preference so the silent updater stays active
-        c.updater.automaticallyChecksForUpdates = true
-        c.updater.automaticallyDownloadsUpdates = true
-        c.updater.updateCheckInterval = TimeInterval(60 * 60) // hourly cadence
-        return c
+        SPUStandardUpdaterController(startingUpdater: false,
+                                     updaterDelegate: self,
+                                     userDriverDelegate: nil)
     }()
 
     // Simple state for Settings UI
@@ -45,41 +35,70 @@ final class UpdaterManager: NSObject, ObservableObject {
 
     private override init() {
         super.init()
-        // Initial status
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
-        statusText = "v\(version)"
-        // Start updater immediately so background checks can run
-        try? updater.start()
+
+        // Print what Sparkle thinks the settings are *before* starting:
+        print("[Sparkle] bundleId=\(Bundle.main.bundleIdentifier ?? "nil")")
+        print("[Sparkle] Info SUFeedURL = \(Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") ?? "nil")")
+        print("[Sparkle] Info SUPublicEDKey = \(Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") ?? "nil")")
+
+        do {
+            try updater.start()
+            print("[Sparkle] updater.start() OK")
+            print("[Sparkle] feedURL=\(updater.feedURL?.absoluteString ?? "nil")")
+            print("[Sparkle] autoChecks=\(updater.automaticallyChecksForUpdates)")
+            print("[Sparkle] autoDownloads=\(updater.automaticallyDownloadsUpdates)")
+            print("[Sparkle] interval=\(Int(updater.updateCheckInterval))")
+        } catch {
+            print("[Sparkle] updater.start() FAILED: \(error)")
+        }
     }
 
     func checkForUpdates(showUI: Bool = false) {
         isChecking = true
         statusText = "Checking…"
         if showUI {
-            // Route interactive checks through the UI driver to allow auth prompts
-            interactiveController.updater.checkForUpdates()
+            // Start UI controller on demand so it can present prompts as needed
+            interactiveController.startUpdater()
+            interactiveController.checkForUpdates(nil)
         } else {
-            // Sparkle only allows background checks after the user has granted permission.
-            if updater.automaticallyChecksForUpdates {
-                updater.checkForUpdates()
-            } else {
-                // If permission hasn’t been granted yet, fall back to the interactive flow.
-                interactiveController.updater.checkForUpdates()
-            }
+            // Trigger a background check immediately; the scheduler will also keep running
+            updater.checkForUpdatesInBackground()
         }
     }
 }
 
 
 extension UpdaterManager: SPUUpdaterDelegate {
+    nonisolated func updater(_ updater: SPUUpdater, willScheduleUpdateCheckAfterDelay delay: TimeInterval) {
+        print("[Sparkle] Next scheduled check in \(Int(delay))s")
+    }
+
+    nonisolated func updaterWillNotScheduleUpdateCheck(_ updater: SPUUpdater) {
+        print("[Sparkle] Automatic checks disabled; no schedule")
+    }
+
     nonisolated func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
         Task { @MainActor in
+            print("[Sparkle] Will install update: \(item.versionString)")
             AppDelegate.allowTermination = true
         }
     }
 
+    nonisolated func updater(_ updater: SPUUpdater,
+                             willInstallUpdateOnQuit item: SUAppcastItem,
+                             immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
+        // Convert Sparkle's deferred "install on quit" into an immediate install
+        Task { @MainActor in
+            print("[Sparkle] Immediate install requested for update: \(item.versionString)")
+            AppDelegate.allowTermination = true
+            immediateInstallHandler()
+        }
+        return true
+    }
+
     nonisolated func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
         Task { @MainActor in
+            print("[Sparkle] Updater will relaunch application")
             AppDelegate.allowTermination = true
         }
     }
@@ -87,9 +106,16 @@ extension UpdaterManager: SPUUpdaterDelegate {
     nonisolated func updater(_ updater: SPUUpdater, userDidMake choice: SPUUserUpdateChoice, forUpdate item: SUAppcastItem, state: SPUUserUpdateState) {
         if choice != .install {
             Task { @MainActor in
+                print("[Sparkle] User choice \(choice) for update \(item.versionString); disabling auto termination")
                 AppDelegate.allowTermination = false
             }
         }
+    }
+    
+    nonisolated func updater(_ updater: SPUUpdater,
+                             didFinishUpdateCycleFor updateCheck: SPUUpdateCheck,
+                             error: Error?) {
+        print("[Sparkle] finished cycle: \(updateCheck) error=\(String(describing: error))")
     }
 
     nonisolated func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
@@ -99,6 +125,7 @@ extension UpdaterManager: SPUUpdaterDelegate {
             self.statusText = "Update available: v\(self.latestVersionString ?? "?")"
             self.isChecking = false
             AppDelegate.allowTermination = false
+            print("[Sparkle] Valid update found: \(item.versionString)")
         }
     }
 
@@ -108,6 +135,7 @@ extension UpdaterManager: SPUUpdaterDelegate {
             self.statusText = "Latest version"
             self.isChecking = false
             AppDelegate.allowTermination = false
+            print("[Sparkle] No update available")
         }
     }
 
