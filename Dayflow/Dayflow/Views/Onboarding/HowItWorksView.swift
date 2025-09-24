@@ -23,13 +23,13 @@ struct HowItWorksView: View {
     private let cards: [(icon: String, title: String, body: String)] = [
         ("OnboardingHow",
          "Install and Forget",
-         "Dayflow takes periodic screen captures to understand what you're working on – all stored privately on your device. You can toggle this whenever you like."),
+         "Dayflow takes periodic screen captures to understand what you're working on, all stored privately on your device. You can toggle this whenever you like."),
         ("OnboardingSecurity",
          "Privacy by Default",
-         "Dayflow can run entirely on local AI models, which means your data never leaves your computer. And our code is public, so you don’t have to trust us – you can verify."),
+         "Dayflow can run entirely on local AI models, which means your data never leaves your computer. You can also find source code below - please consider giving it a star on Github!"),
         ("OnboardingUnderstanding",
          "Understand your Day",
-         "Knows the difference between YouTube tutorials and YouTube rabbit holes. AI that actually gets what you're working on.")
+         "Knows the difference between YouTube tutorials and YouTube rabbit holes. Dayflow actually gets what you're working on.")
     ]
 
     var body: some View {
