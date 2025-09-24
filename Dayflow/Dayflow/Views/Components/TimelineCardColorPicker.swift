@@ -392,7 +392,7 @@ fileprivate struct CategoryView: View {
     @State private var dragOver = false
     @State private var localDetails: String = ""
     @State private var showHint: Bool = false
-    @State private var focusToken: Int = 0
+    @FocusState private var detailFieldIsFocused: Bool
     private let detailsPlaceholder = "Add details to help teach the AI what belongs in this category. For example, \"Client meetings, Zoom calls, CRM updates.\""
 
     var body: some View {
@@ -410,26 +410,43 @@ fileprivate struct CategoryView: View {
                     Text(category.name)
                         .font(.system(size: 14, weight: .medium))
                 }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    expanded.toggle()
+                }
 
                 Spacer()
 
                 if !category.isSystem {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 8) {
                         if expanded {
-                            Text("▲").font(.system(size: 10)).foregroundColor(Color.gray.opacity(0.7))
+                            Text("▲")
+                                .font(.system(size: 10))
+                                .foregroundColor(Color.gray.opacity(0.7))
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    expanded.toggle()
+                                }
                         } else if !localDetails.isEmpty {
-                            Text("▼").font(.system(size: 10)).foregroundColor(Color.gray.opacity(0.7))
+                            Text("▼")
+                                .font(.system(size: 10))
+                                .foregroundColor(Color.gray.opacity(0.7))
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    expanded.toggle()
+                                }
                         }
-                        if hovering {
-                            Button {
-                                onDelete()
-                            } label: {
-                                Text("×")
-                                    .font(.system(size: 16))
-                                    .foregroundColor(.red)
-                            }
-                            .buttonStyle(.plain)
+
+                        Button {
+                            onDelete()
+                        } label: {
+                            Text("×")
+                                .font(.system(size: 16))
+                                .foregroundColor(.red.opacity(hovering ? 1.0 : 0.6))
                         }
+                        .buttonStyle(.plain)
+                        .opacity(hovering ? 1.0 : 0.7)
+                        .animation(.easeInOut(duration: 0.15), value: hovering)
                     }
                 }
             }
@@ -446,31 +463,37 @@ fileprivate struct CategoryView: View {
             if expanded {
                 ZStack(alignment: .topLeading) {
                     if localDetails.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text(detailsPlaceholder)
-                            .font(.system(size: 12))
-                            .foregroundColor(Color.gray.opacity(0.55))
-                            .padding(.horizontal, 18)
-                            .padding(.top, 16)
-                            .allowsHitTesting(false)
+        Text(detailsPlaceholder)
+            .font(.system(size: 12))
+            .foregroundColor(Color.secondary.opacity(0.75))
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(nsColor: .textBackgroundColor))
+            .allowsHitTesting(false)
                     }
 
-                    CategoryDetailTextView(text: $localDetails, focusToken: focusToken)
-                        .frame(height: 120)
+                    TextEditor(text: $localDetails)
+                        .font(.system(size: 13))
+                        .foregroundColor(.primary)
+                        .scrollContentBackground(.hidden)
+                        .focused($detailFieldIsFocused)
                         .padding(.horizontal, 12)
-                        .padding(.vertical, 12)
+                        .padding(.vertical, 10)
+                        .frame(minHeight: 80)
+                        .scrollIndicators(.hidden)
+                        .background(ScrollViewHider())
                 }
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.white)
-                )
+                .background(Color(nsColor: .textBackgroundColor))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color(red: 0.87, green: 0.9, blue: 0.95), lineWidth: 1)
+                    Rectangle()
+                        .stroke(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 1)
                 )
             }
         }
         .padding(12)
-        .background(Color.white)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .stroke(dragOver ? Color(red: 0.29, green: 0.33, blue: 0.41) : Color(red: 0.89, green: 0.91, blue: 0.94), lineWidth: dragOver ? 2 : 1)
@@ -479,11 +502,8 @@ fileprivate struct CategoryView: View {
         .shadow(color: Color.black.opacity(0.1), radius: dragOver ? 12 : 3, y: dragOver ? 4 : 1)
         .contentShape(Rectangle())
         .onTapGesture {
-            expanded.toggle()
-            if expanded {
-                focusToken &+= 1
-            } else {
-                onDetailsChange(localDetails)
+            if !expanded {
+                expanded = true
             }
         }
         .onHover { hovering in self.hovering = hovering }
@@ -492,6 +512,14 @@ fileprivate struct CategoryView: View {
             showHint = category.isNew
             if category.isNew {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 5) { showHint = false }
+            }
+        }
+        .onChange(of: expanded) { isExpanded in
+            if isExpanded {
+                detailFieldIsFocused = true
+            } else {
+                detailFieldIsFocused = false
+                onDetailsChange(localDetails)
             }
         }
         .onChange(of: category.details) { newValue in
@@ -536,75 +564,40 @@ fileprivate struct CategoryView: View {
         }
         .zIndex((hovering || dragOver || expanded) ? 50 : 0)
         .onDisappear {
+            detailFieldIsFocused = false
             onDetailsChange(localDetails)
         }
     }
 }
 
-private struct CategoryDetailTextView: NSViewRepresentable {
-    @Binding var text: String
-    var focusToken: Int
-
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        var parent: CategoryDetailTextView
-        var lastFocusToken: Int = -1
-
-        init(parent: CategoryDetailTextView) {
-            self.parent = parent
-        }
-
-        func textDidChange(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else { return }
-            parent.text = textView.string
-        }
+private struct ScrollViewHider: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        hideScrollIndicators(for: view)
+        return view
     }
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
+    func updateNSView(_ nsView: NSView, context: Context) {
+        hideScrollIndicators(for: nsView)
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let textView = NSTextView()
-        textView.isRichText = false
-        textView.drawsBackground = false
-        textView.backgroundColor = .clear
-        textView.font = NSFont.systemFont(ofSize: 13)
-        textView.textColor = NSColor.labelColor
-        textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainerInset = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.isVerticallyResizable = false
-        textView.isHorizontallyResizable = false
-        textView.delegate = context.coordinator
-        textView.textContainer?.widthTracksTextView = true
-
-        textView.string = text
-
-        let scrollView = NSScrollView()
-        scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = false
-        scrollView.hasHorizontalScroller = false
-        scrollView.documentView = textView
-        scrollView.contentView.postsBoundsChangedNotifications = false
-        return scrollView
-    }
-
-    func updateNSView(_ nsView: NSScrollView, context: Context) {
-        guard let textView = nsView.documentView as? NSTextView else { return }
-        if textView.string != text {
-            textView.string = text
-        }
-
-        if focusToken != context.coordinator.lastFocusToken {
-            context.coordinator.lastFocusToken = focusToken
-            DispatchQueue.main.async {
-                nsView.window?.makeFirstResponder(textView)
+    private func hideScrollIndicators(for view: NSView) {
+        DispatchQueue.main.async {
+            var ancestor: NSView? = view
+            while let current = ancestor {
+                if let scrollView = current as? NSScrollView {
+                    scrollView.hasVerticalScroller = false
+                    scrollView.hasHorizontalScroller = false
+                    scrollView.verticalScroller?.alphaValue = 0
+                    scrollView.horizontalScroller?.alphaValue = 0
+                    scrollView.scrollerStyle = .overlay
+                    break
+                }
+                ancestor = current.superview
             }
         }
     }
 }
-
 
 enum ColorOrganizerBackgroundStyle {
     case none
@@ -718,7 +711,7 @@ struct ColorOrganizerRoot: View {
 
     private var rightPanel: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Categories")
+            Text("Configure Categories")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundColor(.black)
 
@@ -730,15 +723,18 @@ struct ColorOrganizerRoot: View {
                     Text("No categories yet")
                         .font(.system(size: 15, weight: .medium))
                         .foregroundColor(Color(red: 0.1, green: 0.1, blue: 0.1))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     Text("Create one below and drag colors to assign them")
                         .font(.system(size: 13))
                         .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
                         .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 32)
-                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
+                .padding(.horizontal, 12)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
                         .fill(Color.black.opacity(0.02))
@@ -749,18 +745,15 @@ struct ColorOrganizerRoot: View {
                 )
             } else if isShowingDefaultCategoriesOnly {
                 VStack(spacing: 4) {
-                    Text("These categories are a great starting point")
-                        .font(.system(size: 15, weight: .medium))
+                    Text("You can always adjust these later in the Timeline view, but here are some to get you started.")
+                        .font(.system(size: 14))
                         .foregroundColor(Color(red: 0.1, green: 0.1, blue: 0.1))
-
-                    Text("Drag colors to customize them, click to add descriptions, or create new ones below. You can always adjust these later in the Timeline view.")
-                        .font(.system(size: 13))
-                        .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
                         .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 32)
-                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
+                .padding(.horizontal, 12)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
                         .fill(Color.black.opacity(0.02))
@@ -771,61 +764,78 @@ struct ColorOrganizerRoot: View {
                 )
             }
 
-            VStack(spacing: 8) {
-                ForEach(visibleCategories) { cat in
-                    CategoryView(
-                        category: cat,
-                        onColorDrop: { hex in
-                            categoryStore.assignColor(hex, to: cat.id)
-                            isDragging = false
-                        },
-                        onDetailsChange: { text in
-                            categoryStore.updateDetails(text, for: cat.id)
-                        },
-                        onDelete: {
-                            categoryStore.removeCategory(id: cat.id)
-                        }
-                    )
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 8) {
+                    ForEach(visibleCategories) { cat in
+                        CategoryView(
+                            category: cat,
+                            onColorDrop: { hex in
+                                categoryStore.assignColor(hex, to: cat.id)
+                                isDragging = false
+                            },
+                            onDetailsChange: { text in
+                                categoryStore.updateDetails(text, for: cat.id)
+                            },
+                            onDelete: {
+                                categoryStore.removeCategory(id: cat.id)
+                            }
+                        )
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 2)
             }
+            .background(ScrollViewHider())
+            .frame(maxWidth: .infinity)
+            .frame(maxHeight: 400) // Fixed max height prevents layout jank
+
+            let maxCategories = 10
+            let canAddMore = visibleCategories.count < maxCategories
 
             HStack(alignment: .center, spacing: 8) {
-                TextField("Add category...", text: $newCategoryName, onCommit: {
-                    categoryStore.addCategory(name: newCategoryName)
-                    showFirstTimeHints = false
-                    newCategoryName = ""
+                TextField(canAddMore ? "Add category..." : "Max categories reached", text: $newCategoryName, onCommit: {
+                    if canAddMore && !newCategoryName.isEmpty {
+                        categoryStore.addCategory(name: newCategoryName)
+                        showFirstTimeHints = false
+                        newCategoryName = ""
+                    }
                 })
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
-                .foregroundColor(.black)
+                .foregroundColor(canAddMore ? .black : .gray)
+                .disabled(!canAddMore)
                 .padding(.horizontal, 12)
                 .frame(height: 40)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.white)
-                        .stroke(Color.black.opacity(newCategoryName.isEmpty ? 0.12 : 0.25), lineWidth: 1)
+                        .fill(canAddMore ? Color.white : Color.gray.opacity(0.1))
+                        .stroke(Color.black.opacity(canAddMore && !newCategoryName.isEmpty ? 0.25 : 0.12), lineWidth: 1)
                         .animation(.easeOut(duration: 0.2), value: newCategoryName.isEmpty)
                 )
 
                 Button {
-                    categoryStore.addCategory(name: newCategoryName)
-                    showFirstTimeHints = false
-                    newCategoryName = ""
+                    if canAddMore && !newCategoryName.isEmpty {
+                        categoryStore.addCategory(name: newCategoryName)
+                        showFirstTimeHints = false
+                        newCategoryName = ""
+                    }
                 } label: {
                     Text("Add")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.white)
                         .padding(.vertical, 12)
                         .padding(.horizontal, 16)
-                        .background(Color(red: 0.25, green: 0.17, blue: 0))
+                        .background(canAddMore && !newCategoryName.isEmpty ? Color(red: 0.25, green: 0.17, blue: 0) : Color.gray)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
+                .disabled(!canAddMore || newCategoryName.isEmpty)
             }
             .frame(minWidth: 280)
+            .frame(maxWidth: .infinity)
         }
         .padding(24)
-        .frame(minWidth: 280, maxWidth: 360)
+        .frame(minWidth: 280) // Removed maxWidth constraint to allow full expansion
     }
 
     private var contentCard: some View {
