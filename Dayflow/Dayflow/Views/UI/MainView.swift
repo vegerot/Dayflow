@@ -83,6 +83,9 @@ struct MainView: View {
                 case .journal:
                     JournalView()
                         .padding(15)
+                case .bug:
+                    BugReportView()
+                        .padding(15)
                 case .timeline:
                     VStack(alignment: .leading, spacing: 20) {
                         // Header: Timeline title + Recording toggle (date controls moved to chips row)
@@ -226,7 +229,13 @@ struct MainView: View {
         .onChange(of: selectedIcon) { newIcon in
             // tab selected + screen viewed
             let tabName: String
-            switch newIcon { case .timeline: tabName = "timeline"; case .dashboard: tabName = "dashboard"; case .journal: tabName = "journal"; case .settings: tabName = "settings" }
+            switch newIcon {
+            case .timeline: tabName = "timeline"
+            case .dashboard: tabName = "dashboard"
+            case .journal: tabName = "journal"
+            case .bug: tabName = "bug_report"
+            case .settings: tabName = "settings"
+            }
             AnalyticsService.shared.capture("tab_selected", ["tab": tabName])
             AnalyticsService.shared.screen(tabName)
             if newIcon == .timeline {
@@ -312,6 +321,7 @@ enum SidebarIcon: CaseIterable {
     case timeline
     case dashboard
     case journal
+    case bug
     case settings
 
     var assetName: String? {
@@ -319,12 +329,14 @@ enum SidebarIcon: CaseIterable {
         case .timeline: return "TimelineIcon"
         case .dashboard: return "DashboardIcon"
         case .journal: return "JournalIcon"
+        case .bug: return nil
         case .settings: return nil
         }
     }
 
     var systemNameFallback: String? {
         switch self {
+        case .bug: return "exclamationmark.bubble"
         case .settings: return "gearshape"
         default: return nil
         }
