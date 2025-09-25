@@ -463,19 +463,19 @@ fileprivate struct CategoryView: View {
             if expanded {
                 ZStack(alignment: .topLeading) {
                     if localDetails.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        Text(detailsPlaceholder)
-            .font(.system(size: 12))
-            .foregroundColor(Color.secondary.opacity(0.75))
-            .padding(.horizontal, 12)
-            .padding(.top, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: .textBackgroundColor))
-            .allowsHitTesting(false)
+                        Text(detailsPlaceholder)
+                            .font(.system(size: 12))
+                            .foregroundColor(Color.black.opacity(0.45))
+                            .padding(.horizontal, 12)
+                            .padding(.top, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.white)
+                            .allowsHitTesting(false)
                     }
 
                     TextEditor(text: $localDetails)
                         .font(.system(size: 13))
-                        .foregroundColor(.primary)
+                        .foregroundColor(.black)
                         .scrollContentBackground(.hidden)
                         .focused($detailFieldIsFocused)
                         .padding(.horizontal, 12)
@@ -484,16 +484,16 @@ fileprivate struct CategoryView: View {
                         .scrollIndicators(.hidden)
                         .background(ScrollViewHider())
                 }
-                .background(Color(nsColor: .textBackgroundColor))
+                .background(Color.white)
                 .overlay(
                     Rectangle()
-                        .stroke(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 1)
+                        .stroke(Color.black.opacity(0.12), lineWidth: 1)
                 )
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(Color.white)
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .stroke(dragOver ? Color(red: 0.29, green: 0.33, blue: 0.41) : Color(red: 0.89, green: 0.91, blue: 0.94), lineWidth: dragOver ? 2 : 1)

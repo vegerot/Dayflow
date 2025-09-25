@@ -489,22 +489,11 @@ struct CanvasTimelineDataView: View {
         let category = matched ?? fallback
 
         let baseNSColor = NSColor(hex: category.colorHex) ?? NSColor(hex: "#4F80EB") ?? .systemBlue
-        let baseColor = Color(nsColor: baseNSColor)
-        let accent = baseNSColor
-
-        var r: CGFloat = 0
-        var g: CGFloat = 0
-        var b: CGFloat = 0
-        var a: CGFloat = 0
-        baseNSColor.usingColorSpace(.sRGB)?.getRed(&r, green: &g, blue: &b, alpha: &a)
-        let brightness = (0.299 * r) + (0.587 * g) + (0.114 * b)
-        let textColor: Color = brightness > 0.6 ? Color.black.opacity(0.85) : .white
-        let timeColor: Color = brightness > 0.6 ? Color.black.opacity(0.7) : Color.white.opacity(0.85)
 
         return CanvasActivityCardStyle(
-            text: category.isIdle ? baseColor.opacity(0.9) : textColor,
-            time: category.isIdle ? Color.gray.opacity(0.8) : timeColor,
-            accent: Color(nsColor: accent),
+            text: Color.black.opacity(0.9),
+            time: Color.black.opacity(0.7),
+            accent: Color(nsColor: baseNSColor),
             isIdle: category.isIdle
         )
     }
