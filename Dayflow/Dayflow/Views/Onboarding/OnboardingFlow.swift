@@ -146,8 +146,9 @@ struct OnboardingFlow: View {
                 .aspectRatio(contentMode: .fill)
                 .ignoresSafeArea()
         }
+        .preferredColorScheme(.light)
     }
-    
+
     private func restoreSavedStep() {
         if let savedStep = Step(rawValue: savedStepRawValue) {
             step = savedStep

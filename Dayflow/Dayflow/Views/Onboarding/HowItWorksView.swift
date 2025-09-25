@@ -39,6 +39,7 @@ struct HowItWorksView: View {
                         .font(.custom("InstrumentSerif-Regular", size: 48))
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity, minHeight: 60)
+                        .foregroundColor(.black)
                         .opacity(titleOpacity)
                         .onAppear {
                             withAnimation(.easeOut(duration: 0.6)) {
@@ -120,6 +121,7 @@ struct HowItWorksView: View {
                 .padding(.horizontal, 40)
                 .padding(.bottom, 40)
             }
+            .preferredColorScheme(.light)
     }
 }
 
