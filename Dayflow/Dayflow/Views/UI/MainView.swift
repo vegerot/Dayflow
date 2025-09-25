@@ -763,6 +763,7 @@ struct ActivityCard: View {
                             summaryContent(for: activity)
                                 .frame(maxWidth: .infinity, alignment: .topLeading)
                         }
+                        .id(activity.id) // Reset scroll position whenever the selected activity changes
                         .frame(maxWidth: .infinity)
                         .frame(maxHeight: .infinity, alignment: .topLeading)
                     } else {
@@ -842,6 +843,7 @@ struct ActivityCard: View {
                 .foregroundColor(.black)
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
             
             if !activity.detailedSummary.isEmpty && activity.detailedSummary != activity.summary {
                 Text("DETAILED SUMMARY")
@@ -855,6 +857,7 @@ struct ActivityCard: View {
                     .foregroundColor(.black)
                     .lineLimit(nil)
                     .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
             }
         }
     }
