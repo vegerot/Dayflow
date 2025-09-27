@@ -1988,6 +1988,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         let date = Date(timeIntervalSince1970: TimeInterval(unixTime))
         let formatter = DateFormatter()
         formatter.dateFormat = "h:mm a"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone.current
         return formatter.string(from: date)
     }
