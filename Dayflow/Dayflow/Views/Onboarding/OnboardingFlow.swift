@@ -5,6 +5,7 @@
 //  Created by Jerry Liu on 4/26/25.
 //
 
+import Foundation
 import SwiftUI
 import ScreenCaptureKit
 
@@ -47,8 +48,7 @@ struct OnboardingFlow: View {
             case .howItWorks:
                 HowItWorksView(
                     onBack: { 
-                        step.prev()
-                        savedStepRawValue = step.rawValue
+                        setStep(.welcome)
                     },
                     onNext: { advance() }
                 )
@@ -58,32 +58,16 @@ struct OnboardingFlow: View {
                     AnalyticsService.shared.screen("onboarding_how_it_works")
                 }
                 
-            case .screen:
-                ScreenRecordingPermissionView(
-                    onBack: { 
-                        step.prev()
-                        savedStepRawValue = step.rawValue
-                    },
-                    onNext: { advance() }
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onAppear {
-                    restoreSavedStep()
-                    AnalyticsService.shared.screen("onboarding_screen_recording")
-                }
-                
             case .llmSelection:
                 OnboardingLLMSelectionView(
                     onBack: { 
-                        step.prev()
-                        savedStepRawValue = step.rawValue
+                        setStep(.howItWorks)
                     },
                     onNext: { provider in
                         selectedProvider = provider
                         AnalyticsService.shared.capture("llm_provider_selected", ["provider": provider])
                         AnalyticsService.shared.setPersonProperties(["current_llm_provider": provider])
-                        step = provider == "dayflow" ? .categories : .llmSetup
-                        savedStepRawValue = step.rawValue
+                        advance()
                     }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -97,8 +81,7 @@ struct OnboardingFlow: View {
                 LLMProviderSetupView(
                     providerType: selectedProvider,
                     onBack: {
-                        step.prev()
-                        savedStepRawValue = step.rawValue
+                        setStep(.llmSelection)
                     },
                     onComplete: {
                         advance()
@@ -123,6 +106,19 @@ struct OnboardingFlow: View {
                     AnalyticsService.shared.screen("onboarding_categories")
                 }
 
+            case .screen:
+                ScreenRecordingPermissionView(
+                    onBack: { 
+                        setStep(.categories)
+                    },
+                    onNext: { advance() }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onAppear {
+                    restoreSavedStep()
+                    AnalyticsService.shared.screen("onboarding_screen_recording")
+                }
+                
             case .completion:
                 CompletionView(
                     onFinish: {
@@ -150,11 +146,20 @@ struct OnboardingFlow: View {
     }
 
     private func restoreSavedStep() {
-        if let savedStep = Step(rawValue: savedStepRawValue) {
+        let migratedValue = OnboardingStepMigration.migrateIfNeeded()
+        if migratedValue != savedStepRawValue {
+            savedStepRawValue = migratedValue
+        }
+        if let savedStep = Step(rawValue: migratedValue) {
             step = savedStep
         }
     }
     
+    private func setStep(_ newStep: Step) {
+        step = newStep
+        savedStepRawValue = newStep.rawValue
+    }
+
     private func advance() {
         // Mark current step completed before advancing
         func markStepCompleted(_ s: Step) {
@@ -162,10 +167,10 @@ struct OnboardingFlow: View {
             switch s {
             case .welcome: name = "welcome"
             case .howItWorks: name = "how_it_works"
-            case .screen: name = "screen_recording"
             case .llmSelection: name = "llm_selection"
             case .llmSetup: name = "llm_setup"
             case .categories: name = "categories"
+            case .screen: name = "screen_recording"
             case .completion: name = "completion"
             }
             AnalyticsService.shared.capture("onboarding_step_completed", ["step": name])
@@ -177,6 +182,18 @@ struct OnboardingFlow: View {
             step.next()
             savedStepRawValue = step.rawValue
         case .howItWorks:   
+            markStepCompleted(step)
+            step.next()
+            savedStepRawValue = step.rawValue
+        case .llmSelection:
+            markStepCompleted(step)
+            let nextStep: Step = (selectedProvider == "dayflow") ? .categories : .llmSetup
+            setStep(nextStep)
+        case .llmSetup:
+            markStepCompleted(step)
+            step.next()
+            savedStepRawValue = step.rawValue
+        case .categories:
             markStepCompleted(step)
             step.next()
             savedStepRawValue = step.rawValue
@@ -203,22 +220,6 @@ struct OnboardingFlow: View {
                     }
                 }
             }
-        case .llmSelection:
-            markStepCompleted(step)
-            if selectedProvider == "dayflow" {
-                step = .categories
-            } else {
-                step = .llmSetup
-            }
-            savedStepRawValue = step.rawValue
-        case .llmSetup:
-            markStepCompleted(step)
-            step.next()
-            savedStepRawValue = step.rawValue
-        case .categories:
-            markStepCompleted(step)
-            step.next()
-            savedStepRawValue = step.rawValue
         case .completion:         
             didOnboard = true
             savedStepRawValue = 0  // Reset for next time
@@ -232,9 +233,43 @@ struct OnboardingFlow: View {
 
 
 /// Wizard step order
-private enum Step: Int, CaseIterable { case welcome, howItWorks, screen, llmSelection, llmSetup, categories, completion
+private enum Step: Int, CaseIterable {
+    case welcome, howItWorks, llmSelection, llmSetup, categories, screen, completion
+
     mutating func next() { self = Step(rawValue: rawValue + 1)! }
-    mutating func prev() { self = Step(rawValue: rawValue - 1)! }
+}
+
+enum OnboardingStepMigration {
+    static let schemaVersionKey = "onboardingStepSchemaVersion"
+    private static let onboardingStepKey = "onboardingStep"
+    static let currentVersion = 1
+
+    @discardableResult
+    static func migrateIfNeeded(defaults: UserDefaults = .standard) -> Int {
+        let storedVersion = defaults.integer(forKey: schemaVersionKey)
+        let rawValue = defaults.integer(forKey: onboardingStepKey)
+        guard storedVersion < currentVersion else {
+            return rawValue
+        }
+
+        let migratedValue = migrateRawValue(rawValue)
+        defaults.set(migratedValue, forKey: onboardingStepKey)
+        defaults.set(currentVersion, forKey: schemaVersionKey)
+        return migratedValue
+    }
+
+    static func migrateRawValue(_ rawValue: Int) -> Int {
+        switch rawValue {
+        case 0: return 0         // welcome
+        case 1: return 1         // how it works
+        case 2: return 5         // legacy screen step moves after categories
+        case 3: return 2         // llm selection
+        case 4: return 3         // llm setup
+        case 5: return 4         // categories
+        case 6: return 6         // completion
+        default: return 0
+        }
+    }
 }
 
 

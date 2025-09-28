@@ -25,7 +25,7 @@ This document lists manual events, properties, and code locations. All events re
 - onboarding_started
   - file: Views/Onboarding/OnboardingFlow.swift (welcome appear)
 - onboarding_step_completed
-  - props: `step: welcome|how_it_works|screen_recording|llm_selection|llm_setup|completion`
+  - props: `step: welcome|how_it_works|llm_selection|llm_setup|categories|screen_recording|completion`
   - file: Views/Onboarding/OnboardingFlow.swift
 - llm_provider_selected
   - props: `provider: gemini|ollama|dayflow`
