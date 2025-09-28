@@ -70,14 +70,18 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         super.init()
         dbg("init – autoStart = \(autoStart)")
 
+        wantsRecording = AppState.shared.isRecording
+
         // Observe the app-wide recording flag on the main actor,
         // then hop our work back onto the recorder queue.
         sub = AppState.shared.$isRecording
             .dropFirst()
             .removeDuplicates()
             .sink { [weak self] rec in
-                self?.q.async {
-                    rec ? self?.start() : self?.stop()
+                self?.q.async { [weak self] in
+                    guard let self else { return }
+                    self.wantsRecording = rec
+                    rec ? self.start() : self.stop()
                 }
             }
 
@@ -111,6 +115,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private var isStarting = false            // guards concurrent starts
     private var isFinishing = false           // guards concurrent finishes
     private var resumeAfterPause = false      // remember intent across interruptions
+    private var wantsRecording = false        // mirrors AppState flag on recorder queue
     private var recordingWidth: Int = 1280   // Store recording dimensions
     private var recordingHeight: Int = 800
     private var tracker: ActiveDisplayTracker!
@@ -120,6 +125,10 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     func start() {
         q.async { [weak self] in
             guard let self else { return }
+            guard self.wantsRecording else {
+                dbg("start – suppressed (recording disabled)")
+                return
+            }
             guard self.stream == nil,       // not already running
                   self.isStarting == false  // not already starting
             else { return dbg("start – already starting/running") }
@@ -287,18 +296,29 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         
         stream = nil
         isStarting = false
+        currentDisplayID = nil             // clear stale ID so idle guards hold
         reset(); dbg("stream stopped")
     }
 
     private func handleActiveDisplayChange(_ newID: CGDirectDisplayID) {
-        // Only act if a stream exists
-        guard currentDisplayID != nil else { return }
+        requestedDisplayID = newID         // retain latest display for next explicit start
+
+        // If the user disabled recording, just remember the ID and stay idle.
+        guard wantsRecording else {
+            dbg("Active display changed – recording disabled, deferring switch")
+            return
+        }
+
+        // Only flip streams when one is currently running.
+        guard currentDisplayID != nil else {
+            dbg("Active display changed while idle – will switch on next start")
+            return
+        }
         guard newID != currentDisplayID else { return }
 
         dbg("Active display changed → switching stream: \(String(describing: currentDisplayID)) → \(newID)")
-        requestedDisplayID = newID
 
-        // Finish the current segment and restart on the new display
+        // Finish the current segment and restart on the new display.
         finishSegment(restart: false)
         stopStream()
         start()
@@ -515,9 +535,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             self.resumeAfterPause = false      // consume the token
 
             // give ScreenCaptureKit a moment to re-enumerate displays
-            self.q.asyncAfter(deadline: .now() + 5) { [weak self] in
-                self?.start()
-            }
+            self.resumeRecording(after: 5, context: "didWake")
         }
 
         // -------- screen locked ------------
@@ -544,9 +562,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             guard self.resumeAfterPause else { return }
             self.resumeAfterPause = false
 
-            self.q.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                self?.start()
-            }
+            self.resumeRecording(after: 0.5, context: "screen unlock")
         }
 
         // -------- screensaver started ------
@@ -573,8 +589,19 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             guard self.resumeAfterPause else { return }
             self.resumeAfterPause = false
 
-            self.q.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                self?.start()
+            self.resumeRecording(after: 0.5, context: "screensaver stop")
+        }
+    }
+
+    private func resumeRecording(after delay: TimeInterval, context: String) {
+        q.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                guard AppState.shared.isRecording else {
+                    dbg("\(context) – skip auto-resume (recording disabled)")
+                    return
+                }
+                self.start()
             }
         }
     }
