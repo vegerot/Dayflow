@@ -5,6 +5,9 @@ struct BugReportView: View {
     private let emailAddress = "liu.z.jerry@gmail.com"
     @State private var didCopyEmail = false
     @State private var copyResetTask: DispatchWorkItem? = nil
+    @State private var didCopyDebugLogs = false
+    @State private var isCopyingDebugLogs = false
+    @State private var debugCopyResetTask: DispatchWorkItem? = nil
 
     var body: some View {
         VStack(spacing: 32) {
@@ -59,6 +62,26 @@ struct BugReportView: View {
                 showShadow: true
             )
             .opacity(didCopyEmail ? 0.85 : 1.0)
+
+            DayflowSurfaceButton(
+                action: copyDebugLogs,
+                content: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "ladybug.fill")
+                            .font(.system(size: 16, weight: .semibold))
+                        Text(didCopyDebugLogs ? "Copied!" : (isCopyingDebugLogs ? "Preparing..." : "Copy debug logs"))
+                            .font(.custom("Nunito", size: 15).weight(.semibold))
+                    }
+                },
+                background: Color.white,
+                foreground: Color.black,
+                borderColor: Color.black.opacity(0.12),
+                cornerRadius: 14,
+                horizontalPadding: 20,
+                verticalPadding: 14,
+                showShadow: true
+            )
+            .opacity(didCopyDebugLogs ? 0.85 : 1.0)
         }
         .padding(.horizontal, 8)
     }
@@ -100,6 +123,48 @@ struct BugReportView: View {
         }
         copyResetTask = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
+    }
+
+    private func copyDebugLogs() {
+        guard !isCopyingDebugLogs else { return }
+
+        isCopyingDebugLogs = true
+
+        Task {
+            let timeline = StorageManager.shared.fetchRecentTimelineCardsForDebug(limit: 5)
+            let llmCalls = StorageManager.shared.fetchRecentLLMCallsForDebug(limit: 20)
+            let logString = DebugLogFormatter.makeLog(timeline: timeline, llmCalls: llmCalls)
+
+            await MainActor.run {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(logString, forType: .string)
+
+                AnalyticsService.shared.capture(
+                    "bug_report_debug_logs_copied",
+                    [
+                        "timeline_count": timeline.count,
+                        "llm_call_count": llmCalls.count
+                    ]
+                )
+
+                withAnimation(.easeOut(duration: 0.2)) {
+                    didCopyDebugLogs = true
+                }
+
+                debugCopyResetTask?.cancel()
+                let work = DispatchWorkItem {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        didCopyDebugLogs = false
+                    }
+                    self.debugCopyResetTask = nil
+                }
+                debugCopyResetTask = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
+
+                isCopyingDebugLogs = false
+            }
+        }
     }
 }
 

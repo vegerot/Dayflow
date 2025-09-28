@@ -90,6 +90,9 @@ protocol StorageManaging: Sendable {
     func fetchTimelineCards(forDay day: String) -> [TimelineCard]
     func fetchTimelineCardsByTimeRange(from: Date, to: Date) -> [TimelineCard]
     func replaceTimelineCardsInRange(from: Date, to: Date, with: [TimelineCardShell], batchId: Int64) -> (insertedIds: [Int64], deletedVideoPaths: [String])
+    func fetchRecentTimelineCardsForDebug(limit: Int) -> [TimelineCardDebugEntry]
+
+    func fetchRecentLLMCallsForDebug(limit: Int) -> [LLMCallDebugEntry]
 
     // Note: Transcript storage methods removed in favor of Observations
     
@@ -209,6 +212,36 @@ struct LLMCallDBRecord: Sendable {
     let responseBody: String?
     let errorDomain: String?
     let errorCode: Int?
+    let errorMessage: String?
+}
+
+struct TimelineCardDebugEntry: Sendable {
+    let createdAt: Date?
+    let day: String
+    let startTime: String
+    let endTime: String
+    let category: String
+    let subcategory: String?
+    let title: String
+    let summary: String?
+    let detailedSummary: String?
+}
+
+struct LLMCallDebugEntry: Sendable {
+    let createdAt: Date?
+    let batchId: Int64?
+    let callGroupId: String?
+    let attempt: Int
+    let provider: String
+    let model: String?
+    let operation: String
+    let status: String
+    let latencyMs: Int?
+    let httpStatus: Int?
+    let requestMethod: String?
+    let requestURL: String?
+    let requestBody: String?
+    let responseBody: String?
     let errorMessage: String?
 }
 
@@ -743,7 +776,63 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         let result = cards ?? []
         return result
     }
-    
+
+    func fetchRecentTimelineCardsForDebug(limit: Int) -> [TimelineCardDebugEntry] {
+        guard limit > 0 else { return [] }
+
+        return (try? db.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT day, start, end, category, subcategory, title, summary, detailed_summary, created_at
+                FROM timeline_cards
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+            """, arguments: [limit]).map { row in
+                TimelineCardDebugEntry(
+                    createdAt: row["created_at"],
+                    day: row["day"] ?? "",
+                    startTime: row["start"] ?? "",
+                    endTime: row["end"] ?? "",
+                    category: row["category"],
+                    subcategory: row["subcategory"],
+                    title: row["title"],
+                    summary: row["summary"],
+                    detailedSummary: row["detailed_summary"]
+                )
+            }
+        }) ?? []
+    }
+
+    func fetchRecentLLMCallsForDebug(limit: Int) -> [LLMCallDebugEntry] {
+        guard limit > 0 else { return [] }
+
+        return (try? db.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT created_at, batch_id, call_group_id, attempt, provider, model, operation, status, latency_ms, http_status, request_method, request_url, request_body, response_body, error_message
+                FROM llm_calls
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+            """, arguments: [limit]).map { row in
+                LLMCallDebugEntry(
+                    createdAt: row["created_at"],
+                    batchId: row["batch_id"],
+                    callGroupId: row["call_group_id"],
+                    attempt: row["attempt"] ?? 0,
+                    provider: row["provider"] ?? "",
+                    model: row["model"],
+                    operation: row["operation"] ?? "",
+                    status: row["status"] ?? "",
+                    latencyMs: row["latency_ms"],
+                    httpStatus: row["http_status"],
+                    requestMethod: row["request_method"],
+                    requestURL: row["request_url"],
+                    requestBody: row["request_body"],
+                    responseBody: row["response_body"],
+                    errorMessage: row["error_message"]
+                )
+            }
+        }) ?? []
+    }
+
     /// Fetch a specific timeline card by ID including timestamp fields
     func fetchTimelineCard(byId id: Int64) -> TimelineCardWithTimestamps? {
         let decoder = JSONDecoder()
