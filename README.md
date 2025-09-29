@@ -173,6 +173,14 @@ open Dayflow.xcodeproj
 # In Xcode: select the Dayflow target, configure signing if needed, then Run.
 ```
 
+### Homebrew
+
+If you are using [Homebrew](https://brew.sh/), you can install [Dayflow](https://formulae.brew.sh/cask/dayflow) with:
+
+```bash
+$ brew install --cask dayflow
+```
+
 ---
 
 ## Data & Privacy
