@@ -369,8 +369,8 @@ struct LLMProviderSetupView: View {
                                         .font(.custom("Nunito", size: 14))
                                         .foregroundColor(.black.opacity(0.65))
                                     Picker("Engine", selection: $setupState.localEngine) {
-                                        Text("Ollama").tag(LocalEngine.ollama)
                                         Text("LM Studio").tag(LocalEngine.lmstudio)
+                                        Text("Ollama").tag(LocalEngine.ollama)
                                         Text("Other").tag(LocalEngine.custom)
                                     }
                                     .pickerStyle(.segmented)

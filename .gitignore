@@ -17,3 +17,6 @@ signed/
 # Ignore Claude prompt notes
 CLAUDE.md
 claude.md
+
+# Tauri migration (WIP)
+dayflow-tauri/
