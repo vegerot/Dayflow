@@ -26,7 +26,7 @@ struct HowItWorksView: View {
          "Dayflow takes periodic screen captures to understand what you're working on, all stored privately on your device. You can toggle this whenever you like."),
         ("OnboardingSecurity",
          "Privacy by Default",
-         "Dayflow can run entirely on local AI models, which means your data never leaves your computer. You can also find source code below - please consider giving it a star on Github!"),
+         "Dayflow can run entirely on local AI models, which means your data never leaves your computer. You can also find the source code below - please consider giving it a star on Github!"),
         ("OnboardingUnderstanding",
          "Understand your Day",
          "Knows the difference between YouTube tutorials and YouTube rabbit holes. Dayflow actually gets what you're working on.")
