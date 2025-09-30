@@ -518,6 +518,15 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             }
         }) ?? []
     }
+
+    /// Helper to get the batch start timestamp for date calculations
+    private func getBatchStartTimestamp(batchId: Int64) -> Int? {
+        return try? db.read { db in
+            try Int.fetchOne(db, sql: """
+                SELECT batch_start_ts FROM analysis_batches WHERE id = ?
+            """, arguments: [batchId])
+        }
+    }
     
     /// Fetch chunks that overlap with a specific time range
     func fetchChunksInTimeRange(startTs: Int, endTs: Int) -> [RecordingChunk] {
@@ -541,55 +550,58 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     func saveTimelineCardShell(batchId: Int64, card: TimelineCardShell) -> Int64? {
         let encoder = JSONEncoder()
         var lastId: Int64? = nil
-        
-        
+
+        // Get the batch's actual start timestamp to use as the base date
+        guard let batchStartTs = getBatchStartTimestamp(batchId: batchId) else {
+            return nil
+        }
+        let baseDate = Date(timeIntervalSince1970: TimeInterval(batchStartTs))
+
         let timeFormatter = DateFormatter()
         timeFormatter.dateFormat = "h:mm a"
         timeFormatter.locale = Locale(identifier: "en_US_POSIX")
-        
-        // Since we don't have the day anymore, use today's date as base
-        let baseDate = Date()
-        
+
         guard let startTime = timeFormatter.date(from: card.startTimestamp),
               let endTime = timeFormatter.date(from: card.endTimestamp) else {
             return nil
         }
-        
+
         let calendar = Calendar.current
-        
+
         let startComponents = calendar.dateComponents([.hour, .minute], from: startTime)
         guard let startHour = startComponents.hour, let startMinute = startComponents.minute else { return nil }
-        
+
         var startDate = calendar.date(bySettingHour: startHour, minute: startMinute, second: 0, of: baseDate) ?? baseDate
-        
-        // Handle day boundary for times after midnight
-        if startHour < 4 {
+
+        // If the parsed time is between midnight and 4 AM, and it's earlier than baseDate,
+        // it must be referring to the next day (batch crossed midnight)
+        if startHour < 4 && startDate < baseDate {
             startDate = calendar.date(byAdding: .day, value: 1, to: startDate) ?? startDate
         }
-        
+
         let startTs = Int(startDate.timeIntervalSince1970)
-        
+
         let endComponents = calendar.dateComponents([.hour, .minute], from: endTime)
         guard let endHour = endComponents.hour, let endMinute = endComponents.minute else { return nil }
-        
+
         var endDate = calendar.date(bySettingHour: endHour, minute: endMinute, second: 0, of: baseDate) ?? baseDate
-        
-        // Handle day boundary
-        if endHour < 4 || endDate < startDate {
+
+        // Handle midnight crossing: if end time is before start time, it must be the next day
+        if endDate < startDate {
             endDate = calendar.date(byAdding: .day, value: 1, to: endDate) ?? endDate
         }
-        
+
         let endTs = Int(endDate.timeIntervalSince1970)
-        
+
         try? db.write {
             db in
             // Encode metadata as an object for forward-compatibility
             let meta = TimelineMetadata(distractions: card.distractions, appSites: card.appSites)
             let metadataString: String? = (try? encoder.encode(meta)).flatMap { String(data: $0, encoding: .utf8) }
 
-            // Calculate the day string from the start timestamp
-            let dayString = self.dateFormatter.string(from: startDate)
-            
+            // Calculate the day string using 4 AM boundary rules
+            let (dayString, _, _) = startDate.getDayInfoFor4AMBoundary()
+
             try db.execute(sql: """
                 INSERT INTO timeline_cards(
                     batch_id, start, end, start_ts, end_ts, day, title,
@@ -933,50 +945,44 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 // Encode metadata object with distractions and appSites
                 let meta = TimelineMetadata(distractions: card.distractions, appSites: card.appSites)
                 let metadataString: String? = (try? encoder.encode(meta)).flatMap { String(data: $0, encoding: .utf8) }
-                
-                // Since we don't have the day anymore, we need to infer it from the time range
-                // Use the 'from' date as the base date for parsing
+
+                // Use the 'from' date as the base date for parsing clock times
                 let calendar = Calendar.current
-                var baseDate = from
-                
-                // Adjust to the logical day (considering 4 AM boundary)
-                let hour = calendar.component(.hour, from: baseDate)
-                if hour < 4 {
-                    baseDate = calendar.date(byAdding: .day, value: -1, to: baseDate) ?? baseDate
-                }
-                
+                let baseDate = from
+
                 guard let startTime = timeFormatter.date(from: card.startTimestamp),
                       let endTime = timeFormatter.date(from: card.endTimestamp) else {
                     continue
                 }
-                
+
                 let startComponents = calendar.dateComponents([.hour, .minute], from: startTime)
                 guard let startHour = startComponents.hour, let startMinute = startComponents.minute else { continue }
-                
+
                 var startDate = calendar.date(bySettingHour: startHour, minute: startMinute, second: 0, of: baseDate) ?? baseDate
-                
-                // Handle day boundary for times after midnight
-                if startHour < 4 {
+
+                // If the parsed time is between midnight and 4 AM, and it's earlier than baseDate,
+                // it must be referring to the next day (batch crossed midnight)
+                if startHour < 4 && startDate < baseDate {
                     startDate = calendar.date(byAdding: .day, value: 1, to: startDate) ?? startDate
                 }
-                
+
                 let startTs = Int(startDate.timeIntervalSince1970)
-                
+
                 let endComponents = calendar.dateComponents([.hour, .minute], from: endTime)
                 guard let endHour = endComponents.hour, let endMinute = endComponents.minute else { continue }
-                
+
                 var endDate = calendar.date(bySettingHour: endHour, minute: endMinute, second: 0, of: baseDate) ?? baseDate
-                
-                // Handle day boundary
-                if endHour < 4 || endDate < startDate {
+
+                // Handle midnight crossing: if end time is before start time, it must be the next day
+                if endDate < startDate {
                     endDate = calendar.date(byAdding: .day, value: 1, to: endDate) ?? endDate
                 }
-                
+
                 let endTs = Int(endDate.timeIntervalSince1970)
-                
-                // Calculate the day string from the start timestamp for backward compatibility
-                let dayString = self.dateFormatter.string(from: startDate)
-                
+
+                // Calculate the day string using 4 AM boundary rules
+                let (dayString, _, _) = startDate.getDayInfoFor4AMBoundary()
+
                 try db.execute(sql: """
                     INSERT INTO timeline_cards(
                         batch_id, start, end, start_ts, end_ts, day, title,
