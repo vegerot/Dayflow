@@ -277,7 +277,18 @@ struct SettingsView: View {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
             currentProvider = providerId
         }
-        AnalyticsService.shared.capture("provider_setup_completed", ["provider": providerId])
+
+        // Track setup completion with additional context
+        var props: [String: Any] = ["provider": providerId]
+        if providerId == "ollama" {
+            let localEngine = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
+            let localModelId = UserDefaults.standard.string(forKey: "llmLocalModelId") ?? "unknown"
+            let localBaseURL = UserDefaults.standard.string(forKey: "llmLocalBaseURL") ?? "unknown"
+            props["local_engine"] = localEngine
+            props["model_id"] = localModelId
+            props["base_url"] = localBaseURL
+        }
+        AnalyticsService.shared.capture("provider_setup_completed", props)
         AnalyticsService.shared.setPersonProperties(["current_llm_provider": providerId])
     }
 }

@@ -162,11 +162,37 @@ struct LLMProviderSetupView: View {
                         .font(.custom("Nunito", size: 24))
                         .fontWeight(.semibold)
                         .foregroundColor(.black.opacity(0.9))
-                    Text("We recommend either Ollama or LM Studio, which are both free to use.")
+                    Text("We strongly recommend LM Studio for the best reliability. Ollama is also supported, but tends to have more connection and timeout issues.")
                         .font(.custom("Nunito", size: 14))
                         .foregroundColor(.black.opacity(0.6))
                 }
                 HStack(alignment: .center, spacing: 12) {
+                    DayflowSurfaceButton(
+                        action: { setupState.selectEngine(.lmstudio); openLMStudioDownload() },
+                        content: {
+                            AsyncImage(url: URL(string: "https://lmstudio.ai/_next/image?url=%2F_next%2Fstatic%2Fmedia%2Flmstudio-app-logo.11b4d746.webp&w=96&q=75")) { phase in
+                                switch phase {
+                                case .success(let image): image.resizable().scaledToFit()
+                                case .failure(_): Image(systemName: "desktopcomputer").resizable().scaledToFit().foregroundColor(.white.opacity(0.6))
+                                case .empty: ProgressView().scaleEffect(0.7)
+                                @unknown default: EmptyView()
+                                }
+                            }
+                            .frame(width: 18, height: 18)
+                            Text("Download LM Studio")
+                                .font(.custom("Nunito", size: 14))
+                                .fontWeight(.semibold)
+                        },
+                        background: Color(red: 0.25, green: 0.17, blue: 0),
+                        foreground: .white,
+                        borderColor: .clear,
+                        cornerRadius: 8,
+                        showOverlayStroke: true
+                    )
+                    Text("or")
+                        .font(.custom("Nunito", size: 13))
+                        .foregroundColor(.black.opacity(0.5))
+                        .padding(.horizontal, 4)
                     DayflowSurfaceButton(
                         action: { setupState.selectEngine(.ollama); openOllamaDownload() },
                         content: {
@@ -185,32 +211,6 @@ struct LLMProviderSetupView: View {
                             }
                             .frame(width: 18, height: 18)
                             Text("Download Ollama")
-                                .font(.custom("Nunito", size: 14))
-                                .fontWeight(.semibold)
-                        },
-                        background: Color(red: 0.25, green: 0.17, blue: 0),
-                        foreground: .white,
-                        borderColor: .clear,
-                        cornerRadius: 8,
-                        showOverlayStroke: true
-                    )
-                    Text("or")
-                        .font(.custom("Nunito", size: 13))
-                        .foregroundColor(.black.opacity(0.5))
-                        .padding(.horizontal, 4)
-                    DayflowSurfaceButton(
-                        action: { setupState.selectEngine(.lmstudio); openLMStudioDownload() },
-                        content: {
-                            AsyncImage(url: URL(string: "https://lmstudio.ai/_next/image?url=%2F_next%2Fstatic%2Fmedia%2Flmstudio-app-logo.11b4d746.webp&w=96&q=75")) { phase in
-                                switch phase {
-                                case .success(let image): image.resizable().scaledToFit()
-                                case .failure(_): Image(systemName: "desktopcomputer").resizable().scaledToFit().foregroundColor(.white.opacity(0.6))
-                                case .empty: ProgressView().scaleEffect(0.7)
-                                @unknown default: EmptyView()
-                                }
-                            }
-                            .frame(width: 18, height: 18)
-                            Text("Download LM Studio")
                                 .font(.custom("Nunito", size: 14))
                                 .fontWeight(.semibold)
                         },
@@ -719,7 +719,7 @@ enum LocalEngine: String {
 }
 
 extension ProviderSetupState {
-    func selectEngine(_ engine: LocalEngine) {
+    @MainActor func selectEngine(_ engine: LocalEngine) {
         localEngine = engine
         switch engine {
         case .ollama:
@@ -731,6 +731,13 @@ extension ProviderSetupState {
         case .custom:
             break
         }
+
+        // Track local engine selection for analytics
+        AnalyticsService.shared.capture("local_engine_selected", [
+            "engine": engine.rawValue,
+            "base_url": localBaseURL,
+            "default_model": localModelId
+        ])
     }
     
     var localCurlCommand: String {

@@ -23,6 +23,12 @@ final class OllamaProvider: LLMProvider {
     private var isLMStudio: Bool {
         (UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama") == "lmstudio"
     }
+
+    // Get the actual local engine type for analytics tracking
+    private var localEngine: String {
+        UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
+    }
+
     private let frameExtractionInterval: TimeInterval = 60.0 // Extract frame every 60 seconds
     
     init(endpoint: String = "http://localhost:1234") {
@@ -463,7 +469,7 @@ final class OllamaProvider: LLMProvider {
                     urlRequest.setValue("Bearer lm-studio", forHTTPHeaderField: "Authorization")
                 }
                 urlRequest.httpBody = try JSONEncoder().encode(request)
-                urlRequest.timeoutInterval = 30.0  // 30-second timeout
+                urlRequest.timeoutInterval = 60.0  // 60-second timeout
                 
                 let apiStart = Date()
                 let requestBodyForLogging: Data?
@@ -477,7 +483,7 @@ final class OllamaProvider: LLMProvider {
                     batchId: batchId,
                     callGroupId: callGroupId,
                     attempt: attempt + 1,
-                    provider: "ollama",
+                    provider: localEngine, // Track actual engine: ollama, lmstudio, or custom
                     model: request.model,
                     operation: operation,
                     requestMethod: urlRequest.httpMethod,
@@ -564,7 +570,7 @@ final class OllamaProvider: LLMProvider {
                         batchId: batchId,
                         callGroupId: callGroupId,
                         attempt: attempt + 1,
-                        provider: "ollama",
+                        provider: localEngine, // Track actual engine: ollama, lmstudio, or custom
                         model: request.model,
                         operation: operation,
                         requestMethod: "POST",

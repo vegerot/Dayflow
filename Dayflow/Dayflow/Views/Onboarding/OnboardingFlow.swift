@@ -65,7 +65,13 @@ struct OnboardingFlow: View {
                     },
                     onNext: { provider in
                         selectedProvider = provider
-                        AnalyticsService.shared.capture("llm_provider_selected", ["provider": provider])
+                        var props: [String: Any] = ["provider": provider]
+                        // If ollama is selected, include the engine type that will be chosen
+                        if provider == "ollama" {
+                            let localEngine = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
+                            props["local_engine"] = localEngine
+                        }
+                        AnalyticsService.shared.capture("llm_provider_selected", props)
                         AnalyticsService.shared.setPersonProperties(["current_llm_provider": provider])
                         advance()
                     }
