@@ -17,7 +17,6 @@ struct ScreenRecordingPermissionView: View {
     @State private var permissionState: PermissionState = .notRequested
     @State private var isCheckingPermission = false
     @State private var initiatedFlow = false
-    @State private var analyticsEnabled: Bool = AnalyticsService.shared.isOptedIn
     
     enum PermissionState {
         case notRequested
@@ -29,7 +28,7 @@ struct ScreenRecordingPermissionView: View {
         HStack(spacing: 60) {
             // Left side - text and controls
             VStack(alignment: .leading, spacing: 24) {
-                Text("Let's configure essential settings to get\nthe most out of Dayflow.")
+                Text("Last step!")
                     .font(.custom("Nunito", size: 20))
                     .foregroundColor(.black.opacity(0.7))
                     .multilineTextAlignment(.leading)
@@ -129,23 +128,6 @@ struct ScreenRecordingPermissionView: View {
                 }
                 .padding(.top, 16)
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Toggle(isOn: $analyticsEnabled) {
-                        Text("Share crash reports and anonymous usage data")
-                            .font(.custom("Nunito", size: 14))
-                            .foregroundColor(.black.opacity(0.7))
-                    }
-                    .toggleStyle(.switch)
-                    .frame(maxWidth: 320, alignment: .leading)
-
-                    Text("No screen content or personal info is ever sent, only anonymous metrics.")
-                        .font(.custom("Nunito", size: 12))
-                        .foregroundColor(.black.opacity(0.5))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: 320, alignment: .leading)
-                }
-                .padding(.top, 32)
-                
                 // Navigation buttons
                 HStack(spacing: 16) {
                     DayflowSurfaceButton(
@@ -198,7 +180,6 @@ struct ScreenRecordingPermissionView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             // If already granted, mark as granted; otherwise start in notRequested
-            analyticsEnabled = AnalyticsService.shared.isOptedIn
             if CGPreflightScreenCaptureAccess() {
                 permissionState = .granted
                 Task { @MainActor in AppDelegate.allowTermination = false }
@@ -214,10 +195,6 @@ struct ScreenRecordingPermissionView: View {
                 permissionState = .granted
                 Task { @MainActor in AppDelegate.allowTermination = false }
             }
-        }
-        .onChange(of: analyticsEnabled) { enabled in
-            AnalyticsService.shared.setOptIn(enabled)
-            AnalyticsService.shared.capture("analytics_opt_in_changed", ["enabled": enabled])
         }
         .onDisappear {
             // Restore default behavior: do not allow termination unless explicit
