@@ -171,64 +171,38 @@ echo "[5/7] Verifying signature…"
 codesign --verify --deep --strict --verbose=2 "${SANITIZED_APP}"
 spctl -a -vvv --type execute "${SANITIZED_APP}" || true
 
-echo "[6/7] Creating DMG…"
-TMP_DIST="${SANITIZED_DIR}/dist"
-rm -rf "${TMP_DIST}" "${DMG_NAME}"
-mkdir -p "${TMP_DIST}"
-# Stage the signed app
-ditto --noextattr --norsrc "${SANITIZED_APP}" "${TMP_DIST}/${APP_NAME}.app"
-# Add Applications shortcut for drag-and-drop install
-ln -s /Applications "${TMP_DIST}/Applications" || true
-
-# Optional pretty layout with background image
-if [[ -n "${DMG_BG:-}" && -f "${DMG_BG}" ]]; then
-  mkdir -p "${TMP_DIST}/.background"
-  BG_NAME="background.png"
-  cp "${DMG_BG}" "${TMP_DIST}/.background/${BG_NAME}"
-
-  RW_DMG="${SANITIZED_DIR}/rw.dmg"
-  hdiutil create -volname "${VOL_NAME}" -srcfolder "${TMP_DIST}" -ov -fs HFS+ -format UDRW "${RW_DMG}" >/dev/null
-  ATTACH_OUT=$(hdiutil attach -readwrite -noverify -noautoopen "${RW_DMG}")
-  DEV=$(echo "$ATTACH_OUT" | awk '/^\/dev\// {print $1; exit}')
-  MOUNT=$(echo "$ATTACH_OUT" | awk '/\/Volumes\// {print $3; exit}')
-  sleep 1
-
-  DMG_WINDOW_BOUNDS=${DMG_WINDOW_BOUNDS:-"{100, 100, 900, 520}"}
-  DMG_ICON_SIZE=${DMG_ICON_SIZE:-128}
-  DMG_APP_POS=${DMG_APP_POS:-"{420, 220}"}
-  DMG_APPS_POS=${DMG_APPS_POS:-"{140, 220}"}
-
-  osascript <<OSA
-tell application "Finder"
-  tell disk "${VOL_NAME}"
-    open
-    set current view of container window to icon view
-    set toolbar visible of container window to false
-    set statusbar visible of container window to false
-    set bounds of container window to ${DMG_WINDOW_BOUNDS}
-    set theViewOptions to the icon view options of container window
-    set arrangement of theViewOptions to not arranged
-    set icon size of theViewOptions to ${DMG_ICON_SIZE}
-    set background picture of theViewOptions to file ".background:${BG_NAME}"
-    try
-      set position of item "${APP_NAME}.app" of container window to ${DMG_APP_POS}
-      set position of item "Applications" of container window to ${DMG_APPS_POS}
-    end try
-    update without registering applications
-    delay 1
-    close
-    open
-    delay 1
-  end tell
-end tell
-OSA
-
-  sync
-  hdiutil detach "$DEV" -quiet || hdiutil detach "$MOUNT" -quiet || true
-  hdiutil convert "${RW_DMG}" -format UDZO -imagekey zlib-level=9 -o "${DMG_NAME}" >/dev/null
-else
-  hdiutil create -volname "${VOL_NAME}" -srcfolder "${TMP_DIST}" -ov -format UDZO "${DMG_NAME}"
+echo "[6/7] Creating DMG with create-dmg…"
+# Require create-dmg for reliable DMG styling
+if ! command -v create-dmg >/dev/null 2>&1; then
+  echo "ERROR: create-dmg is required but not installed." >&2
+  echo "       Install it with: brew install create-dmg" >&2
+  exit 1
 fi
+
+# Default to project's background image
+SCRIPT_PARENT=$(cd "$SCRIPT_DIR/.." && pwd)
+DEFAULT_BG="${SCRIPT_PARENT}/docs/assets/dmg-background.png"
+DMG_BG=${DMG_BG:-$DEFAULT_BG}
+
+if [[ ! -f "${DMG_BG}" ]]; then
+  echo "ERROR: Background image not found at ${DMG_BG}" >&2
+  exit 1
+fi
+
+rm -f "${DMG_NAME}"
+
+# Window size and positions tuned for docs/assets/dmg-background.png (1550×960 @2x, displays as 775×480)
+# Dayflow app on left, Applications folder on right (swapped from typical layout)
+create-dmg \
+  --volname "${VOL_NAME}" \
+  --background "${DMG_BG}" \
+  --window-size 775 480 \
+  --icon-size "${DMG_ICON_SIZE:-128}" \
+  --icon "${APP_NAME}.app" 200 270 \
+  --app-drop-link 575 270 \
+  --no-internet-enable \
+  "${DMG_NAME}" \
+  "${SANITIZED_APP}"
 
 echo "[7/7] Submitting DMG for notarization…"
 NOTARY_ARGS=("${DMG_NAME}")
