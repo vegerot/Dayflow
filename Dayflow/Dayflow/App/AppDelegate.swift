@@ -46,7 +46,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         UserDefaults.standard.set(build, forKey: "lastRunBuild")
         
         statusBar = StatusBarController()   // safe: AppKit is ready, main thread
-        
+
         // Check if we've passed the screen recording permission step
         let onboardingStep = OnboardingStepMigration.migrateIfNeeded()
         let didOnboard = UserDefaults.standard.bool(forKey: "didOnboard")
@@ -55,20 +55,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // transition to true will reliably start capture.
         AppState.shared.isRecording = false
         recorder = ScreenRecorder(autoStart: true)
-        
+
         // Only attempt to start recording if we're past the screen step or fully onboarded
         // Steps: 0=welcome, 1=howItWorks, 2=llmSelection, 3=llmSetup, 4=categories, 5=screen, 6=completion
         if didOnboard || onboardingStep > 5 {
+            // Onboarding complete - enable persistence and restore user preference
+            AppState.shared.enablePersistence()
+
             // Try to start recording, but handle permission failures gracefully
             Task {
                 do {
                     // Check if we have permission by trying to access content
                     _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-                    // Permission granted, start recording
+                    // Permission granted - restore saved preference or default to ON
                     await MainActor.run {
-                        AppState.shared.isRecording = true
+                        let savedPref = AppState.shared.getSavedPreference()
+                        AppState.shared.isRecording = savedPref ?? true
                     }
-                    AnalyticsService.shared.capture("recording_toggled", ["enabled": true, "reason": "auto"]) 
+                    let finalState = await MainActor.run { AppState.shared.isRecording }
+                    AnalyticsService.shared.capture("recording_toggled", ["enabled": finalState, "reason": "auto"])
                 } catch {
                     // No permission or error - don't start recording
                     // User will need to grant permission in onboarding
@@ -79,7 +84,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         } else {
-            // Still in early onboarding, don't attempt recording
+            // Still in early onboarding, don't enable persistence yet
+            // Keep recording off and don't persist this state
             AppState.shared.isRecording = false
         }
         

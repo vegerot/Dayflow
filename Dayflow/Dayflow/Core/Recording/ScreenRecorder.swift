@@ -81,6 +81,13 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 self?.q.async { [weak self] in
                     guard let self else { return }
                     self.wantsRecording = rec
+
+                    // Clear stale resume intent when user disables recording
+                    // This prevents auto-resume after sleep/wake if user turned it off
+                    if !rec {
+                        self.resumeAfterPause = false
+                    }
+
                     rec ? self.start() : self.stop()
                 }
             }
@@ -460,7 +467,20 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     func stream(_ s: SCStream, didStopWithError err: Error) {
-        let scErr = err as NSError
+        // Defensive: ScreenCaptureKit can sometimes pass nil/invalid errors from ObjC bridge
+        guard let scErr = err as? NSError else {
+            dbg("stream stopped – nil/invalid error, treating as transient")
+            stop()
+
+            // Auto-retry if recording is enabled (honor user's intent)
+            Task { @MainActor in
+                if AppState.shared.isRecording {
+                    self.start()
+                }
+            }
+            return
+        }
+
         dbg("stream stopped – domain: \(scErr.domain), code: \(scErr.code), description: \(err.localizedDescription)")
         
         // Log userInfo for debugging
