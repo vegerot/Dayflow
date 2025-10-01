@@ -63,7 +63,7 @@ private enum SCStreamErrorCode: Int {
 @inline(__always) func dbg(_: @autoclosure () -> String) {}
 #endif
 
-final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
+final class ScreenRecorder: NSObject, SCStreamOutput {
 
     @MainActor
     init(autoStart: Bool = true) {
@@ -155,31 +155,29 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         }
     }
 
-    private func shouldRetry(_ err: Error) -> Bool {
-        let scErr = err as NSError
-        guard scErr.domain == SCStreamErrorDomain else { return false }
-        
-        // Check if it's a known error code
+    private func shouldRetry(_ err: NSError?) -> Bool {
+        guard let scErr = err, scErr.domain == SCStreamErrorDomain else { return false }
+
         if let errorCode = SCStreamErrorCode(rawValue: Int(scErr.code)) {
             dbg("SCStream error code: \(scErr.code) (\(errorCode)) - shouldAutoRestart: \(errorCode.shouldAutoRestart)")
             return errorCode.shouldAutoRestart
         }
-        
-        // Unknown error code - log it and don't retry
+
         dbg("Unknown SCStream error code: \(scErr.code) - not retrying")
         return false
     }
+
+    private func shouldRetry(_ err: Error) -> Bool {
+        shouldRetry(err as NSError)
+    }
     
-    private func isUserInitiatedStop(_ err: Error) -> Bool {
-        let scErr = err as NSError
-        guard scErr.domain == SCStreamErrorDomain else { return false }
-        
-        // Check if it's a known user-initiated error code
+    private func isUserInitiatedStop(_ err: NSError?) -> Bool {
+        guard let scErr = err, scErr.domain == SCStreamErrorDomain else { return false }
+
         if let errorCode = SCStreamErrorCode(rawValue: Int(scErr.code)) {
             return errorCode.isUserInitiated
         }
-        
-        // Check userInfo for additional context
+
         let userInfo = scErr.userInfo
         if let reason = userInfo[NSLocalizedFailureReasonErrorKey] as? String {
             let userStopIndicators = ["user stopped", "stopped by user", "user cancelled", "stop sharing"]
@@ -191,6 +189,10 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         }
         
         return false
+    }
+
+    private func isUserInitiatedStop(_ err: Error) -> Bool {
+        isUserInitiatedStop(err as NSError)
     }
 
     private func makeStream(attempt: Int = 1, maxAttempts: Int = 4) async {
@@ -466,66 +468,6 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         }
     }
 
-    func stream(_ s: SCStream, didStopWithError err: Error) {
-        // Defensive: ScreenCaptureKit can sometimes pass nil/invalid errors from ObjC bridge
-        guard let scErr = err as? NSError else {
-            dbg("stream stopped – nil/invalid error, treating as transient")
-            stop()
-
-            // Auto-retry if recording is enabled (honor user's intent)
-            Task { @MainActor in
-                if AppState.shared.isRecording {
-                    self.start()
-                }
-            }
-            return
-        }
-
-        dbg("stream stopped – domain: \(scErr.domain), code: \(scErr.code), description: \(err.localizedDescription)")
-        
-        // Log userInfo for debugging
-        let userInfo = scErr.userInfo
-        if !userInfo.isEmpty {
-            dbg("Error userInfo: \(userInfo)")
-        }
-        
-        stop()
-
-        // Check if this was a user-initiated stop
-        if isUserInitiatedStop(err) {
-            dbg("User stopped recording through system UI - updating app state")
-            Task { @MainActor in
-                AppState.shared.isRecording = false
-                AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "user"]) 
-            }
-        } else if shouldRetry(err) {
-            dbg("Retryable error - will restart if recording flag is set")
-            Task { @MainActor in
-                AnalyticsService.shared.capture("recording_error", [
-                    "code": scErr.code,
-                    "retryable": true
-                ])
-            }
-            Task { @MainActor in
-                if AppState.shared.isRecording {
-                    AnalyticsService.shared.capture("recording_auto_recovery", ["outcome": "restarted"]) 
-                    start()
-                }
-            }
-        } else {
-            // Unknown or non-retryable error - update app state to stop
-            dbg("Non-retryable error - stopping recording")
-            Task { @MainActor in
-                AppState.shared.isRecording = false
-                AnalyticsService.shared.capture("recording_error", [
-                    "code": scErr.code,
-                    "retryable": false
-                ])
-                AnalyticsService.shared.capture("recording_auto_recovery", ["outcome": "gave_up"]) 
-            }
-        }
-    }
-
     private func registerForSleepAndLock() {
         let nc = NSWorkspace.shared.notificationCenter
         let dnc = DistributedNotificationCenter.default()
@@ -684,5 +626,65 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         ctx.textPosition = CGPoint(x: originX + padding,
                                    y: originY + padding - bounds.minY)
         CTLineDraw(line, ctx)
+    }
+}
+
+extension ScreenRecorder: SCStreamDelegate {
+    func stream(_ s: SCStream, didStopWithError error: Error?) {
+        // ReplayKit occasionally hands a nil NSError pointer; accept it as optional before bridging.
+        let scError = error as NSError?
+
+        guard let scError else {
+            dbg("stream stopped – nil error pointer, treating as transient")
+            stop()
+
+            Task { @MainActor in
+                if AppState.shared.isRecording {
+                    self.start()
+                }
+            }
+            return
+        }
+
+        dbg("stream stopped – domain: \(scError.domain), code: \(scError.code), description: \(scError.localizedDescription)")
+
+        let userInfo = scError.userInfo
+        if !userInfo.isEmpty {
+            dbg("Error userInfo: \(userInfo)")
+        }
+
+        stop()
+
+        if isUserInitiatedStop(scError) {
+            dbg("User stopped recording through system UI - updating app state")
+            Task { @MainActor in
+                AppState.shared.isRecording = false
+                AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "user"])
+            }
+        } else if shouldRetry(scError) {
+            dbg("Retryable error - will restart if recording flag is set")
+            Task { @MainActor in
+                AnalyticsService.shared.capture("recording_error", [
+                    "code": scError.code,
+                    "retryable": true
+                ])
+            }
+            Task { @MainActor in
+                if AppState.shared.isRecording {
+                    AnalyticsService.shared.capture("recording_auto_recovery", ["outcome": "restarted"])
+                    start()
+                }
+            }
+        } else {
+            dbg("Non-retryable error - stopping recording")
+            Task { @MainActor in
+                AppState.shared.isRecording = false
+                AnalyticsService.shared.capture("recording_error", [
+                    "code": scError.code,
+                    "retryable": false
+                ])
+                AnalyticsService.shared.capture("recording_auto_recovery", ["outcome": "gave_up"])
+            }
+        }
     }
 }
