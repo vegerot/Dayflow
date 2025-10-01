@@ -7,7 +7,7 @@ assignees: ''
 
 ---
 
-- [ ] This is a bug and not a feature request (Feature requests should go in Discussions)
+This is for reporting bugs/issues and not feature requests (Feature requests should go in Discussions, this helps me track bugs more effectively)
 
   **Describe the bug**
   A clear and concise description of what the bug is.
