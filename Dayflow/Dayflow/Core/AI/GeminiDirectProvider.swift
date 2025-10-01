@@ -310,58 +310,141 @@ final class GeminiDirectProvider: LLMProvider {
 
         Remember: The goal is to tell the story of what someone accomplished, not log every click. Group aggressively and only split when they truly change what they're doing for an extended period. If an activity is less than 2-3 minutes, it almost never deserves its own segment.
         """
-        
-        let (response, usedModel) = try await geminiTranscribeRequest(
-            fileURI: fileURI,
-            mimeType: mimeType,
-            prompt: finalTranscriptionPrompt,
-            batchId: batchId
-        )
-        
-        
-        let videoTranscripts = try parseTranscripts(response)
-        
-        // Convert video transcripts to observations with proper Unix timestamps
-        // Validate and process observations
-        var hasValidationErrors = false
-        let observations = videoTranscripts.compactMap { chunk -> Observation? in
-            let startSeconds = parseVideoTimestamp(chunk.startTimestamp)
-            let endSeconds = parseVideoTimestamp(chunk.endTimestamp)
-            
-            // Validate timestamps are within video duration (with 2 minute tolerance)
-            let tolerance: TimeInterval = 120.0 // 2 minutes
-            if Double(startSeconds) < -tolerance || Double(endSeconds) > videoDuration + tolerance {
-                print("❌ VALIDATION ERROR: Observation timestamps exceed video duration!")
-                hasValidationErrors = true
-                return nil
+
+        // UNIFIED RETRY LOOP - Handles ALL errors comprehensively
+        let maxRetries = 3
+        var attempt = 0
+        var lastError: Error?
+        var finalResponse = ""
+        var finalObservations: [Observation] = []
+        var finalUsedModel = proModel
+
+        // Model state for Flash fallback (persists across retries)
+        var currentModel = proModel
+        var downgraded = false
+        let callGroupId = UUID().uuidString
+
+        while attempt < maxRetries {
+            do {
+                print("🔄 Video transcribe attempt \(attempt + 1)/\(maxRetries)")
+
+                let (response, usedModel) = try await geminiTranscribeRequest(
+                    fileURI: fileURI,
+                    mimeType: mimeType,
+                    prompt: finalTranscriptionPrompt,
+                    batchId: batchId,
+                    groupId: callGroupId,
+                    model: currentModel,
+                    attempt: attempt + 1
+                )
+
+                let videoTranscripts = try parseTranscripts(response)
+
+                // Convert video transcripts to observations with proper Unix timestamps
+                // Validate and process observations
+                var hasValidationErrors = false
+                let observations = videoTranscripts.compactMap { chunk -> Observation? in
+                    let startSeconds = parseVideoTimestamp(chunk.startTimestamp)
+                    let endSeconds = parseVideoTimestamp(chunk.endTimestamp)
+
+                    // Validate timestamps are within video duration (with 2 minute tolerance)
+                    let tolerance: TimeInterval = 120.0 // 2 minutes
+                    if Double(startSeconds) < -tolerance || Double(endSeconds) > videoDuration + tolerance {
+                        print("❌ VALIDATION ERROR: Observation timestamps exceed video duration!")
+                        hasValidationErrors = true
+                        return nil
+                    }
+                    let startDate = batchStartTime.addingTimeInterval(TimeInterval(startSeconds))
+                    let endDate = batchStartTime.addingTimeInterval(TimeInterval(endSeconds))
+
+                    return Observation(
+                        id: nil,
+                        batchId: 0, // Will be set when saved
+                        startTs: Int(startDate.timeIntervalSince1970),
+                        endTs: Int(endDate.timeIntervalSince1970),
+                        observation: chunk.description,
+                        metadata: nil,
+                        llmModel: usedModel,
+                        createdAt: Date()
+                    )
+                }
+
+                // If we had validation errors, throw to trigger retry
+                if hasValidationErrors {
+                    throw NSError(domain: "GeminiProvider", code: 100, userInfo: [
+                        NSLocalizedDescriptionKey: "Gemini generated observations with timestamps exceeding video duration. Video is \(durationString) long but observations extended beyond this."
+                    ])
+                }
+
+                // Ensure we have at least one observation
+                if observations.isEmpty {
+                    throw NSError(domain: "GeminiProvider", code: 101, userInfo: [
+                        NSLocalizedDescriptionKey: "No valid observations generated after filtering out invalid timestamps"
+                    ])
+                }
+
+                // SUCCESS! All validations passed
+                print("✅ Video transcription succeeded on attempt \(attempt + 1)")
+                finalResponse = response
+                finalObservations = observations
+                finalUsedModel = usedModel
+                break
+
+            } catch {
+                lastError = error
+                print("❌ Attempt \(attempt + 1) failed: \(error.localizedDescription)")
+
+                // Check for Flash downgrade on capacity errors (429, 503, 403)
+                if let nsError = error as NSError?,
+                   nsError.domain == "GeminiError",
+                   (nsError.code == 429 || nsError.code == 503 || nsError.code == 403),
+                   currentModel == proModel && !downgraded {
+
+                    let reason = nsError.code == 429 ? "rate_limit_429" :
+                                 nsError.code == 503 ? "service_unavailable_503" : "forbidden_quota_403"
+                    print("↘️ Downgrading to \(flashModel) after \(nsError.code)")
+
+                    Task { @MainActor in
+                        await AnalyticsService.shared.capture("llm_model_fallback", [
+                            "provider": "gemini",
+                            "operation": "transcribe",
+                            "from_model": currentModel,
+                            "to_model": flashModel,
+                            "reason": reason,
+                            "batch_id": batchId as Any
+                        ])
+                    }
+
+                    currentModel = flashModel
+                    downgraded = true
+                    // Continue immediately to next attempt with Flash (no extra delay)
+
+                } else {
+                    // Normal error handling with backoff
+                    let strategy = classifyError(error)
+
+                    // Check if we should retry
+                    if strategy == .noRetry || attempt >= maxRetries - 1 {
+                        print("🚫 Not retrying: strategy=\(strategy), attempt=\(attempt + 1)/\(maxRetries)")
+                        throw error
+                    }
+
+                    // Apply appropriate delay based on error type
+                    let delay = delayForStrategy(strategy, attempt: attempt)
+                    if delay > 0 {
+                        print("⏳ Waiting \(String(format: "%.1f", delay))s before retry (strategy: \(strategy))")
+                        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    }
+                }
             }
-            let startDate = batchStartTime.addingTimeInterval(TimeInterval(startSeconds))
-            let endDate = batchStartTime.addingTimeInterval(TimeInterval(endSeconds))
-            
-            
-            return Observation(
-                id: nil,
-                batchId: 0, // Will be set when saved
-                startTs: Int(startDate.timeIntervalSince1970),
-                endTs: Int(endDate.timeIntervalSince1970),
-                observation: chunk.description,
-                metadata: nil,
-                llmModel: usedModel,
-                createdAt: Date()
-            )
+
+            attempt += 1
         }
-        
-        // If we had validation errors, throw to trigger retry
-        if hasValidationErrors {
-            throw NSError(domain: "GeminiProvider", code: 100, userInfo: [
-                NSLocalizedDescriptionKey: "Gemini generated observations with timestamps exceeding video duration. Video is \(durationString) long but observations extended beyond this."
-            ])
-        }
-        
-        // Ensure we have at least one observation
-        if observations.isEmpty {
-            throw NSError(domain: "GeminiProvider", code: 101, userInfo: [
-                NSLocalizedDescriptionKey: "No valid observations generated after filtering out invalid timestamps"
+
+        // Check if we succeeded
+        guard !finalObservations.isEmpty else {
+            throw lastError ?? NSError(domain: "GeminiProvider", code: 102, userInfo: [
+                NSLocalizedDescriptionKey: "Video transcription failed after \(maxRetries) attempts"
             ])
         }
         
@@ -369,12 +452,10 @@ final class GeminiDirectProvider: LLMProvider {
             timestamp: callStart,
             latency: Date().timeIntervalSince(callStart),
             input: finalTranscriptionPrompt,
-            output: response
+            output: finalResponse
         )
-        
-        let duration = Date().timeIntervalSince(callStart)
-        
-        return (observations, log)
+
+        return (finalObservations, log)
     }
     
     // MARK: - Error Classification for Unified Retry
@@ -636,6 +717,11 @@ final class GeminiDirectProvider: LLMProvider {
         var finalResponse = ""
         var finalCards: [ActivityCardData] = []
 
+        // Model state for Flash fallback (persists across retries)
+        var currentModel = proModel
+        var downgraded = false
+        let callGroupId = UUID().uuidString
+
         while attempt < maxRetries {
             do {
                 // THE ENTIRE PIPELINE: Request → Parse → Validate
@@ -643,7 +729,10 @@ final class GeminiDirectProvider: LLMProvider {
 
                 let response = try await geminiCardsRequest(
                     prompt: actualPromptUsed,
-                    batchId: batchId
+                    batchId: batchId,
+                    groupId: callGroupId,
+                    model: currentModel,
+                    attempt: attempt + 1
                 )
 
                 let cards = try parseActivityCards(response)
@@ -703,24 +792,52 @@ final class GeminiDirectProvider: LLMProvider {
                 lastError = error
                 print("❌ Attempt \(attempt + 1) failed: \(error.localizedDescription)")
 
-                let strategy = classifyError(error)
+                // Check for Flash downgrade on capacity errors (429, 503, 403)
+                if let nsError = error as NSError?,
+                   nsError.domain == "GeminiError",
+                   (nsError.code == 429 || nsError.code == 503 || nsError.code == 403),
+                   currentModel == proModel && !downgraded {
 
-                // Check if we should retry
-                if strategy == .noRetry || attempt >= maxRetries - 1 {
-                    print("🚫 Not retrying: strategy=\(strategy), attempt=\(attempt + 1)/\(maxRetries)")
-                    throw error
-                }
+                    let reason = nsError.code == 429 ? "rate_limit_429" :
+                                 nsError.code == 503 ? "service_unavailable_503" : "forbidden_quota_403"
+                    print("↘️ Downgrading to \(flashModel) after \(nsError.code)")
 
-                // Apply appropriate delay based on error type
-                let delay = delayForStrategy(strategy, attempt: attempt)
-                if delay > 0 {
-                    print("⏳ Waiting \(String(format: "%.1f", delay))s before retry (strategy: \(strategy))")
-                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                }
+                    Task { @MainActor in
+                        await AnalyticsService.shared.capture("llm_model_fallback", [
+                            "provider": "gemini",
+                            "operation": "generate_activity_cards",
+                            "from_model": currentModel,
+                            "to_model": flashModel,
+                            "reason": reason,
+                            "batch_id": batchId as Any
+                        ])
+                    }
 
-                // For non-validation errors, reset to base prompt
-                if strategy != .enhancedPrompt {
-                    actualPromptUsed = basePrompt
+                    currentModel = flashModel
+                    downgraded = true
+                    // Continue immediately to next attempt with Flash (no extra delay)
+
+                } else {
+                    // Normal error handling with backoff
+                    let strategy = classifyError(error)
+
+                    // Check if we should retry
+                    if strategy == .noRetry || attempt >= maxRetries - 1 {
+                        print("🚫 Not retrying: strategy=\(strategy), attempt=\(attempt + 1)/\(maxRetries)")
+                        throw error
+                    }
+
+                    // Apply appropriate delay based on error type
+                    let delay = delayForStrategy(strategy, attempt: attempt)
+                    if delay > 0 {
+                        print("⏳ Waiting \(String(format: "%.1f", delay))s before retry (strategy: \(strategy))")
+                        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    }
+
+                    // For non-validation errors, reset to base prompt
+                    if strategy != .enhancedPrompt {
+                        actualPromptUsed = basePrompt
+                    }
                 }
             }
 
@@ -975,7 +1092,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         return "UNKNOWN"
     }
     
-    private func geminiTranscribeRequest(fileURI: String, mimeType: String, prompt: String, batchId: Int64?) async throws -> (String, String) {
+    private func geminiTranscribeRequest(fileURI: String, mimeType: String, prompt: String, batchId: Int64?, groupId: String, model: String, attempt: Int) async throws -> (String, String) {
         let transcriptionSchema: [String:Any] = [
           "type":"ARRAY",
           "items": [
@@ -1004,223 +1121,174 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             ]]],
             "generationConfig": generationConfig
         ]
-        
-        // Retry logic with exponential backoff + per-call Pro→Flash fallback
-        let maxRetries = 3
-        var lastError: Error?
-        var currentModel = proModel
-        var downgraded = false
-        let callGroupId = UUID().uuidString
-        for attempt in 0..<maxRetries {
-            let urlWithKey = endpointForModel(currentModel) + "?key=\(apiKey)"
-            var request = URLRequest(url: URL(string: urlWithKey)!)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.timeoutInterval = 120 // 2 minutes timeout
-            let requestStart = Date()
-            do {
-                request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-                
-                // Log curl command on first attempt or after failures
-                if attempt == 0 || lastError != nil {
-                    logCurlCommand(context: "transcribe.generateContent.attempt\(attempt + 1)", url: urlWithKey, requestBody: requestBody)
-                }
-                
-                // Log request timing
-                logRequestTiming(context: "transcribe.attempt\(attempt + 1)")
-                
-                let (data, response) = try await URLSession.shared.data(for: request)
-                let requestDuration = Date().timeIntervalSince(requestStart)
-                
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    print("🔴 Non-HTTP response received")
-                    throw NSError(domain: "GeminiError", code: 9, userInfo: [NSLocalizedDescriptionKey: "Non-HTTP response"])
-                }
-                
-                print("📥 Response received for attempt \(attempt + 1):")
-                print("   Status Code: \(httpResponse.statusCode)")
-                print("   Duration: \(String(format: "%.2f", requestDuration))s")
-                
-                // Log important headers
-                if let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") {
-                    print("   Content-Type: \(contentType)")
-                }
-                if let contentLength = httpResponse.value(forHTTPHeaderField: "Content-Length") {
-                    print("   Content-Length: \(contentLength) bytes")
-                }
-                if let requestId = httpResponse.value(forHTTPHeaderField: "X-Goog-Request-Id") ?? httpResponse.value(forHTTPHeaderField: "x-request-id") {
-                    print("   Request ID: \(requestId)")
-                }
-                
-                // Check for rate limiting
-                if httpResponse.statusCode == 429 {
-                    print("🚫 RATE LIMITED (429)")
-                    let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After")
-                    if let retryAfter = retryAfter {
-                        print("   Retry-After: \(retryAfter)s")
-                    }
-                    if let remaining = httpResponse.value(forHTTPHeaderField: "X-RateLimit-Remaining") {
-                        print("   Rate Limit Remaining: \(remaining)")
-                    }
-                    if let reset = httpResponse.value(forHTTPHeaderField: "X-RateLimit-Reset") {
-                        print("   Rate Limit Reset: \(reset)")
-                    }
-                    
-                    // Log response body for 429 errors
-                    if let bodyText = String(data: data, encoding: .utf8) {
-                        print("   429 Response Body: \(truncate(bodyText, max: 1000))")
-                    }
-                    // Per-call downgrade to Flash on first 429 from Pro
-                    if currentModel == proModel && !downgraded {
-                        print("↘️ Downgrading to \(flashModel) for this call after 429")
-                        // Analytics: record fallback
-                        Task { @MainActor in
-                            AnalyticsService.shared.capture("llm_model_fallback", [
-                                "provider": "gemini",
-                                "operation": "transcribe",
-                                "from_model": currentModel,
-                                "to_model": flashModel,
-                                "reason": "rate_limit_429"
-                            ])
-                        }
-                        currentModel = flashModel
-                        downgraded = true
-                        continue
-                    }
-                    let delay = TimeInterval(retryAfter ?? "60") ?? 60
-                    print("⏳ Rate limited, waiting \(delay)s...")
-                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                    continue
-                }
-                
-                // Prepare logging context
-                let responseHeaders: [String:String] = httpResponse.allHeaderFields.reduce(into: [:]) { acc, kv in
-                    if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible { acc[k] = v.description }
-                } ?? [:]
-                let modelName: String? = {
-                    if let u = URL(string: urlWithKey) {
-                        let last = u.path.split(separator: "/").last.map(String.init)
-                        return last?.split(separator: ":").first.map(String.init)
-                    }
-                    return nil
-                }()
-                let ctx = LLMCallContext(
-                    batchId: batchId,
-                    callGroupId: callGroupId,
-                    attempt: attempt + 1,
-                    provider: "gemini",
-                    model: modelName,
-                    operation: "transcribe",
-                    requestMethod: request.httpMethod,
-                    requestURL: request.url,
-                    requestHeaders: request.allHTTPHeaderFields,
-                    requestBody: request.httpBody,
-                    startedAt: requestStart
-                )
-                let httpInfo = LLMHTTPInfo(httpStatus: httpResponse.statusCode, responseHeaders: responseHeaders, responseBody: data)
 
-                // Check HTTP status first - any 400+ is a failure
-                if httpResponse.statusCode >= 400 {
-                    print("🔴 HTTP error status: \(httpResponse.statusCode)")
-                    if let bodyText = String(data: data, encoding: .utf8) {
-                        print("   Response Body: \(truncate(bodyText, max: 2000))")
-                    } else {
-                        print("   Response Body: <non-UTF8 data, \(data.count) bytes>")
-                    }
+        // Single API call (no retry logic in this function)
+        let urlWithKey = endpointForModel(model) + "?key=\(apiKey)"
+        var request = URLRequest(url: URL(string: urlWithKey)!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120 // 2 minutes timeout
+        let requestStart = Date()
 
-                    // Try to parse error details for better error message
-                    var errorMessage = "HTTP \(httpResponse.statusCode) error"
-                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let error = json["error"] as? [String: Any] {
-                        if let code = error["code"] { print("   Error Code: \(code)") }
-                        if let message = error["message"] as? String {
-                            print("   Error Message: \(message)")
-                            errorMessage = message
-                        }
-                        if let status = error["status"] { print("   Error Status: \(status)") }
-                        if let details = error["details"] { print("   Error Details: \(details)") }
-                    }
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
-                    // Log as failure and throw
-                    LLMLogger.logFailure(
-                        ctx: ctx,
-                        http: httpInfo,
-                        finishedAt: Date(),
-                        errorDomain: "HTTPError",
-                        errorCode: httpResponse.statusCode,
-                        errorMessage: errorMessage
-                    )
-                    logGeminiFailure(context: "transcribe.httpError", attempt: attempt + 1, response: response, data: data, error: nil)
-                    throw NSError(domain: "GeminiError", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: errorMessage])
+            // Log curl command
+            logCurlCommand(context: "transcribe.generateContent", url: urlWithKey, requestBody: requestBody)
+
+            // Log request timing
+            logRequestTiming(context: "transcribe")
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let requestDuration = Date().timeIntervalSince(requestStart)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("🔴 Non-HTTP response received")
+                throw NSError(domain: "GeminiError", code: 9, userInfo: [NSLocalizedDescriptionKey: "Non-HTTP response"])
+            }
+
+            print("📥 Response received:")
+            print("   Status Code: \(httpResponse.statusCode)")
+            print("   Duration: \(String(format: "%.2f", requestDuration))s")
+
+            // Log important headers
+            if let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") {
+                print("   Content-Type: \(contentType)")
+            }
+            if let contentLength = httpResponse.value(forHTTPHeaderField: "Content-Length") {
+                print("   Content-Length: \(contentLength) bytes")
+            }
+            if let requestId = httpResponse.value(forHTTPHeaderField: "X-Goog-Request-Id") ?? httpResponse.value(forHTTPHeaderField: "x-request-id") {
+                print("   Request ID: \(requestId)")
+            }
+
+            // Prepare logging context
+            let responseHeaders: [String:String] = httpResponse.allHeaderFields.reduce(into: [:]) { acc, kv in
+                if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible { acc[k] = v.description }
+            } ?? [:]
+            let modelName: String? = {
+                if let u = URL(string: urlWithKey) {
+                    let last = u.path.split(separator: "/").last.map(String.init)
+                    return last?.split(separator: ":").first.map(String.init)
+                }
+                return nil
+            }()
+            let ctx = LLMCallContext(
+                batchId: batchId,
+                callGroupId: groupId,
+                attempt: attempt,
+                provider: "gemini",
+                model: modelName,
+                operation: "transcribe",
+                requestMethod: request.httpMethod,
+                requestURL: request.url,
+                requestHeaders: request.allHTTPHeaderFields,
+                requestBody: request.httpBody,
+                startedAt: requestStart
+            )
+            let httpInfo = LLMHTTPInfo(httpStatus: httpResponse.statusCode, responseHeaders: responseHeaders, responseBody: data)
+
+            // Check HTTP status first - any 400+ is a failure
+            if httpResponse.statusCode >= 400 {
+                print("🔴 HTTP error status: \(httpResponse.statusCode)")
+                if let bodyText = String(data: data, encoding: .utf8) {
+                    print("   Response Body: \(truncate(bodyText, max: 2000))")
+                } else {
+                    print("   Response Body: <non-UTF8 data, \(data.count) bytes>")
                 }
 
-                // HTTP status is good (200-299), now validate content
-                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                    LLMLogger.logFailure(
-                        ctx: ctx,
-                        http: httpInfo,
-                        finishedAt: Date(),
-                        errorDomain: "ParseError",
-                        errorCode: 7,
-                        errorMessage: "Invalid JSON response"
-                    )
-                    logGeminiFailure(context: "transcribe.generateContent.invalidJSON", attempt: attempt + 1, response: response, data: data, error: nil)
-                    throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "Invalid JSON response"])
+                // Try to parse error details for better error message
+                var errorMessage = "HTTP \(httpResponse.statusCode) error"
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let error = json["error"] as? [String: Any] {
+                    if let code = error["code"] { print("   Error Code: \(code)") }
+                    if let message = error["message"] as? String {
+                        print("   Error Message: \(message)")
+                        errorMessage = message
+                    }
+                    if let status = error["status"] { print("   Error Status: \(status)") }
+                    if let details = error["details"] { print("   Error Details: \(details)") }
                 }
 
-                guard let candidates = json["candidates"] as? [[String: Any]],
-                      let firstCandidate = candidates.first else {
-                    LLMLogger.logFailure(
-                        ctx: ctx,
-                        http: httpInfo,
-                        finishedAt: Date(),
-                        errorDomain: "ParseError",
-                        errorCode: 7,
-                        errorMessage: "No candidates in response"
-                    )
-                    logGeminiFailure(context: "transcribe.generateContent.noCandidates", attempt: attempt + 1, response: response, data: data, error: nil)
-                    throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "No candidates in response"])
-                }
-
-                guard let content = firstCandidate["content"] as? [String: Any] else {
-                    LLMLogger.logFailure(
-                        ctx: ctx,
-                        http: httpInfo,
-                        finishedAt: Date(),
-                        errorDomain: "ParseError",
-                        errorCode: 7,
-                        errorMessage: "No content in candidate"
-                    )
-                    logGeminiFailure(context: "transcribe.generateContent.noContent", attempt: attempt + 1, response: response, data: data, error: nil)
-                    throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "No content in candidate"])
-                }
-
-                guard let parts = content["parts"] as? [[String: Any]],
-                      let firstPart = parts.first,
-                      let text = firstPart["text"] as? String else {
-                    LLMLogger.logFailure(
-                        ctx: ctx,
-                        http: httpInfo,
-                        finishedAt: Date(),
-                        errorDomain: "ParseError",
-                        errorCode: 7,
-                        errorMessage: "Empty content - no parts array"
-                    )
-                    logGeminiFailure(context: "transcribe.generateContent.emptyContent", attempt: attempt + 1, response: response, data: data, error: nil)
-                    throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "Empty content - no parts array"])
-                }
-
-                // Everything succeeded - log success and return
-                LLMLogger.logSuccess(
+                // Log as failure and throw
+                LLMLogger.logFailure(
                     ctx: ctx,
                     http: httpInfo,
-                    finishedAt: Date()
+                    finishedAt: Date(),
+                    errorDomain: "HTTPError",
+                    errorCode: httpResponse.statusCode,
+                    errorMessage: errorMessage
                 )
+                logGeminiFailure(context: "transcribe.httpError", attempt: attempt, response: response, data: data, error: nil)
+                throw NSError(domain: "GeminiError", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: errorMessage])
+            }
 
-                return (text, currentModel)
+            // HTTP status is good (200-299), now validate content
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                LLMLogger.logFailure(
+                    ctx: ctx,
+                    http: httpInfo,
+                    finishedAt: Date(),
+                    errorDomain: "ParseError",
+                    errorCode: 7,
+                    errorMessage: "Invalid JSON response"
+                )
+                logGeminiFailure(context: "transcribe.generateContent.invalidJSON", attempt: attempt, response: response, data: data, error: nil)
+                throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "Invalid JSON response"])
+            }
+
+            guard let candidates = json["candidates"] as? [[String: Any]],
+                  let firstCandidate = candidates.first else {
+                LLMLogger.logFailure(
+                    ctx: ctx,
+                    http: httpInfo,
+                    finishedAt: Date(),
+                    errorDomain: "ParseError",
+                    errorCode: 7,
+                    errorMessage: "No candidates in response"
+                )
+                logGeminiFailure(context: "transcribe.generateContent.noCandidates", attempt: attempt, response: response, data: data, error: nil)
+                throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "No candidates in response"])
+            }
+
+            guard let content = firstCandidate["content"] as? [String: Any] else {
+                LLMLogger.logFailure(
+                    ctx: ctx,
+                    http: httpInfo,
+                    finishedAt: Date(),
+                    errorDomain: "ParseError",
+                    errorCode: 7,
+                    errorMessage: "No content in candidate"
+                )
+                logGeminiFailure(context: "transcribe.generateContent.noContent", attempt: attempt, response: response, data: data, error: nil)
+                throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "No content in candidate"])
+            }
+
+            guard let parts = content["parts"] as? [[String: Any]],
+                  let firstPart = parts.first,
+                  let text = firstPart["text"] as? String else {
+                LLMLogger.logFailure(
+                    ctx: ctx,
+                    http: httpInfo,
+                    finishedAt: Date(),
+                    errorDomain: "ParseError",
+                    errorCode: 7,
+                    errorMessage: "Empty content - no parts array"
+                )
+                logGeminiFailure(context: "transcribe.generateContent.emptyContent", attempt: attempt, response: response, data: data, error: nil)
+                throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "Empty content - no parts array"])
+            }
+
+            // Everything succeeded - log success and return
+            LLMLogger.logSuccess(
+                ctx: ctx,
+                http: httpInfo,
+                finishedAt: Date()
+            )
+
+            return (text, model)
                 
             } catch {
-                lastError = error
                 // Only log if this is a network/transport error (not our custom GeminiError which was already logged)
                 if (error as NSError).domain != "GeminiError" {
                     let modelName: String? = {
@@ -1232,8 +1300,8 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                     }()
                     let ctx = LLMCallContext(
                         batchId: batchId,
-                        callGroupId: callGroupId,
-                        attempt: attempt + 1,
+                        callGroupId: groupId,
+                        attempt: attempt,
                         provider: "gemini",
                         model: modelName,
                         operation: "transcribe",
@@ -1252,20 +1320,19 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                         errorMessage: (error as NSError).localizedDescription
                     )
                 }
-                
-                // Log detailed error information for this attempt
-                print("🔴 GEMINI TRANSCRIBE ATTEMPT \(attempt + 1)/\(maxRetries) FAILED:")
+
+                // Log detailed error information
+                print("🔴 GEMINI TRANSCRIBE FAILED:")
                 print("   Error Type: \(type(of: error))")
                 print("   Error Description: \(error.localizedDescription)")
-                
+
                 // Log URLError details if applicable
                 if let urlError = error as? URLError {
                     print("   URLError Code: \(urlError.code.rawValue) (\(urlError.code))")
                     if let failingURL = urlError.failingURL {
                         print("   Failing URL: \(failingURL.absoluteString)")
                     }
-                    // Note: underlyingError might not be available in all Swift versions
-                    
+
                     // Check for specific network errors
                     switch urlError.code {
                     case .timedOut:
@@ -1284,7 +1351,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                         break
                     }
                 }
-                
+
                 // Log NSError details if applicable
                 if let nsError = error as NSError? {
                     print("   NSError Domain: \(nsError.domain)")
@@ -1293,24 +1360,13 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                         print("   NSError UserInfo: \(nsError.userInfo)")
                     }
                 }
-                
-                // Log transport/parse error with attempt number
-                logGeminiFailure(context: "transcribe.generateContent.catch", attempt: attempt + 1, response: nil, data: nil, error: error)
-                
-                // If it's not the last attempt, wait before retrying
-                if attempt < maxRetries - 1 {
-                    let backoffDelay = pow(2.0, Double(attempt)) * 5.0 // 5s, 10s, 20s
-                    print("⏳ Waiting \(backoffDelay)s before retry \(attempt + 2)/\(maxRetries)...")
-                    try await Task.sleep(nanoseconds: UInt64(backoffDelay * 1_000_000_000))
-                    print("🔄 Starting transcribe attempt \(attempt + 2)/\(maxRetries)...")
-                } else {
-                    print("❌ All \(maxRetries) transcribe attempts failed")
-                }
+
+                // Log transport/parse error
+                logGeminiFailure(context: "transcribe.generateContent.catch", attempt: attempt, response: nil, data: nil, error: error)
+
+                // Rethrow error (outer loop in calling function handles retries)
+                throw error
             }
-        }
-        
-        // Gemini transcribe request failed after max attempts
-        throw lastError ?? NSError(domain: "GeminiError", code: 8, userInfo: [NSLocalizedDescriptionKey: "Request failed after \(maxRetries) attempts"])
     }
     
     // Temporary struct for parsing Gemini response
@@ -1335,7 +1391,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         }
     }
     
-    private func geminiCardsRequest(prompt: String, batchId: Int64?) async throws -> String {
+    private func geminiCardsRequest(prompt: String, batchId: Int64?, groupId: String, model: String, attempt: Int) async throws -> String {
         let distractionSchema: [String: Any] = [
             "type": "OBJECT", "properties": ["startTime": ["type": "STRING"], "endTime": ["type": "STRING"], "title": ["type": "STRING"], "summary": ["type": "STRING"]],
             "required": ["startTime", "endTime", "title", "summary"], "propertyOrdering": ["startTime", "endTime", "title", "summary"]
@@ -1375,102 +1431,155 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             "contents": [["parts": [["text": prompt]]]],
             "generationConfig": generationConfig
         ]
-        
-        // Retry logic with exponential backoff + per-call Pro→Flash fallback
-        let maxRetries = 3
-        var lastError: Error?
-        let callGroupId = UUID().uuidString
-        var currentModel = proModel
-        var downgraded = false
-        
-        for attempt in 0..<maxRetries {
-            let urlWithKey = endpointForModel(currentModel) + "?key=\(apiKey)"
-            var request = URLRequest(url: URL(string: urlWithKey)!)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.timeoutInterval = 120 // 2 minutes timeout
-            let requestStart = Date()
-            do {
-                request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-                
-                // Log curl command on first attempt or after failures
-                if attempt == 0 || lastError != nil {
-                    logCurlCommand(context: "cards.generateContent.attempt\(attempt + 1)", url: urlWithKey, requestBody: requestBody)
+
+        // Single API call (retry logic handled by outer loop in generateActivityCards)
+        let urlWithKey = endpointForModel(model) + "?key=\(apiKey)"
+        var request = URLRequest(url: URL(string: urlWithKey)!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120 // 2 minutes timeout
+        let requestStart = Date()
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+            // Log curl command
+            logCurlCommand(context: "cards.generateContent", url: urlWithKey, requestBody: requestBody)
+
+            // Log request timing
+            logRequestTiming(context: "cards")
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let requestDuration = Date().timeIntervalSince(requestStart)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("🔴 Non-HTTP response received for cards request")
+                throw NSError(domain: "GeminiError", code: 9, userInfo: [NSLocalizedDescriptionKey: "Non-HTTP response"])
+            }
+
+            print("📥 Cards response received:")
+            print("   Status Code: \(httpResponse.statusCode)")
+            print("   Duration: \(String(format: "%.2f", requestDuration))s")
+
+            // Log important headers
+            if let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") {
+                print("   Content-Type: \(contentType)")
+            }
+            if let contentLength = httpResponse.value(forHTTPHeaderField: "Content-Length") {
+                print("   Content-Length: \(contentLength) bytes")
+            }
+            if let requestId = httpResponse.value(forHTTPHeaderField: "X-Goog-Request-Id") ?? httpResponse.value(forHTTPHeaderField: "x-request-id") {
+                print("   Request ID: \(requestId)")
+            }
+
+            // Prepare logging context
+            let responseHeaders: [String:String] = httpResponse.allHeaderFields.reduce(into: [:]) { acc, kv in
+                if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible { acc[k] = v.description }
+            } ?? [:]
+            let modelName: String? = {
+                if let u = URL(string: urlWithKey) {
+                    let last = u.path.split(separator: "/").last.map(String.init)
+                    return last?.split(separator: ":").first.map(String.init)
                 }
-                
-                // Log request timing
-                logRequestTiming(context: "cards.attempt\(attempt + 1)")
-                
-                let (data, response) = try await URLSession.shared.data(for: request)
-                let requestDuration = Date().timeIntervalSince(requestStart)
-                
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    print("🔴 Non-HTTP response received for cards request")
-                    throw NSError(domain: "GeminiError", code: 9, userInfo: [NSLocalizedDescriptionKey: "Non-HTTP response"])
+                return nil
+            }()
+            let ctx = LLMCallContext(
+                batchId: batchId,
+                callGroupId: groupId,
+                attempt: attempt,
+                provider: "gemini",
+                model: modelName,
+                operation: "generate_activity_cards",
+                requestMethod: request.httpMethod,
+                requestURL: request.url,
+                requestHeaders: request.allHTTPHeaderFields,
+                requestBody: request.httpBody,
+                startedAt: requestStart
+            )
+            let httpInfo = LLMHTTPInfo(httpStatus: httpResponse.statusCode, responseHeaders: responseHeaders, responseBody: data)
+
+            // Check HTTP status first - any 400+ is a failure
+            if httpResponse.statusCode >= 400 {
+                print("🔴 HTTP error status for cards: \(httpResponse.statusCode)")
+                if let bodyText = String(data: data, encoding: .utf8) {
+                    print("   Response Body: \(truncate(bodyText, max: 2000))")
+                } else {
+                    print("   Response Body: <non-UTF8 data, \(data.count) bytes>")
                 }
-                
-                print("📥 Cards response received for attempt \(attempt + 1):")
-                print("   Status Code: \(httpResponse.statusCode)")
-                print("   Duration: \(String(format: "%.2f", requestDuration))s")
-                
-                // Log important headers
-                if let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") {
-                    print("   Content-Type: \(contentType)")
-                }
-                if let contentLength = httpResponse.value(forHTTPHeaderField: "Content-Length") {
-                    print("   Content-Length: \(contentLength) bytes")
-                }
-                if let requestId = httpResponse.value(forHTTPHeaderField: "X-Goog-Request-Id") ?? httpResponse.value(forHTTPHeaderField: "x-request-id") {
-                    print("   Request ID: \(requestId)")
-                }
-                
-                // Check for rate limiting
-                if httpResponse.statusCode == 429 {
-                    print("🚫 RATE LIMITED (429) on cards request")
-                    let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After")
-                    if let retryAfter = retryAfter {
-                        print("   Retry-After: \(retryAfter)s")
+
+                // Try to parse error details for better error message
+                var errorMessage = "HTTP \(httpResponse.statusCode) error"
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let error = json["error"] as? [String: Any] {
+                    if let code = error["code"] { print("   Error Code: \(code)") }
+                    if let message = error["message"] as? String {
+                        print("   Error Message: \(message)")
+                        errorMessage = message
                     }
-                    if let remaining = httpResponse.value(forHTTPHeaderField: "X-RateLimit-Remaining") {
-                        print("   Rate Limit Remaining: \(remaining)")
-                    }
-                    if let reset = httpResponse.value(forHTTPHeaderField: "X-RateLimit-Reset") {
-                        print("   Rate Limit Reset: \(reset)")
-                    }
-                    
-                    // Log response body for 429 errors
-                    if let bodyText = String(data: data, encoding: .utf8) {
-                        print("   429 Response Body: \(truncate(bodyText, max: 1000))")
-                    }
-                    // Per-call downgrade to Flash on first 429 from Pro
-                    if currentModel == proModel && !downgraded {
-                        print("↘️ Downgrading to \(flashModel) for this call after 429 (cards)")
-                        // Analytics: record fallback
-                        Task { @MainActor in
-                            AnalyticsService.shared.capture("llm_model_fallback", [
-                                "provider": "gemini",
-                                "operation": "generate_activity_cards",
-                                "from_model": currentModel,
-                                "to_model": flashModel,
-                                "reason": "rate_limit_429"
-                            ])
-                        }
-                        currentModel = flashModel
-                        downgraded = true
-                        continue
-                    }
-                    let delay = TimeInterval(retryAfter ?? "60") ?? 60
-                    print("⏳ Rate limited, waiting \(delay)s...")
-                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                    continue
+                    if let status = error["status"] { print("   Error Status: \(status)") }
+                    if let details = error["details"] { print("   Error Details: \(details)") }
                 }
-                
-                // Prepare logging context
-                let responseHeaders: [String:String] = httpResponse.allHeaderFields.reduce(into: [:]) { acc, kv in
-                    if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible { acc[k] = v.description }
-                } ?? [:]
+
+                // Log as failure and throw
+                LLMLogger.logFailure(
+                    ctx: ctx,
+                    http: httpInfo,
+                    finishedAt: Date(),
+                    errorDomain: "HTTPError",
+                    errorCode: httpResponse.statusCode,
+                    errorMessage: errorMessage
+                )
+                logGeminiFailure(context: "cards.httpError", attempt: attempt, response: response, data: data, error: nil)
+                throw NSError(domain: "GeminiError", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: errorMessage])
+            }
+
+            // HTTP status is good (200-299), now validate content
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let candidates = json["candidates"] as? [[String: Any]],
+                  let firstCandidate = candidates.first,
+                  let content = firstCandidate["content"] as? [String: Any] else {
+                LLMLogger.logFailure(
+                    ctx: ctx,
+                    http: httpInfo,
+                    finishedAt: Date(),
+                    errorDomain: "ParseError",
+                    errorCode: 9,
+                    errorMessage: "Invalid response format - missing candidates or content"
+                )
+                logGeminiFailure(context: "cards.generateContent.invalidFormat", attempt: attempt, response: response, data: data, error: nil)
+                throw NSError(domain: "GeminiError", code: 9, userInfo: [NSLocalizedDescriptionKey: "Invalid response format - missing candidates or content"])
+            }
+
+            // Check for parts array - if missing, this is likely a schema validation failure
+            guard let parts = content["parts"] as? [[String: Any]],
+                  let firstPart = parts.first,
+                  let text = firstPart["text"] as? String else {
+                LLMLogger.logFailure(
+                    ctx: ctx,
+                    http: httpInfo,
+                    finishedAt: Date(),
+                    errorDomain: "ParseError",
+                    errorCode: 9,
+                    errorMessage: "Schema validation likely failed - no content parts in response"
+                )
+                logGeminiFailure(context: "cards.generateContent.emptyContent", attempt: attempt, response: response, data: data, error: nil)
+                throw NSError(domain: "GeminiError", code: 9, userInfo: [NSLocalizedDescriptionKey: "Schema validation likely failed - no content parts in response"])
+            }
+
+            // Everything succeeded - log success and return
+            LLMLogger.logSuccess(
+                ctx: ctx,
+                http: httpInfo,
+                finishedAt: Date()
+            )
+
+            return text
+
+        } catch {
+            // Only log if this is a network/transport error (not our custom GeminiError which was already logged)
+            if (error as NSError).domain != "GeminiError" {
                 let modelName: String? = {
-                    if let u = URL(string: urlWithKey) {
+                    if let u = request.url {
                         let last = u.path.split(separator: "/").last.map(String.init)
                         return last?.split(separator: ":").first.map(String.init)
                     }
@@ -1478,8 +1587,8 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                 }()
                 let ctx = LLMCallContext(
                     batchId: batchId,
-                    callGroupId: callGroupId,
-                    attempt: attempt + 1,
+                    callGroupId: groupId,
+                    attempt: attempt,
                     provider: "gemini",
                     model: modelName,
                     operation: "generate_activity_cards",
@@ -1489,177 +1598,62 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                     requestBody: request.httpBody,
                     startedAt: requestStart
                 )
-                let httpInfo = LLMHTTPInfo(httpStatus: httpResponse.statusCode, responseHeaders: responseHeaders, responseBody: data)
-
-                // Check HTTP status first - any 400+ is a failure
-                if httpResponse.statusCode >= 400 {
-                    print("🔴 HTTP error status for cards: \(httpResponse.statusCode)")
-                    if let bodyText = String(data: data, encoding: .utf8) {
-                        print("   Response Body: \(truncate(bodyText, max: 2000))")
-                    } else {
-                        print("   Response Body: <non-UTF8 data, \(data.count) bytes>")
-                    }
-
-                    // Try to parse error details for better error message
-                    var errorMessage = "HTTP \(httpResponse.statusCode) error"
-                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let error = json["error"] as? [String: Any] {
-                        if let code = error["code"] { print("   Error Code: \(code)") }
-                        if let message = error["message"] as? String {
-                            print("   Error Message: \(message)")
-                            errorMessage = message
-                        }
-                        if let status = error["status"] { print("   Error Status: \(status)") }
-                        if let details = error["details"] { print("   Error Details: \(details)") }
-                    }
-
-                    // Log as failure and throw
-                    LLMLogger.logFailure(
-                        ctx: ctx,
-                        http: httpInfo,
-                        finishedAt: Date(),
-                        errorDomain: "HTTPError",
-                        errorCode: httpResponse.statusCode,
-                        errorMessage: errorMessage
-                    )
-                    logGeminiFailure(context: "cards.httpError", attempt: attempt + 1, response: response, data: data, error: nil)
-                    throw NSError(domain: "GeminiError", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: errorMessage])
-                }
-
-                // HTTP status is good (200-299), now validate content
-                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let candidates = json["candidates"] as? [[String: Any]],
-                      let firstCandidate = candidates.first,
-                      let content = firstCandidate["content"] as? [String: Any] else {
-                    LLMLogger.logFailure(
-                        ctx: ctx,
-                        http: httpInfo,
-                        finishedAt: Date(),
-                        errorDomain: "ParseError",
-                        errorCode: 9,
-                        errorMessage: "Invalid response format - missing candidates or content"
-                    )
-                    logGeminiFailure(context: "cards.generateContent.invalidFormat", attempt: attempt + 1, response: response, data: data, error: nil)
-                    throw NSError(domain: "GeminiError", code: 9, userInfo: [NSLocalizedDescriptionKey: "Invalid response format - missing candidates or content"])
-                }
-
-                // Check for parts array - if missing, this is likely a schema validation failure
-                guard let parts = content["parts"] as? [[String: Any]],
-                      let firstPart = parts.first,
-                      let text = firstPart["text"] as? String else {
-                    LLMLogger.logFailure(
-                        ctx: ctx,
-                        http: httpInfo,
-                        finishedAt: Date(),
-                        errorDomain: "ParseError",
-                        errorCode: 9,
-                        errorMessage: "Schema validation likely failed - no content parts in response"
-                    )
-                    logGeminiFailure(context: "cards.generateContent.emptyContent", attempt: attempt + 1, response: response, data: data, error: nil)
-                    throw NSError(domain: "GeminiError", code: 9, userInfo: [NSLocalizedDescriptionKey: "Schema validation likely failed - no content parts in response"])
-                }
-
-                // Everything succeeded - log success and return
-                LLMLogger.logSuccess(
+                LLMLogger.logFailure(
                     ctx: ctx,
-                    http: httpInfo,
-                    finishedAt: Date()
+                    http: nil,
+                    finishedAt: Date(),
+                    errorDomain: (error as NSError).domain,
+                    errorCode: (error as NSError).code,
+                    errorMessage: (error as NSError).localizedDescription
                 )
+            }
 
-                return text
-                
-            } catch {
-                lastError = error
-                // Only log if this is a network/transport error (not our custom GeminiError which was already logged)
-                if (error as NSError).domain != "GeminiError" {
-                    let modelName: String? = {
-                        if let u = request.url {
-                            let last = u.path.split(separator: "/").last.map(String.init)
-                            return last?.split(separator: ":").first.map(String.init)
-                        }
-                        return nil
-                    }()
-                    let ctx = LLMCallContext(
-                        batchId: batchId,
-                        callGroupId: callGroupId,
-                        attempt: attempt + 1,
-                        provider: "gemini",
-                        model: modelName,
-                        operation: "generate_activity_cards",
-                        requestMethod: request.httpMethod,
-                        requestURL: request.url,
-                        requestHeaders: request.allHTTPHeaderFields,
-                        requestBody: request.httpBody,
-                        startedAt: requestStart
-                    )
-                    LLMLogger.logFailure(
-                        ctx: ctx,
-                        http: nil,
-                        finishedAt: Date(),
-                        errorDomain: (error as NSError).domain,
-                        errorCode: (error as NSError).code,
-                        errorMessage: (error as NSError).localizedDescription
-                    )
+            // Log detailed error information
+            print("🔴 GEMINI CARDS REQUEST FAILED:")
+            print("   Error Type: \(type(of: error))")
+            print("   Error Description: \(error.localizedDescription)")
+
+            // Log URLError details if applicable
+            if let urlError = error as? URLError {
+                print("   URLError Code: \(urlError.code.rawValue) (\(urlError.code))")
+                if let failingURL = urlError.failingURL {
+                    print("   Failing URL: \(failingURL.absoluteString)")
                 }
-                
-                // Log detailed error information for this attempt
-                print("🔴 GEMINI CARDS ATTEMPT \(attempt + 1)/\(maxRetries) FAILED:")
-                print("   Error Type: \(type(of: error))")
-                print("   Error Description: \(error.localizedDescription)")
-                
-                // Log URLError details if applicable
-                if let urlError = error as? URLError {
-                    print("   URLError Code: \(urlError.code.rawValue) (\(urlError.code))")
-                    if let failingURL = urlError.failingURL {
-                        print("   Failing URL: \(failingURL.absoluteString)")
-                    }
-                    // Note: underlyingError might not be available in all Swift versions
-                    
-                    // Check for specific network errors
-                    switch urlError.code {
-                    case .timedOut:
-                        print("   ⏱️ REQUEST TIMED OUT")
-                    case .notConnectedToInternet:
-                        print("   📵 NO INTERNET CONNECTION")
-                    case .networkConnectionLost:
-                        print("   📡 NETWORK CONNECTION LOST")
-                    case .cannotFindHost:
-                        print("   🔍 CANNOT FIND HOST")
-                    case .cannotConnectToHost:
-                        print("   🚫 CANNOT CONNECT TO HOST")
-                    case .badServerResponse:
-                        print("   💔 BAD SERVER RESPONSE")
-                    default:
-                        break
-                    }
-                }
-                
-                // Log NSError details if applicable
-                if let nsError = error as NSError? {
-                    print("   NSError Domain: \(nsError.domain)")
-                    print("   NSError Code: \(nsError.code)")
-                    if !nsError.userInfo.isEmpty {
-                        print("   NSError UserInfo: \(nsError.userInfo)")
-                    }
-                }
-                
-                // Log transport/parse error with attempt number
-                logGeminiFailure(context: "cards.generateContent.catch", attempt: attempt + 1, response: nil, data: nil, error: error)
-                
-                // If it's not the last attempt, wait before retrying
-                if attempt < maxRetries - 1 {
-                    let backoffDelay = pow(2.0, Double(attempt)) * 5.0 // 5s, 10s, 20s
-                    print("⏳ Waiting \(backoffDelay)s before retry \(attempt + 2)/\(maxRetries)...")
-                    try await Task.sleep(nanoseconds: UInt64(backoffDelay * 1_000_000_000))
-                    print("🔄 Starting cards attempt \(attempt + 2)/\(maxRetries)...")
-                } else {
-                    print("❌ All \(maxRetries) cards attempts failed")
+
+                // Check for specific network errors
+                switch urlError.code {
+                case .timedOut:
+                    print("   ⏱️ REQUEST TIMED OUT")
+                case .notConnectedToInternet:
+                    print("   📵 NO INTERNET CONNECTION")
+                case .networkConnectionLost:
+                    print("   📡 NETWORK CONNECTION LOST")
+                case .cannotFindHost:
+                    print("   🔍 CANNOT FIND HOST")
+                case .cannotConnectToHost:
+                    print("   🚫 CANNOT CONNECT TO HOST")
+                case .badServerResponse:
+                    print("   💔 BAD SERVER RESPONSE")
+                default:
+                    break
                 }
             }
+
+            // Log NSError details if applicable
+            if let nsError = error as NSError? {
+                print("   NSError Domain: \(nsError.domain)")
+                print("   NSError Code: \(nsError.code)")
+                if !nsError.userInfo.isEmpty {
+                    print("   NSError UserInfo: \(nsError.userInfo)")
+                }
+            }
+
+            // Log transport/parse error
+            logGeminiFailure(context: "cards.generateContent.catch", attempt: attempt, response: nil, data: nil, error: error)
+
+            // Rethrow error (outer loop in generateActivityCards handles retries)
+            throw error
         }
-        
-        // Gemini cards request failed after max attempts
-        throw lastError ?? NSError(domain: "GeminiError", code: 10, userInfo: [NSLocalizedDescriptionKey: "Request failed after \(maxRetries) attempts"])
     }
     
     private func parseActivityCards(_ response: String) throws -> [ActivityCardData] {
