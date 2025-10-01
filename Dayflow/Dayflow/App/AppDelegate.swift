@@ -9,6 +9,7 @@ import AppKit
 import ServiceManagement
 import ScreenCaptureKit
 import PostHog
+import Sentry
 import Combine
 
 @MainActor
@@ -25,8 +26,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ note: Notification) {
         // Block termination by default; only specific flows enable it.
         AppDelegate.allowTermination = false
-        // Configure analytics (prod only; default opt-in ON)
+
+        // Configure crash reporting (Sentry)
         let info = Bundle.main.infoDictionary
+        let SENTRY_DSN = info?["SentryDSN"] as? String ?? ""
+        let SENTRY_ENV = info?["SentryEnvironment"] as? String ?? "production"
+        if !SENTRY_DSN.isEmpty {
+            SentrySDK.start { options in
+                options.dsn = SENTRY_DSN
+                options.environment = SENTRY_ENV
+                // Enable debug logging in development (disable for production)
+                #if DEBUG
+                options.debug = true
+                #endif
+                // Attach stack traces to all messages (helpful for debugging)
+                options.attachStacktrace = true
+                // Performance monitoring sample rate (1.0 = 100%)
+                options.tracesSampleRate = 1.0
+            }
+        }
+
+        // Configure analytics (prod only; default opt-in ON)
         let POSTHOG_API_KEY = info?["PHPostHogApiKey"] as? String ?? ""
         let POSTHOG_HOST = info?["PHPostHogHost"] as? String ?? "https://us.i.posthog.com"
         if !POSTHOG_API_KEY.isEmpty {
