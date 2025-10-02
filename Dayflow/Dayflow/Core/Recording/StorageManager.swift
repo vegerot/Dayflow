@@ -293,20 +293,63 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     private let quota = 5 * 1024 * 1024 * 1024  // 5 GB
     var recordingsRoot: URL { root }
 
+    // TEMPORARY DEBUG: Remove after identifying slow queries
+    private let debugSlowQueries = true
+    private let slowThresholdMs: Double = 100  // Log anything over 100ms
+
+    // Dedicated queue for database writes to prevent main thread blocking
+    private let dbWriteQueue = DispatchQueue(label: "com.dayflow.storage.writes", qos: .utility)
+
     private init() {
         root = fileMgr.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Dayflow/recordings", isDirectory: true)
-        
+
         // Ensure directory exists
         try? fileMgr.createDirectory(at: root, withIntermediateDirectories: true)
 
         db = try! DatabaseQueue(path: root.appendingPathComponent("chunks.sqlite").path)
+
+        // TEMPORARY DEBUG: SQL statement tracing (via configuration)
+        #if DEBUG
+        try? db.write { db in
+            db.trace { event in
+                if case .profile(let statement, let duration) = event, duration > 0.1 {
+                    print("📊 SLOW SQL (\(Int(duration * 1000))ms): \(statement)")
+                }
+            }
+        }
+        #endif
+
         migrate()
+
+        // Run initial purge, then schedule hourly
         purgeIfNeeded()
+        startPurgeScheduler()
+    }
+
+    // TEMPORARY DEBUG: Timing helpers for database operations
+    private func timedWrite<T>(_ label: String, _ block: (Database) throws -> T) throws -> T {
+        let start = CFAbsoluteTimeGetCurrent()
+        let result = try db.write(block)
+        let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+        if debugSlowQueries && elapsed > slowThresholdMs {
+            print("⚠️ SLOW WRITE [\(label)]: \(Int(elapsed))ms")
+        }
+        return result
+    }
+
+    private func timedRead<T>(_ label: String, _ block: (Database) throws -> T) throws -> T {
+        let start = CFAbsoluteTimeGetCurrent()
+        let result = try db.read(block)
+        let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+        if debugSlowQueries && elapsed > slowThresholdMs {
+            print("⚠️ SLOW READ [\(label)]: \(Int(elapsed))ms")
+        }
+        return result
     }
 
     private func migrate() {
-        try? db.write { db in
+        try? timedWrite("migrate") { db in
             // Create all tables with their final schema
             try db.execute(sql: """
                 -- Chunks table: stores video recording segments
@@ -418,31 +461,48 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
     func registerChunk(url: URL) {
         let ts = Int(Date().timeIntervalSince1970)
-        try? db.write { db in
-            try db.execute(sql: "INSERT INTO chunks(start_ts, end_ts, file_url, status) VALUES (?, ?, ?, 'recording')",
-                           arguments: [ts, ts + 60, url.path])
+        let path = url.path
+
+        // Perform database write asynchronously to avoid blocking caller thread
+        dbWriteQueue.async { [weak self] in
+            try? self?.timedWrite("registerChunk") { db in
+                try db.execute(sql: "INSERT INTO chunks(start_ts, end_ts, file_url, status) VALUES (?, ?, ?, 'recording')",
+                               arguments: [ts, ts + 60, path])
+            }
         }
-        purgeIfNeeded()
     }
 
     func markChunkCompleted(url: URL) {
         let end = Int(Date().timeIntervalSince1970)
-        try? db.write { db in
-            try db.execute(sql: "UPDATE chunks SET end_ts = ?, status = 'completed' WHERE file_url = ?",
-                           arguments: [end, url.path])
+        let path = url.path
+
+        // Perform database write asynchronously to avoid blocking caller thread
+        dbWriteQueue.async { [weak self] in
+            try? self?.timedWrite("markChunkCompleted") { db in
+                try db.execute(sql: "UPDATE chunks SET end_ts = ?, status = 'completed' WHERE file_url = ?",
+                               arguments: [end, path])
+            }
         }
     }
 
     func markChunkFailed(url: URL) {
-        try? db.write { db in
-            try db.execute(sql: "DELETE FROM chunks WHERE file_url = ?", arguments: [url.path])
+        let path = url.path
+
+        // Perform database write and file deletion asynchronously to avoid blocking caller thread
+        dbWriteQueue.async { [weak self] in
+            guard let self = self else { return }
+
+            try? self.timedWrite("markChunkFailed") { db in
+                try db.execute(sql: "DELETE FROM chunks WHERE file_url = ?", arguments: [path])
+            }
+
+            try? self.fileMgr.removeItem(at: url)
         }
-        try? fileMgr.removeItem(at: url)
     }
 
 
     func fetchUnprocessedChunks(olderThan oldestAllowed: Int) -> [RecordingChunk] {
-        (try? db.read { db in
+        (try? timedRead("fetchUnprocessedChunks") { db in
             try Row.fetchAll(db, sql: """
                 SELECT * FROM chunks
                 WHERE start_ts >= ?
@@ -458,7 +518,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     func saveBatch(startTs: Int, endTs: Int, chunkIds: [Int64]) -> Int64? {
         guard !chunkIds.isEmpty else { return nil }
         var batchID: Int64 = 0
-        try? db.write { db in
+        try? timedWrite("saveBatch(\(chunkIds.count)_chunks)") { db in
             try db.execute(sql: "INSERT INTO analysis_batches(batch_start_ts, batch_end_ts) VALUES (?, ?)",
                            arguments: [startTs, endTs])
             batchID = db.lastInsertedRowID
@@ -470,14 +530,20 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     }
 
     func updateBatchStatus(batchId: Int64, status: String) {
-        try? db.write { db in
-            try db.execute(sql: "UPDATE analysis_batches SET status = ? WHERE id = ?", arguments: [status, batchId])
+        // Perform database write asynchronously to avoid blocking caller thread
+        dbWriteQueue.async { [weak self] in
+            try? self?.timedWrite("updateBatchStatus") { db in
+                try db.execute(sql: "UPDATE analysis_batches SET status = ? WHERE id = ?", arguments: [status, batchId])
+            }
         }
     }
 
     func markBatchFailed(batchId: Int64, reason: String) {
-        try? db.write { db in
-            try db.execute(sql: "UPDATE analysis_batches SET status = 'failed', reason = ? WHERE id = ?", arguments: [reason, batchId])
+        // Perform database write asynchronously to avoid blocking caller thread
+        dbWriteQueue.async { [weak self] in
+            try? self?.timedWrite("markBatchFailed") { db in
+                try db.execute(sql: "UPDATE analysis_batches SET status = 'failed', reason = ? WHERE id = ?", arguments: [reason, batchId])
+            }
         }
     }
 
@@ -485,7 +551,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(calls), let json = String(data: data, encoding: .utf8) else { return }
-        try? db.write { db in
+        try? timedWrite("updateBatchLLMMetadata") { db in
             try db.execute(sql: "UPDATE analysis_batches SET llm_metadata = ? WHERE id = ?", arguments: [json, batchId])
         }
     }
@@ -493,7 +559,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     func fetchBatchLLMMetadata(batchId: Int64) -> [LLMCall] {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return (try? db.read { db in
+        return (try? timedRead("fetchBatchLLMMetadata") { db in
             if let row = try Row.fetchOne(db, sql: "SELECT llm_metadata FROM analysis_batches WHERE id = ?", arguments: [batchId]),
                let json: String = row["llm_metadata"],
                let data = json.data(using: .utf8) {
@@ -530,7 +596,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     
     /// Fetch chunks that overlap with a specific time range
     func fetchChunksInTimeRange(startTs: Int, endTs: Int) -> [RecordingChunk] {
-        (try? db.read { db in
+        (try? timedRead("fetchChunksInTimeRange") { db in
             try Row.fetchAll(db, sql: """
                 SELECT * FROM chunks 
                 WHERE status = 'completed'
@@ -593,7 +659,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
         let endTs = Int(endDate.timeIntervalSince1970)
 
-        try? db.write {
+        try? timedWrite("saveTimelineCardShell") {
             db in
             // Encode metadata as an object for forward-compatibility
             let meta = TimelineMetadata(distractions: card.distractions, appSites: card.appSites)
@@ -619,7 +685,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     }
 
     func updateTimelineCardVideoURL(cardId: Int64, videoSummaryURL: String) {
-        try? db.write {
+        try? timedWrite("updateTimelineCardVideoURL") {
             db in
             try db.execute(sql: """
                 UPDATE timeline_cards
@@ -631,7 +697,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
     func fetchTimelineCards(forBatch batchId: Int64) -> [TimelineCard] {
         let decoder = JSONDecoder()
-        return (try? db.read { db in
+        return (try? timedRead("fetchTimelineCards(forBatch)") { db in
             try Row.fetchAll(db, sql: "SELECT * FROM timeline_cards WHERE batch_id = ? ORDER BY start ASC", arguments: [batchId]).map { row in
                 var distractions: [Distraction]? = nil
                 var appSites: AppSites? = nil
@@ -700,8 +766,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         
         let startTs = Int(dayStart.timeIntervalSince1970)
         let endTs = Int(dayEnd.timeIntervalSince1970)
-        
-        let cards: [TimelineCard]? = try? db.read { db in
+
+        let cards: [TimelineCard]? = try? timedRead("fetchTimelineCards(forDay:\(day))") { db in
             try Row.fetchAll(db, sql: """
                 SELECT * FROM timeline_cards
                 WHERE start_ts >= ? AND start_ts < ?
@@ -745,9 +811,9 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         let decoder = JSONDecoder()
         let fromTs = Int(from.timeIntervalSince1970)
         let toTs = Int(to.timeIntervalSince1970)
-        
-        
-        let cards: [TimelineCard]? = try? db.read { db in
+
+
+        let cards: [TimelineCard]? = try? timedRead("fetchTimelineCardsByTimeRange") { db in
             try Row.fetchAll(db, sql: """
                 SELECT * FROM timeline_cards
                 WHERE (start_ts < ? AND end_ts > ?)
@@ -848,8 +914,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     /// Fetch a specific timeline card by ID including timestamp fields
     func fetchTimelineCard(byId id: Int64) -> TimelineCardWithTimestamps? {
         let decoder = JSONDecoder()
-        
-        return try? db.read { db in
+
+        return try? timedRead("fetchTimelineCard(byId)") { db in
             guard let row = try Row.fetchOne(db, sql: """
                 SELECT * FROM timeline_cards WHERE id = ?
             """, arguments: [id]) else { return nil }
@@ -896,8 +962,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         let timeFormatter = DateFormatter()
         timeFormatter.dateFormat = "h:mm a"
         timeFormatter.locale = Locale(identifier: "en_US_POSIX")
-        
-        try? db.write { db in
+
+        try? timedWrite("replaceTimelineCardsInRange(\(newCards.count)_cards)") { db in
             // First, fetch the video paths that will be deleted
             let videoRows = try Row.fetchAll(db, sql: """
                 SELECT video_summary_url FROM timeline_cards
@@ -1008,7 +1074,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     
     func saveObservations(batchId: Int64, observations: [Observation]) {
         guard !observations.isEmpty else { return }
-        try? db.write { db in
+        try? timedWrite("saveObservations(\(observations.count)_items)") { db in
             for obs in observations {
                 try db.execute(sql: """
                     INSERT INTO observations(
@@ -1024,7 +1090,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     }
     
     func fetchObservations(batchId: Int64) -> [Observation] {
-        (try? db.read { db in
+        (try? timedRead("fetchObservations(batchId)") { db in
             try Row.fetchAll(db, sql: """
                 SELECT * FROM observations 
                 WHERE batch_id = ? 
@@ -1212,8 +1278,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         
         let startTs = Int(dayStart.timeIntervalSince1970)
         let endTs = Int(dayEnd.timeIntervalSince1970)
-        
-        try? db.write { db in
+
+        try? timedWrite("deleteTimelineCards(forDay:\(day))") { db in
             // First fetch all video paths before deletion
             let rows = try Row.fetchAll(db, sql: """
                 SELECT video_summary_url FROM timeline_cards
@@ -1325,6 +1391,17 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
 
     private let purgeQ = DispatchQueue(label: "com.dayflow.storage.purge", qos: .background)
+    private var purgeTimer: DispatchSourceTimer?
+
+    private func startPurgeScheduler() {
+        let timer = DispatchSource.makeTimerSource(queue: purgeQ)
+        timer.schedule(deadline: .now() + 3600, repeating: 3600) // Every hour
+        timer.setEventHandler { [weak self] in
+            self?.purgeIfNeeded()
+        }
+        timer.resume()
+        purgeTimer = timer
+    }
 
     private func purgeIfNeeded() {
         purgeQ.async { [weak self] in
@@ -1340,8 +1417,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 
                 // Clean up if over 20GB
                 if currentSize > 10_000_000_000 {
-                    
-                    try self.db.write { db in
+
+                    try self.timedWrite("purgeIfNeeded") { db in
                         // Get chunks older than 3 days with file paths still set
                         let oldChunks = try Row.fetchAll(db, sql: """
                             SELECT id, file_url, start_ts 
