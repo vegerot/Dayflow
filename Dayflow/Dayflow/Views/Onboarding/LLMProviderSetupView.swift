@@ -242,14 +242,53 @@ struct LLMProviderSetupView: View {
                         command: "ollama pull qwen2.5vl:3b"
                     )
                 } else if setupState.localEngine == .lmstudio {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("After installing LM Studio:")
-                            .font(.custom("Nunito", size: 16))
-                            .fontWeight(.semibold)
-                            .foregroundColor(.black.opacity(0.85))
-                        Text("1. Open LM Studio → Models tab").font(.custom("Nunito", size: 14)).foregroundColor(.black.opacity(0.75))
-                        Text("2. Search for 'Qwen2.5-VL-3B' and install the Instruct variant").font(.custom("Nunito", size: 14)).foregroundColor(.black.opacity(0.75))
-                        Text("3. Turn on ‘Local Server’ in LM Studio (default http://localhost:1234)").font(.custom("Nunito", size: 14)).foregroundColor(.black.opacity(0.75))
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("After installing LM Studio, download the recommended model:")
+                            .font(.custom("Nunito", size: 14))
+                            .foregroundColor(.black.opacity(0.6))
+
+                        DayflowSurfaceButton(
+                            action: openLMStudioModelDownload,
+                            content: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "arrow.down.circle.fill").font(.system(size: 14))
+                                    Text("Download Qwen 2.5 VL in LM Studio").font(.custom("Nunito", size: 14)).fontWeight(.semibold)
+                                }
+                            },
+                            background: Color(red: 0.25, green: 0.17, blue: 0),
+                            foreground: .white,
+                            borderColor: .clear,
+                            cornerRadius: 8,
+                            horizontalPadding: 24,
+                            verticalPadding: 12,
+                            showOverlayStroke: true
+                        )
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("This will open LM Studio and prompt you to download the model (≈3GB).")
+                                .font(.custom("Nunito", size: 13))
+                                .foregroundColor(.black.opacity(0.65))
+
+                            Text("Once downloaded, turn on 'Local Server' in LM Studio (default http://localhost:1234)")
+                                .font(.custom("Nunito", size: 13))
+                                .foregroundColor(.black.opacity(0.65))
+                        }
+                        .padding(.top, 4)
+
+                        // Fallback manual instructions
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Manual setup:")
+                                .font(.custom("Nunito", size: 12))
+                                .fontWeight(.semibold)
+                                .foregroundColor(.black.opacity(0.5))
+                            Text("1. Open LM Studio → Models tab")
+                                .font(.custom("Nunito", size: 12))
+                                .foregroundColor(.black.opacity(0.45))
+                            Text("2. Search for 'Qwen2.5-VL-3B' and install the Instruct variant")
+                                .font(.custom("Nunito", size: 12))
+                                .foregroundColor(.black.opacity(0.45))
+                        }
+                        .padding(.top, 8)
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
@@ -559,6 +598,12 @@ struct LLMProviderSetupView: View {
     
     private func openLMStudioDownload() {
         if let url = URL(string: "https://lmstudio.ai/") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func openLMStudioModelDownload() {
+        if let url = URL(string: "https://model.lmstudio.ai/download/lmstudio-community/Qwen2.5-VL-3B-Instruct-GGUF") {
             NSWorkspace.shared.open(url)
         }
     }
