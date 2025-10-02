@@ -165,13 +165,11 @@ struct MainView: View {
                     .padding(15)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 14.72286, style: .continuous)
-                    .fill(Color.white.opacity(0.2))
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 14.72286, style: .continuous))
-            // No outline stroke — clean white panel
+            .padding(0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(.white.opacity(0.22))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .shadow(color: .black.opacity(0.08), radius: 6, x: 0, y: 0)
         }
         .padding(.trailing, 20)
         .padding(.bottom, 20)

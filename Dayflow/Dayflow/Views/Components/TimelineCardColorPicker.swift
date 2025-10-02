@@ -409,6 +409,7 @@ fileprivate struct CategoryView: View {
                         .shadow(color: Color.black.opacity(0.15), radius: 2, y: 1)
                     Text(category.name)
                         .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.black)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
