@@ -67,7 +67,38 @@ if [[ ! -d "${APP_PATH}" ]]; then
   exit 1
 fi
 
-echo "[2/7] Determining Developer ID signing identity…"
+echo "[2/8] Uploading dSYM to Sentry for crash symbolication…"
+if [[ -n "${SENTRY_AUTH_TOKEN:-}" && -n "${SENTRY_ORG:-}" && -n "${SENTRY_PROJECT:-}" ]]; then
+  if ! command -v sentry-cli >/dev/null 2>&1; then
+    echo "WARNING: sentry-cli not found. Install with: brew install getsentry/tools/sentry-cli" >&2
+    echo "         Skipping dSYM upload. Crash reports will not be symbolicated." >&2
+  else
+    # Find the dSYM bundle in DerivedData
+    DSYM_PATH="${DERIVED_DATA}/Build/Products/${CONFIG}/${APP_NAME}.app.dSYM"
+    if [[ -d "${DSYM_PATH}" ]]; then
+      # Get version and build number from Info.plist
+      VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${APP_PATH}/Contents/Info.plist" 2>/dev/null || echo "unknown")
+      BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${APP_PATH}/Contents/Info.plist" 2>/dev/null || echo "unknown")
+      RELEASE="${VERSION}+${BUILD}"
+
+      echo "Uploading dSYM for release ${RELEASE} to ${SENTRY_ORG}/${SENTRY_PROJECT}..."
+      SENTRY_AUTH_TOKEN="${SENTRY_AUTH_TOKEN}" sentry-cli upload-dif \
+        --org "${SENTRY_ORG}" \
+        --project "${SENTRY_PROJECT}" \
+        "${DSYM_PATH}"
+
+      echo "✓ dSYM uploaded successfully"
+    else
+      echo "WARNING: dSYM not found at ${DSYM_PATH}" >&2
+      echo "         Check that DEBUG_INFORMATION_FORMAT is set to 'dwarf-with-dsym' in build settings." >&2
+    fi
+  fi
+else
+  echo "Skipping dSYM upload: SENTRY_AUTH_TOKEN, SENTRY_ORG, or SENTRY_PROJECT not set"
+  echo "Add these to scripts/release.env to enable crash symbolication"
+fi
+
+echo "[3/8] Determining Developer ID signing identity…"
 SIGN_ID=${SIGN_ID:-}
 if [[ -z "${SIGN_ID}" ]]; then
   # Try to pick the first available Developer ID Application identity.
@@ -80,13 +111,13 @@ if [[ -z "${SIGN_ID}" ]]; then
 fi
 echo "Using signing identity: ${SIGN_ID}"
 
-echo "[3/7] Creating sanitized copy for signing…"
+echo "[4/8] Creating sanitized copy for signing…"
 rm -rf "${SANITIZED_DIR}"
 mkdir -p "${SANITIZED_DIR}"
 # Copy without extended attributes or resource forks
 ditto --noextattr --norsrc "${APP_PATH}" "${SANITIZED_APP}"
 
-echo "[4/7] Codesigning (no --deep, proper Sparkle helpers)…"
+echo "[5/8] Codesigning (no --deep, proper Sparkle helpers)…"
 # Ensure any stray metadata is gone
 rm -f "${SANITIZED_APP}"/Icon? 2>/dev/null || true
 find -L "${SANITIZED_APP}" -name ".DS_Store" -delete || true
@@ -119,6 +150,16 @@ if [[ -d "${SPARKLE_DIR}" ]]; then
     "${SPARKLE_DIR}/../../Current" 2>/dev/null || \
   codesign -vvv --force -o runtime --sign "${SIGN_ID}" \
     "${SPARKLE_DIR}"
+fi
+
+# Re-sign Sentry framework to ensure proper resource sealing
+SENTRY_DIR="${SANITIZED_APP}/Contents/Frameworks/Sentry.framework"
+if [[ -d "${SENTRY_DIR}" ]]; then
+  # Sign the versioned framework (handles both Current symlink and direct path)
+  codesign -vvv --force -o runtime --sign "${SIGN_ID}" \
+    "${SENTRY_DIR}/Versions/Current" 2>/dev/null || \
+  codesign -vvv --force -o runtime --sign "${SIGN_ID}" \
+    "${SENTRY_DIR}"
 fi
 
 # Inject analytics and crash reporting keys (optional) before final app signing
@@ -175,11 +216,11 @@ if command -v rg >/dev/null 2>&1; then
   fi
 fi
 
-echo "[5/7] Verifying signature…"
+echo "[6/8] Verifying signature…"
 codesign --verify --deep --strict --verbose=2 "${SANITIZED_APP}"
 spctl -a -vvv --type execute "${SANITIZED_APP}" || true
 
-echo "[6/7] Creating DMG with create-dmg…"
+echo "[7/8] Creating DMG with create-dmg…"
 # Require create-dmg for reliable DMG styling
 if ! command -v create-dmg >/dev/null 2>&1; then
   echo "ERROR: create-dmg is required but not installed." >&2
@@ -212,7 +253,7 @@ create-dmg \
   "${DMG_NAME}" \
   "${SANITIZED_APP}"
 
-echo "[7/7] Submitting DMG for notarization…"
+echo "[8/8] Submitting DMG for notarization…"
 NOTARY_ARGS=("${DMG_NAME}")
 if [[ "${NO_NOTARIZE:-0}" == "1" ]]; then
   echo "Skipping notarization: NO_NOTARIZE=1"
@@ -233,7 +274,7 @@ fi
 
 if [[ ${#NOTARY_ARGS[@]} -gt 0 ]]; then
   xcrun notarytool "${NOTARY_ARGS[@]}"
-  echo "[7/7] Stapling notarization ticket…"
+echo "[8/8] Stapling notarization ticket…"
   xcrun stapler staple "${DMG_NAME}"
   xcrun stapler validate "${DMG_NAME}"
 else
