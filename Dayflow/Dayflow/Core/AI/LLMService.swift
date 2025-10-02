@@ -49,61 +49,34 @@ final class LLMService: LLMServicing {
         let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
         print("\n🏗️ [LLMService] Creating provider at \(timestamp)")
         print("   Provider type: \(type)")
-        
+
         switch type {
         case .geminiDirect:
-            print("🔑 [LLMService] Attempting to retrieve Gemini API key from Keychain...")
-            
-            // Try to retrieve API key with detailed logging
-            if let apiKey = KeychainManager.shared.retrieve(for: "gemini") {
-                print("✅ [LLMService] API key retrieved from Keychain")
-                print("   Key length: \(apiKey.count) characters")
-                print("   Key prefix: \(apiKey.prefix(8))...")
-                
-                if apiKey.isEmpty {
-                    print("❌ [LLMService] API key is empty string - cannot create provider")
-                    return nil
-                }
-                
-                print("✅ [LLMService] Creating GeminiDirectProvider with valid API key")
+            if let apiKey = KeychainManager.shared.retrieve(for: "gemini"), !apiKey.isEmpty {
                 return GeminiDirectProvider(apiKey: apiKey)
             } else {
-                print("❌ [LLMService] Failed to retrieve API key from Keychain")
-                print("   This might be due to:")
-                print("   - Keychain access timing issue")
-                print("   - Sandbox restrictions")
-                print("   - Security context mismatch")
-                
-                // Try to check if UserDefaults is accessible
-                if let _ = UserDefaults.standard.object(forKey: "llmProviderType") {
-                    print("   ✅ UserDefaults IS accessible")
-                } else {
-                    print("   ❌ UserDefaults also appears inaccessible")
-                }
-                
+                print("❌ [LLMService] Failed to retrieve Gemini API key from Keychain")
                 return nil
             }
-            
+
         case .dayflowBackend(let endpoint):
-            print("🔑 [LLMService] Attempting to retrieve Dayflow token from Keychain...")
-            print("   Endpoint: \(endpoint)")
-            
-            if let token = KeychainManager.shared.retrieve(for: "dayflow") {
-                print("✅ [LLMService] Token retrieved (length: \(token.count))")
-                if token.isEmpty {
-                    print("❌ [LLMService] Token is empty string")
-                    return nil
-                }
+            if let token = KeychainManager.shared.retrieve(for: "dayflow"), !token.isEmpty {
                 return DayflowBackendProvider(token: token, endpoint: endpoint)
             } else {
                 print("❌ [LLMService] Failed to retrieve Dayflow token from Keychain")
                 return nil
             }
-            
+
         case .ollamaLocal(let endpoint):
-            print("🦙 [LLMService] Creating OllamaProvider")
-            print("   Endpoint: \(endpoint)")
             return OllamaProvider(endpoint: endpoint)
+        }
+    }
+
+    private func providerName() -> String {
+        switch providerType {
+        case .geminiDirect: return "gemini"
+        case .dayflowBackend: return "dayflow"
+        case .ollamaLocal: return "ollama"
         }
     }
     
@@ -127,32 +100,12 @@ final class LLMService: LLMServicing {
                 // Track analysis batch started
                 await AnalyticsService.shared.capture("analysis_batch_started", [
                     "batch_id": batchId,
-                    "total_duration_seconds": batchEndTs - batchStartTs
+                    "total_duration_seconds": batchEndTs - batchStartTs,
+                    "llm_provider": providerName()
                 ])
                 
                 // Check provider inside the do block so errors go through catch
                 guard let provider = provider else {
-                    print("❌ [LLMService] Provider is nil - checking diagnostics:")
-                    
-                    // Additional diagnostic checks
-                    if let data = UserDefaults.standard.data(forKey: "llmProviderType") {
-                        print("   ✅ UserDefaults has llmProviderType: \(data.count) bytes")
-                        if let str = String(data: data, encoding: .utf8) {
-                            print("   Content: \(str)")
-                        }
-                    } else {
-                        print("   ❌ UserDefaults missing llmProviderType")
-                    }
-                    
-                    // Try direct Keychain check
-                    print("   Attempting direct Keychain check...")
-                    let directCheck = KeychainManager.shared.retrieve(for: "gemini")
-                    if directCheck != nil {
-                        print("   ✅ Direct Keychain check succeeded")
-                    } else {
-                        print("   ❌ Direct Keychain check failed")
-                    }
-                    
                     throw NSError(domain: "LLMService", code: 1, userInfo: [NSLocalizedDescriptionKey: "No LLM provider configured. Please configure in settings."])
                 }
                 
@@ -337,7 +290,8 @@ final class LLMService: LLMServicing {
                 await AnalyticsService.shared.capture("analysis_batch_completed", [
                     "batch_id": batchId,
                     "cards_generated": cards.count,
-                    "processing_duration_seconds": Int(Date().timeIntervalSince(processingStartTime))
+                    "processing_duration_seconds": Int(Date().timeIntervalSince(processingStartTime)),
+                    "llm_provider": providerName()
                 ])
 
                 completion(.success(ProcessedBatchResult(cards: cards, cardIds: insertedCardIds)))
@@ -352,7 +306,8 @@ final class LLMService: LLMServicing {
                 await AnalyticsService.shared.capture("analysis_batch_failed", [
                     "batch_id": batchId,
                     "error_message": error.localizedDescription,
-                    "processing_duration_seconds": Int(Date().timeIntervalSince(processingStartTime))
+                    "processing_duration_seconds": Int(Date().timeIntervalSince(processingStartTime)),
+                    "llm_provider": providerName()
                 ])
 
                 // Mark batch as failed
