@@ -184,7 +184,9 @@ struct MainView: View {
         .onAppear {
             // screen viewed and initial timeline view
             AnalyticsService.shared.screen("timeline")
-            AnalyticsService.shared.capture("timeline_viewed", ["date_bucket": dayString(selectedDate)])
+            AnalyticsService.shared.withSampling(probability: 0.01) {
+                AnalyticsService.shared.capture("timeline_viewed", ["date_bucket": dayString(selectedDate)])
+            }
             // Orchestrated entrance animations following Emil Kowalski principles
             // Fast, under 300ms, natural spring motion
             
@@ -239,7 +241,9 @@ struct MainView: View {
             AnalyticsService.shared.capture("tab_selected", ["tab": tabName])
             AnalyticsService.shared.screen(tabName)
             if newIcon == .timeline {
-                AnalyticsService.shared.capture("timeline_viewed", ["date_bucket": dayString(selectedDate)])
+                AnalyticsService.shared.withSampling(probability: 0.01) {
+                    AnalyticsService.shared.capture("timeline_viewed", ["date_bucket": dayString(selectedDate)])
+                }
             }
         }
         .onChange(of: selectedDate) { newDate in
@@ -252,7 +256,9 @@ struct MainView: View {
                 ])
             }
             previousDate = newDate
-            AnalyticsService.shared.capture("timeline_viewed", ["date_bucket": dayString(newDate)])
+            AnalyticsService.shared.withSampling(probability: 0.01) {
+                AnalyticsService.shared.capture("timeline_viewed", ["date_bucket": dayString(newDate)])
+            }
         }
         .onChange(of: selectedActivity?.id) { _ in
             guard let a = selectedActivity else { return }

@@ -168,7 +168,8 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
     }
 
     private func shouldRetry(_ err: Error) -> Bool {
-        shouldRetry(err as NSError)
+        let nsError = err as NSError
+        return shouldRetry(nsError as NSError?)
     }
     
     private func isUserInitiatedStop(_ err: NSError?) -> Bool {
@@ -192,7 +193,8 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
     }
 
     private func isUserInitiatedStop(_ err: Error) -> Bool {
-        isUserInitiatedStop(err as NSError)
+        let nsError = err as NSError
+        return isUserInitiatedStop(nsError as NSError?)
     }
 
     private func makeStream(attempt: Int = 1, maxAttempts: Int = 4) async {
@@ -290,7 +292,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
         try await s.startCapture()
         stream = s
         dbg("stream started")
-        AnalyticsService.shared.capture("recording_started")
+        AnalyticsService.shared.withSampling(probability: 0.01) {
+            AnalyticsService.shared.capture("recording_started")
+        }
     }
 
     private func stopStream() {
