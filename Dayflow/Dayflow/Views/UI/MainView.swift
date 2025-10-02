@@ -9,6 +9,7 @@ import SwiftUI
 import AVKit
 import AVFoundation
 import AppKit
+import Sentry
 
 struct MainView: View {
     @EnvironmentObject private var appState: AppState
@@ -87,14 +88,59 @@ struct MainView: View {
                     BugReportView()
                         .padding(15)
                 case .timeline:
-                    VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 18) {
                         // Header: Timeline title + Recording toggle (date controls moved to chips row)
                         HStack(alignment: .top) {
-                            Text("Timeline")
-                                .font(.custom("InstrumentSerif-Regular", size: 42))
-                                .foregroundColor(Color.black)
-                                .offset(x: timelineOffset)
-                                .opacity(timelineOpacity)
+                            HStack(spacing: 16) {
+                                Text(formatDateForDisplay(selectedDate))
+                                    .font(.custom("InstrumentSerif-Regular", size: 36))
+                                    .foregroundColor(Color.black)
+
+                                HStack(spacing: 3) {
+                                    Button(action: {
+                                        let from = selectedDate
+                                        let to = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
+                                        previousDate = selectedDate
+                                        selectedDate = to
+                                        lastDateNavMethod = "prev"
+                                        AnalyticsService.shared.capture("date_navigation", [
+                                            "method": "prev",
+                                            "from_day": dayString(from),
+                                            "to_day": dayString(to)
+                                        ])
+                                    }) {
+                                        Image("CalendarLeftButton")
+                                            .resizable()
+                                            .scaledToFit()
+                                            .frame(width: 26, height: 26)
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+
+                                    Button(action: {
+                                        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
+                                        if tomorrow <= Date() {
+                                            let from = selectedDate
+                                            previousDate = selectedDate
+                                            selectedDate = tomorrow
+                                            lastDateNavMethod = "next"
+                                            AnalyticsService.shared.capture("date_navigation", [
+                                                "method": "next",
+                                                "from_day": dayString(from),
+                                                "to_day": dayString(tomorrow)
+                                            ])
+                                        }
+                                    }) {
+                                        Image("CalendarRightButton")
+                                            .resizable()
+                                            .scaledToFit()
+                                            .frame(width: 26, height: 26)
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                    .disabled(Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate > Date())
+                                }
+                            }
+                            .offset(x: timelineOffset)
+                            .opacity(timelineOpacity)
 
                             Spacer()
 
@@ -113,13 +159,6 @@ struct MainView: View {
                                         .toggleStyle(SunriseGlassPillToggleStyle())
                                         .accessibilityLabel(Text("Recording"))
                                 }
-
-                                DateNavigationControls(
-                                    selectedDate: $selectedDate,
-                                    showDatePicker: $showDatePicker,
-                                    lastDateNavMethod: $lastDateNavMethod,
-                                    previousDate: $previousDate
-                                )
                             }
                         }
                         .padding(.horizontal, 10)
@@ -134,8 +173,8 @@ struct MainView: View {
                                         idleCategory: categoryStore.idleCategory,
                                         onManageCategories: { showCategoryEditor = true }
                                     )
-                                        .padding(.leading, 2)
-                                        .opacity(contentOpacity)
+                                    .padding(.leading, 10)
+                                    .opacity(contentOpacity)
 
                                     CanvasTimelineDataView(
                                         selectedDate: $selectedDate,
@@ -167,15 +206,25 @@ struct MainView: View {
             }
             .padding(0)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(.white.opacity(0.22))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .shadow(color: .black.opacity(0.08), radius: 6, x: 0, y: 0)
+            .background(
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.white)
+                        .shadow(color: .black.opacity(0.08), radius: 6, x: 0, y: 0)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.white)
+                        .blendMode(.destinationOut)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.white.opacity(0.22))
+                }
+                .compositingGroup()
+            )
         }
-        .padding(.trailing, 20)
-        .padding(.bottom, 20)
+        .padding([.top, .trailing, .bottom], 15)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.clear)
+        .ignoresSafeArea()
         .sheet(isPresented: $showDatePicker) {
             DatePickerSheet(selectedDate: $selectedDate, isPresented: $showDatePicker)
         }
@@ -236,6 +285,22 @@ struct MainView: View {
             case .bug: tabName = "bug_report"
             case .settings: tabName = "settings"
             }
+
+            // Add Sentry context for app state tracking
+            SentrySDK.configureScope { scope in
+                scope.setContext(value: [
+                    "active_view": tabName,
+                    "selected_date": dayString(selectedDate),
+                    "is_recording": appState.isRecording
+                ], key: "app_state")
+            }
+
+            // Add breadcrumb for view navigation
+            let navBreadcrumb = Breadcrumb(level: .info, category: "navigation")
+            navBreadcrumb.message = "Navigated to \(tabName)"
+            navBreadcrumb.data = ["view": tabName]
+            SentrySDK.addBreadcrumb(navBreadcrumb)
+
             AnalyticsService.shared.capture("tab_selected", ["tab": tabName])
             AnalyticsService.shared.screen(tabName)
             if newIcon == .timeline {
@@ -407,56 +472,83 @@ struct TabFilterBar: View {
     let idleCategory: TimelineCategory?
     let onManageCategories: () -> Void
 
-    private let chipRowHeight: CGFloat = 44
-    private let chipVerticalPadding: CGFloat = 6
-
     var body: some View {
-        HStack(spacing: 12) {
-            ZStack(alignment: .trailing) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(categories) { category in
-                            CategoryChip(category: category, isIdle: false)
-                        }
-
-                        if let idleCategory {
-                            CategoryChip(category: idleCategory, isIdle: true)
-                        }
+        ZStack(alignment: .trailing) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 5) {
+                    ForEach(categories) { category in
+                        CategoryChip(category: category, isIdle: false)
                     }
-                    .padding(.vertical, chipVerticalPadding)
-                    .padding(.leading, 4)
-                    .padding(.trailing, 12)
-                }
-                .frame(height: chipRowHeight)
-                .background(Color.clear)
-                .overlay(alignment: .trailing) {
-                    Rectangle()
-                        .fill(Color.white.opacity(0.2))
-                        .frame(width: chipRowHeight + 18, height: chipRowHeight)
-                        .allowsHitTesting(false)
-                }
 
-                Button(action: onManageCategories) {
-                    Image(systemName: "pencil")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(Color.black.opacity(0.75))
-                        .frame(
-                            width: chipRowHeight - (chipVerticalPadding * 2),
-                            height: chipRowHeight - (chipVerticalPadding * 2)
-                        )
-                        .background(Color.white.opacity(0.95))
-                        .overlay(
-                            Circle()
-                                .stroke(Color.black.opacity(0.08), lineWidth: 1)
-                        )
-                        .clipShape(Circle())
+                    if let idleCategory {
+                        CategoryChip(category: idleCategory, isIdle: true)
+                    }
+
+                    // Spacer for edit button (8px natural spacing)
+                    Color.clear.frame(width: 8)
                 }
-                .buttonStyle(.plain)
-                .padding(.trailing, 6)
+                .padding(.trailing, 34) // 26 (button width) + 8 (spacing)
             }
-            .frame(height: chipRowHeight)
+            .frame(height: 26)
+
+            // Gradient fade for overflow
+            HStack(spacing: 0) {
+                Spacer()
+                LinearGradient(
+                    gradient: Gradient(colors: [Color.clear, Color(hex: "FFF8F1") ?? Color.white]),
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(width: 40)
+                .allowsHitTesting(false)
+
+                Color(hex: "FFF8F1")
+                    .frame(width: 26)
+                    .allowsHitTesting(false)
+            }
+
+            // Edit button always visible on right
+            Button(action: onManageCategories) {
+                Image("CategoryEditButton")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 26, height: 26)
+            }
+            .buttonStyle(PlainButtonStyle())
         }
-        .padding(.leading, 15)
+        .frame(height: 26)
+    }
+
+    struct CategoryChip: View {
+        let category: TimelineCategory
+        let isIdle: Bool
+
+        var body: some View {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(Color(hex: category.colorHex) ?? .blue)
+                    .frame(width: 10, height: 10)
+
+                Text(category.name)
+                    .font(
+                        Font.custom("Nunito", size: 13)
+                            .weight(.medium)
+                    )
+                    .foregroundColor(Color(red: 0.2, green: 0.2, blue: 0.2))
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .frame(height: 26)
+            .background(.white.opacity(0.76))
+            .cornerRadius(6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .inset(by: 0.25)
+                    .stroke(Color(red: 0.88, green: 0.88, blue: 0.88), lineWidth: 0.5)
+            )
+        }
     }
 }
 
@@ -543,65 +635,6 @@ struct DateNavigationControls: View {
     }
 }
 
-private extension TabFilterBar {
-    struct CategoryChip: View {
-        let category: TimelineCategory
-        let isIdle: Bool
-
-        var body: some View {
-            let baseColor = Color(hex: category.colorHex)
-            let textColor = isIdle ? baseColor : adaptiveTextColor(for: category.colorHex)
-            let pillCornerRadius: CGFloat = 1000
-
-            return Text(category.name)
-                .font(.system(size: 13, weight: .semibold))
-                .lineLimit(1)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
-                .background(
-                    Group {
-                        if isIdle {
-                            Color.white.opacity(0.8)
-                        } else {
-                            baseColor.opacity(0.9)
-                        }
-                    }
-                )
-                .foregroundColor(textColor)
-                .overlay(
-                    RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous)
-                        .stroke(borderColor(for: baseColor, isIdle: isIdle), style: borderStyle(for: isIdle))
-                )
-                .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
-                .contentShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
-        }
-
-        private func borderColor(for color: Color, isIdle: Bool) -> Color {
-            if isIdle {
-                return color.opacity(0.6)
-            }
-            return Color.white.opacity(0.2)
-        }
-
-        private func borderStyle(for isIdle: Bool) -> StrokeStyle {
-            if isIdle {
-                return StrokeStyle(lineWidth: 1.2, dash: [4, 2])
-            }
-            return StrokeStyle(lineWidth: 1)
-        }
-
-        private func adaptiveTextColor(for hex: String) -> Color {
-            guard let nsColor = NSColor(hex: hex) else { return .white }
-            var r: CGFloat = 0
-            var g: CGFloat = 0
-            var b: CGFloat = 0
-            var a: CGFloat = 0
-            nsColor.usingColorSpace(.sRGB)?.getRed(&r, green: &g, blue: &b, alpha: &a)
-            let brightness = (0.299 * r) + (0.587 * g) + (0.114 * b)
-            return brightness > 0.6 ? Color.black.opacity(0.8) : .white
-        }
-    }
-}
 
 extension View {
     @ViewBuilder

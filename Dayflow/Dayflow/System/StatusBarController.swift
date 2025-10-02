@@ -2,8 +2,6 @@
 //  StatusBarController.swift
 //  Dayflow
 //
-//  Created by Jerry Liu on 4/26/25.
-//
 
 import AppKit
 import SwiftUI
@@ -39,13 +37,6 @@ final class StatusBarController {
     private lazy var menu: NSMenu = {
         let m = NSMenu()
 
-        // Open Dayflow (show main UI)
-        let openMain = NSMenuItem(title: "Open Dayflow…",
-                                  action: #selector(openMainUI),
-                                  keyEquivalent: "")
-        openMain.target = self
-        m.addItem(openMain)
-
         // Pause / Resume
         let t = NSMenuItem(title: "Pause Dayflow",
                            action: #selector(toggle),
@@ -53,6 +44,15 @@ final class StatusBarController {
         t.target = self
         m.addItem(t)
         self.toggleItem = t
+
+        m.addItem(NSMenuItem.separator())
+
+        // Open Dayflow (show main UI)
+        let openMain = NSMenuItem(title: "Open Dayflow…",
+                                  action: #selector(openMainUI),
+                                  keyEquivalent: "")
+        openMain.target = self
+        m.addItem(openMain)
 
         // Open Recordings…
         let open = NSMenuItem(title: "Open Recordings…",
@@ -67,7 +67,7 @@ final class StatusBarController {
                                  keyEquivalent: "")
         updates.target = self
         m.addItem(updates)
-        
+
         m.addItem(NSMenuItem.separator())
 
         // Quit Completely
