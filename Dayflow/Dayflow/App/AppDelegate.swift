@@ -2,8 +2,6 @@
 //  AppDelegate.swift
 //  Dayflow
 //
-//  Created by Jerry Liu on 4/26/25.
-//
 
 import AppKit
 import ServiceManagement
@@ -38,11 +36,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 // Enable debug logging in development (disable for production)
                 #if DEBUG
                 options.debug = true
+                options.tracesSampleRate = 1.0  // 100% in debug for testing
+                #else
+                options.tracesSampleRate = 0.1  // 10% in prod to reduce noise
                 #endif
                 // Attach stack traces to all messages (helpful for debugging)
                 options.attachStacktrace = true
-                // Performance monitoring sample rate (1.0 = 100%)
-                options.tracesSampleRate = 1.0
+                // Enable app hang detection (default 2 seconds)
+                options.enableAppHangTracking = true
+                options.appHangTimeoutInterval = 2.0
+                // Increase breadcrumb limit for better debugging context
+                options.maxBreadcrumbs = 200  // Default is 100
+                // Enable automatic session tracking
+                options.enableAutoSessionTracking = true
             }
         }
 
