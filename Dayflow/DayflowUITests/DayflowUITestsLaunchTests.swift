@@ -2,8 +2,6 @@
 //  DayflowUITestsLaunchTests.swift
 //  DayflowUITests
 //
-//  Created by Jerry Liu on 4/20/25.
-//
 
 import XCTest
 

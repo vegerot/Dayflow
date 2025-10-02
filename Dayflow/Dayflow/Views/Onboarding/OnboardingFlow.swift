@@ -2,8 +2,6 @@
 //  OnboardingFlow.swift
 //  Dayflow
 //
-//  Created by Jerry Liu on 4/26/25.
-//
 
 import Foundation
 import SwiftUI
