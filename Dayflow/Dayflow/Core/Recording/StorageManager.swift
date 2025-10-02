@@ -2,15 +2,10 @@
 //  StorageManager.swift
 //  Dayflow
 //
-//  Created by Jerry Liu on 4/26/25.
-//  Revised 5/1/25 – remove @MainActor isolation so callers from background
-//  queues/Swift concurrency contexts can access the API without "MainActor"
-//  hops.  All GRDB work is already serialized internally via `DatabaseQueue`,
-//  so thread‑safety is preserved.
-//
 
 import Foundation
 import GRDB
+import Sentry
 
 // Helper DateFormatter (can be static var in an extension or class)
 extension DateFormatter {
@@ -93,6 +88,7 @@ protocol StorageManaging: Sendable {
     func fetchRecentTimelineCardsForDebug(limit: Int) -> [TimelineCardDebugEntry]
 
     func fetchRecentLLMCallsForDebug(limit: Int) -> [LLMCallDebugEntry]
+    func fetchLLMCallsForBatches(batchIds: [Int64], limit: Int) -> [LLMCallDebugEntry]
 
     // Note: Transcript storage methods removed in favor of Observations
     
@@ -217,6 +213,7 @@ struct LLMCallDBRecord: Sendable {
 
 struct TimelineCardDebugEntry: Sendable {
     let createdAt: Date?
+    let batchId: Int64?
     let day: String
     let startTime: String
     let endTime: String
@@ -330,21 +327,53 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     // TEMPORARY DEBUG: Timing helpers for database operations
     private func timedWrite<T>(_ label: String, _ block: (Database) throws -> T) throws -> T {
         let start = CFAbsoluteTimeGetCurrent()
+
+        // Add breadcrumb before write operation
+        let writeBreadcrumb = Breadcrumb(level: .debug, category: "database")
+        writeBreadcrumb.message = "DB write: \(label)"
+        writeBreadcrumb.type = "debug"
+        SentrySDK.addBreadcrumb(writeBreadcrumb)
+
         let result = try db.write(block)
         let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+
         if debugSlowQueries && elapsed > slowThresholdMs {
             print("⚠️ SLOW WRITE [\(label)]: \(Int(elapsed))ms")
+
+            // Add warning breadcrumb for slow operations
+            let slowWriteBreadcrumb = Breadcrumb(level: .warning, category: "database")
+            slowWriteBreadcrumb.message = "SLOW DB write: \(label)"
+            slowWriteBreadcrumb.data = ["duration_ms": Int(elapsed)]
+            slowWriteBreadcrumb.type = "error"
+            SentrySDK.addBreadcrumb(slowWriteBreadcrumb)
         }
+
         return result
     }
 
     private func timedRead<T>(_ label: String, _ block: (Database) throws -> T) throws -> T {
         let start = CFAbsoluteTimeGetCurrent()
+
+        // Add breadcrumb before read operation
+        let readBreadcrumb = Breadcrumb(level: .debug, category: "database")
+        readBreadcrumb.message = "DB read: \(label)"
+        readBreadcrumb.type = "debug"
+        SentrySDK.addBreadcrumb(readBreadcrumb)
+
         let result = try db.read(block)
         let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+
         if debugSlowQueries && elapsed > slowThresholdMs {
             print("⚠️ SLOW READ [\(label)]: \(Int(elapsed))ms")
+
+            // Add warning breadcrumb for slow operations
+            let slowReadBreadcrumb = Breadcrumb(level: .warning, category: "database")
+            slowReadBreadcrumb.message = "SLOW DB read: \(label)"
+            slowReadBreadcrumb.data = ["duration_ms": Int(elapsed)]
+            slowReadBreadcrumb.type = "error"
+            SentrySDK.addBreadcrumb(slowReadBreadcrumb)
         }
+
         return result
     }
 
@@ -860,13 +889,14 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
         return (try? db.read { db in
             try Row.fetchAll(db, sql: """
-                SELECT day, start, end, category, subcategory, title, summary, detailed_summary, created_at
+                SELECT batch_id, day, start, end, category, subcategory, title, summary, detailed_summary, created_at
                 FROM timeline_cards
                 ORDER BY created_at DESC, id DESC
                 LIMIT ?
             """, arguments: [limit]).map { row in
                 TimelineCardDebugEntry(
                     createdAt: row["created_at"],
+                    batchId: row["batch_id"],
                     day: row["day"] ?? "",
                     startTime: row["start"] ?? "",
                     endTime: row["end"] ?? "",
@@ -890,6 +920,41 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 ORDER BY created_at DESC, id DESC
                 LIMIT ?
             """, arguments: [limit]).map { row in
+                LLMCallDebugEntry(
+                    createdAt: row["created_at"],
+                    batchId: row["batch_id"],
+                    callGroupId: row["call_group_id"],
+                    attempt: row["attempt"] ?? 0,
+                    provider: row["provider"] ?? "",
+                    model: row["model"],
+                    operation: row["operation"] ?? "",
+                    status: row["status"] ?? "",
+                    latencyMs: row["latency_ms"],
+                    httpStatus: row["http_status"],
+                    requestMethod: row["request_method"],
+                    requestURL: row["request_url"],
+                    requestBody: row["request_body"],
+                    responseBody: row["response_body"],
+                    errorMessage: row["error_message"]
+                )
+            }
+        }) ?? []
+    }
+
+    func fetchLLMCallsForBatches(batchIds: [Int64], limit: Int) -> [LLMCallDebugEntry] {
+        guard !batchIds.isEmpty, limit > 0 else { return [] }
+
+        // Create SQL placeholders for batch IDs
+        let placeholders = Array(repeating: "?", count: batchIds.count).joined(separator: ",")
+
+        return (try? db.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT created_at, batch_id, call_group_id, attempt, provider, model, operation, status, latency_ms, http_status, request_method, request_url, request_body, response_body, error_message
+                FROM llm_calls
+                WHERE batch_id IN (\(placeholders))
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+            """, arguments: StatementArguments(batchIds + [Int64(limit)])).map { row in
                 LLMCallDebugEntry(
                     createdAt: row["created_at"],
                     batchId: row["batch_id"],

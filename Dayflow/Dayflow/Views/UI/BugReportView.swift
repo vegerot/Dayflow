@@ -131,8 +131,17 @@ struct BugReportView: View {
         isCopyingDebugLogs = true
 
         Task {
+            // Fetch recent timeline cards first
             let timeline = StorageManager.shared.fetchRecentTimelineCardsForDebug(limit: 5)
-            let llmCalls = StorageManager.shared.fetchRecentLLMCallsForDebug(limit: 20)
+
+            // Extract unique batch IDs from timeline cards
+            let batchIds = Array(Set(timeline.compactMap { $0.batchId }))
+
+            // Fetch LLM calls only for these batches (use higher limit as safety cap)
+            let llmCalls = batchIds.isEmpty
+                ? []
+                : StorageManager.shared.fetchLLMCallsForBatches(batchIds: batchIds, limit: 100)
+
             let logString = DebugLogFormatter.makeLog(timeline: timeline, llmCalls: llmCalls)
 
             await MainActor.run {
