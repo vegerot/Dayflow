@@ -62,7 +62,11 @@ struct VideoLaunchView: View {
         
         let playerItem = AVPlayerItem(url: tempURL)
         player = AVPlayer(playerItem: playerItem)
-        
+
+        // Silence audio to prevent interrupting user's music
+        player?.isMuted = true
+        player?.volume = 0
+
         // Prevent system-level pause/interruptions
         player?.automaticallyWaitsToMinimizeStalling = false
         player?.actionAtItemEnd = .none
