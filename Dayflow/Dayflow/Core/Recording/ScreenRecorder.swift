@@ -2,18 +2,7 @@
 //  ScreenRecorder.swift
 //  Dayflow
 //
-//  Lightweight screen recorder – captures the main display at 1280 × 800
-//  and stores 15-second H.264 (.mp4) chunks while `AppState.shared.isRecording` is true.
-//
-//  Created 5 May 2025.  Last cleaned-up 17 May 2025.
-//
-//  Notes
-//  -----
-//  •  The recorder lives entirely on its own serial queue (`q`).
-//  •  Recording auto-restarts after errors and after system sleep/wake or
-//     lock/unlock events.
-//  •  Debug prints are compiled-in **only** for DEBUG builds.
-//
+
 import Foundation
 @preconcurrency import ScreenCaptureKit
 @preconcurrency import AVFoundation
@@ -22,6 +11,7 @@ import IOKit.pwr_mgt
 import AppKit
 import CoreGraphics
 import CoreText
+import Sentry
 
 private enum C {
     static let targetHeight = 1080               // Target ~1080p resolution
@@ -63,6 +53,39 @@ private enum SCStreamErrorCode: Int {
 @inline(__always) func dbg(_: @autoclosure () -> String) {}
 #endif
 
+/// Explicit state machine for the recorder lifecycle
+private enum RecorderState: Equatable {
+    case idle           // Not recording, no active resources
+    case starting       // Initiating stream creation (async operation in progress)
+    case recording      // Active stream + writer
+    case finishing      // Cleaning up current segment
+    case paused         // System event pause (sleep/lock), will auto-resume
+
+    var description: String {
+        switch self {
+        case .idle: return "idle"
+        case .starting: return "starting"
+        case .recording: return "recording"
+        case .finishing: return "finishing"
+        case .paused: return "paused"
+        }
+    }
+
+    var canStart: Bool {
+        switch self {
+        case .idle, .paused: return true
+        case .starting, .recording, .finishing: return false
+        }
+    }
+
+    var canStop: Bool {
+        switch self {
+        case .starting, .recording, .finishing: return true
+        case .idle, .paused: return false
+        }
+    }
+}
+
 final class ScreenRecorder: NSObject, SCStreamOutput {
 
     @MainActor
@@ -82,10 +105,10 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
                     guard let self else { return }
                     self.wantsRecording = rec
 
-                    // Clear stale resume intent when user disables recording
+                    // Clear paused state when user disables recording
                     // This prevents auto-resume after sleep/wake if user turned it off
-                    if !rec {
-                        self.resumeAfterPause = false
+                    if !rec && self.state == .paused {
+                        self.transition(to: .idle, context: "user disabled recording")
                     }
 
                     rec ? self.start() : self.stop()
@@ -119,15 +142,35 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
     private var sub    : AnyCancellable?
     private var activeDisplaySub: AnyCancellable?
     private var frames : Int = 0
-    private var isStarting = false            // guards concurrent starts
-    private var isFinishing = false           // guards concurrent finishes
-    private var resumeAfterPause = false      // remember intent across interruptions
+    private var state: RecorderState = .idle  // Single source of truth for recorder state
     private var wantsRecording = false        // mirrors AppState flag on recorder queue
     private var recordingWidth: Int = 1280   // Store recording dimensions
     private var recordingHeight: Int = 800
     private var tracker: ActiveDisplayTracker!
     private var currentDisplayID: CGDirectDisplayID?
     private var requestedDisplayID: CGDirectDisplayID?
+
+    /// Transitions to a new state and logs it for debugging
+    private func transition(to newState: RecorderState, context: String? = nil) {
+        let oldState = state
+        state = newState
+
+        let message = context.map { "\(oldState.description) → \(newState.description) (\($0))" }
+                      ?? "\(oldState.description) → \(newState.description)"
+        dbg("State: \(message)")
+
+        // Breadcrumbs are only sent if an error/crash occurs - zero cost otherwise
+        let breadcrumb = Breadcrumb(level: .info, category: "recorder_state")
+        breadcrumb.message = message
+        breadcrumb.data = [
+            "old_state": oldState.description,
+            "new_state": newState.description
+        ]
+        if let ctx = context {
+            breadcrumb.data?["context"] = ctx
+        }
+        SentrySDK.addBreadcrumb(breadcrumb)
+    }
 
     func start() {
         q.async { [weak self] in
@@ -136,11 +179,12 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
                 dbg("start – suppressed (recording disabled)")
                 return
             }
-            guard self.stream == nil,       // not already running
-                  self.isStarting == false  // not already starting
-            else { return dbg("start – already starting/running") }
+            guard self.state.canStart else {
+                dbg("start – invalid state: \(self.state.description)")
+                return
+            }
 
-            self.isStarting = true          // ←–––– set once
+            self.transition(to: .starting, context: "user/system start")
             Task { await self.makeStream() }
         }
     }
@@ -148,10 +192,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
     func stop() {
         q.async { [weak self] in
             guard let self else { return }
-            self.isStarting = false         // ←–––– clear **immediately**
 
             self.finishSegment(restart: false)
-            self.stopStream()               // (stopStream also calls reset())
+            self.stopStream()               // (stopStream transitions to idle)
         }
     }
 
@@ -254,11 +297,18 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
 
             // 4. kick-off
             try await startStream(filter: filter, config: cfg)
+
+            // Successfully started - transition to recording
+            q.async { [weak self] in
+                self?.transition(to: .recording, context: "stream started")
+            }
         }
         catch {
             dbg("makeStream failed [attempt \(attempt)] – \(error.localizedDescription)")
 
-            q.async { self.isStarting = false }
+            q.async { [weak self] in
+                self?.transition(to: .idle, context: "makeStream failed")
+            }
 
             // Check if this is a user-initiated stop
             if isUserInitiatedStop(error) {
@@ -266,7 +316,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
                 Task { @MainActor in self.forceStopFlag() }
                 return
             }
-            
+
             // Treat `noDisplay` like other transient issues
             let retryable = shouldRetry(error) || (error as? RecorderError) == .noDisplay
 
@@ -306,11 +356,12 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
             }
 
         }
-        
+
         stream = nil
-        isStarting = false
         currentDisplayID = nil             // clear stale ID so idle guards hold
-        reset(); dbg("stream stopped")
+        reset()
+        transition(to: .idle, context: "stream stopped")
+        dbg("stream stopped")
     }
 
     private func handleActiveDisplayChange(_ newID: CGDirectDisplayID) {
@@ -340,6 +391,15 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
     private func beginSegment() {
         guard writer == nil else { return }
         let url = StorageManager.shared.nextFileURL(); fileURL = url; frames = 0
+
+        // Add breadcrumb for recording segment start
+        let beginBreadcrumb = Breadcrumb(level: .info, category: "recording")
+        beginBreadcrumb.message = "Beginning new segment"
+        beginBreadcrumb.data = [
+            "file": url.lastPathComponent,
+            "resolution": "\(recordingWidth)x\(recordingHeight)"
+        ]
+        SentrySDK.addBreadcrumb(beginBreadcrumb)
 
         StorageManager.shared.registerChunk(url: url)
         do {
@@ -380,6 +440,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
             t.schedule(deadline: .now() + C.chunk)
             t.setEventHandler { [weak self] in self?.finishSegment() }
             t.resume(); timer = t
+
+            // Transition to recording now that segment is fully initialized
+            transition(to: .recording, context: "segment started")
         } catch {
             dbg("writer creation failed – \(error.localizedDescription)")
             StorageManager.shared.markChunkFailed(url: url); reset()
@@ -388,16 +451,28 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
 
     private func finishSegment(restart: Bool = true) {
         // Guard against concurrent calls
-        guard !isFinishing else { return }
-        isFinishing = true
-        
+        guard state != .finishing else { return }
+
+        // Only transition to finishing if we're actually recording
+        if state == .recording {
+            transition(to: .finishing, context: "finishing segment (restart: \(restart))")
+        }
+
+        // Add breadcrumb for finishing segment
+        let finishBreadcrumb = Breadcrumb(level: .info, category: "recording")
+        finishBreadcrumb.message = "Finishing segment (restart: \(restart))"
+        finishBreadcrumb.data = [
+            "frames": frames,
+            "file": fileURL?.lastPathComponent ?? "nil"
+        ]
+        SentrySDK.addBreadcrumb(finishBreadcrumb)
+
         // 1. stop the timer that would have closed the file
         timer?.cancel()
         timer = nil
 
         // 2. make sure we even have something to finish
         guard let w = writer, let inp = input, let url = fileURL else {
-            isFinishing = false
             return reset()
         }
 
@@ -405,7 +480,6 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
         guard frames > 0 else {
             w.cancelWriting()
             StorageManager.shared.markChunkFailed(url: url)
-            isFinishing = false
             reset()
             return
         }
@@ -414,7 +488,6 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
         guard w.status == .writing else {
             w.cancelWriting()
             StorageManager.shared.markChunkFailed(url: url)
-            isFinishing = false
             reset()
             return
         }
@@ -429,7 +502,6 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
                 StorageManager.shared.markChunkFailed(url: url)
             }
             self.reset()
-            self.isFinishing = false  // Clear the flag after completion
 
             guard restart else { return }
 
@@ -482,12 +554,20 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
             guard let self else { return }
             dbg("willSleep – pausing")
 
-            Task { @MainActor in
-                self.resumeAfterPause = AppState.shared.isRecording
+            self.q.async { [weak self] in
+                guard let self else { return }
+                // Remember that we want to resume after wake if we're currently recording
+                Task { @MainActor in
+                    if AppState.shared.isRecording {
+                        self.q.async { [weak self] in
+                            self?.transition(to: .paused, context: "system sleep")
+                        }
+                    }
+                }
             }
             self.stop()
             Task { @MainActor in
-                AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "system_sleep"]) 
+                AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "system_sleep"])
             }
         }
 
@@ -497,11 +577,13 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
             guard let self else { return }
             dbg("didWake – checking flag")
 
-            guard self.resumeAfterPause else { return }
-            self.resumeAfterPause = false      // consume the token
+            self.q.async { [weak self] in
+                guard let self else { return }
+                guard self.state == .paused else { return }
 
-            // give ScreenCaptureKit a moment to re-enumerate displays
-            self.resumeRecording(after: 5, context: "didWake")
+                // give ScreenCaptureKit a moment to re-enumerate displays
+                self.resumeRecording(after: 5, context: "didWake")
+            }
         }
 
         // -------- screen locked ------------
@@ -510,12 +592,19 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
             guard let self else { return }
             dbg("screen locked – pausing")
 
-            Task { @MainActor in
-                self.resumeAfterPause = AppState.shared.isRecording
+            self.q.async { [weak self] in
+                guard let self else { return }
+                Task { @MainActor in
+                    if AppState.shared.isRecording {
+                        self.q.async { [weak self] in
+                            self?.transition(to: .paused, context: "screen locked")
+                        }
+                    }
+                }
             }
             self.stop()
             Task { @MainActor in
-                AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "lock"]) 
+                AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "lock"])
             }
         }
 
@@ -525,10 +614,12 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
             guard let self else { return }
             dbg("screen unlocked – checking flag")
 
-            guard self.resumeAfterPause else { return }
-            self.resumeAfterPause = false
+            self.q.async { [weak self] in
+                guard let self else { return }
+                guard self.state == .paused else { return }
 
-            self.resumeRecording(after: 0.5, context: "screen unlock")
+                self.resumeRecording(after: 0.5, context: "screen unlock")
+            }
         }
 
         // -------- screensaver started ------
@@ -537,12 +628,19 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
             guard let self else { return }
             dbg("screensaver started – pausing")
 
-            Task { @MainActor in
-                self.resumeAfterPause = AppState.shared.isRecording
+            self.q.async { [weak self] in
+                guard let self else { return }
+                Task { @MainActor in
+                    if AppState.shared.isRecording {
+                        self.q.async { [weak self] in
+                            self?.transition(to: .paused, context: "screensaver started")
+                        }
+                    }
+                }
             }
             self.stop()
             Task { @MainActor in
-                AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "screensaver"]) 
+                AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "screensaver"])
             }
         }
 
@@ -552,10 +650,12 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
             guard let self else { return }
             dbg("screensaver stopped – checking flag")
 
-            guard self.resumeAfterPause else { return }
-            self.resumeAfterPause = false
+            self.q.async { [weak self] in
+                guard let self else { return }
+                guard self.state == .paused else { return }
 
-            self.resumeRecording(after: 0.5, context: "screensaver stop")
+                self.resumeRecording(after: 0.5, context: "screensaver stop")
+            }
         }
     }
 
