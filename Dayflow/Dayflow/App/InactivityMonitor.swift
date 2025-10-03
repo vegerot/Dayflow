@@ -61,11 +61,12 @@ final class InactivityMonitor: ObservableObject {
         ]
 
         for mask in masks {
-            if let token = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+            let token = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
                 guard let self = self else { return event }
                 self.handleInteraction()
                 return event
-            } {
+            }
+            if let token = token {
                 monitors.append(token)
             }
         }

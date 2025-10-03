@@ -24,7 +24,7 @@ struct DashboardView: View {
 
                 // Centered beta callout card over the preview area only
                 VStack(spacing: 10) {
-                    Text("This feature is still in beta.")
+                    Text("This feature is in development. Reach out via the feedback tab if you want to be the first to beta test it!")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(.black)
                         .multilineTextAlignment(.center)

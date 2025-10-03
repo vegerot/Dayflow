@@ -300,7 +300,13 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
 
             // Successfully started - transition to recording
             q.async { [weak self] in
-                self?.transition(to: .recording, context: "stream started")
+                guard let self else { return }
+                // Only transition if we're still in starting state (user didn't stop during startup)
+                guard self.state == .starting else {
+                    dbg("makeStream completed but state changed to \(self.state.description), ignoring")
+                    return
+                }
+                self.transition(to: .recording, context: "stream started")
             }
         }
         catch {
@@ -360,7 +366,11 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
         stream = nil
         currentDisplayID = nil             // clear stale ID so idle guards hold
         reset()
-        transition(to: .idle, context: "stream stopped")
+
+        // Only transition to .idle if not paused - preserve .paused state for auto-resume
+        if state != .paused {
+            transition(to: .idle, context: "stream stopped")
+        }
         dbg("stream stopped")
     }
 
@@ -373,9 +383,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
             return
         }
 
-        // Only flip streams when one is currently running.
-        guard currentDisplayID != nil else {
-            dbg("Active display changed while idle – will switch on next start")
+        // Only flip streams when one is currently running and we're in recording state.
+        guard currentDisplayID != nil, state == .recording else {
+            dbg("Active display changed while not recording – will switch on next start")
             return
         }
         guard newID != currentDisplayID else { return }
@@ -481,6 +491,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
             w.cancelWriting()
             StorageManager.shared.markChunkFailed(url: url)
             reset()
+            transition(to: .idle, context: "finishSegment - no frames")
             return
         }
         // ─────────────────────────────────────────────────────────────────
@@ -489,6 +500,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
             w.cancelWriting()
             StorageManager.shared.markChunkFailed(url: url)
             reset()
+            transition(to: .idle, context: "finishSegment - writer not writing")
             return
         }
 
@@ -507,7 +519,11 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
 
             // Hop back to the main actor to read the flag safely.
             Task { @MainActor in
-                if AppState.shared.isRecording {
+                guard AppState.shared.isRecording else { return }
+                self.q.async { [weak self] in
+                    guard let self else { return }
+                    // Double-check wantsRecording on recorder queue to catch stop() during finishWriting
+                    guard self.wantsRecording else { return }
                     self.beginSegment()
                 }
             }

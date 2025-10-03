@@ -326,10 +326,23 @@ struct VideoPlayerModal: View {
             startControlsTimer()
             // Capture spacebar to toggle play/pause while the modal is active
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                // Check if any text input field is focused (AppKit or SwiftUI)
+                if let responder = NSApp.keyWindow?.firstResponder {
+                    // Check for AppKit text fields
+                    if responder is NSTextField || responder is NSTextView || responder is NSText {
+                        return event
+                    }
+                    // Check for SwiftUI text fields (use class name string matching)
+                    let className = NSStringFromClass(type(of: responder))
+                    if className.contains("TextField") || className.contains("TextEditor") || className.contains("TextInput") {
+                        return event
+                    }
+                }
+
                 // 49 is the keyCode for Space on macOS
                 if event.keyCode == 49 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty {
                     viewModel.togglePlayPause()
-                    return nil // swallow the event
+                    return nil // swallow the event when not editing text
                 }
                 return event
             }

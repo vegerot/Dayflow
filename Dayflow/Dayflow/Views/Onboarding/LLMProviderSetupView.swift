@@ -86,6 +86,7 @@ struct LLMProviderSetupView: View {
                     Spacer()
                 }
                 .opacity(contentOpacity)
+                .textSelection(.enabled)
             }
             .padding(.leading, fixedOffset)
             

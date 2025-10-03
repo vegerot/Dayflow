@@ -21,7 +21,7 @@ struct JournalView: View {
 
                 // Centered white rectangle overlay
                 VStack(spacing: 10) {
-                    Text("This feature is still in beta.")
+                    Text("This feature is in development. Reach out via the feedback tab if you want to be the first to beta test it!")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(.black)
                         .multilineTextAlignment(.center)
