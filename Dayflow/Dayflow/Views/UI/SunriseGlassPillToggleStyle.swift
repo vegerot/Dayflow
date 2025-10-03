@@ -6,8 +6,8 @@ struct SunriseGlassPillToggleStyle: ToggleStyle {
         Color(hex: "FF7506")                       // darker brand orange
     ]
     var offColors: [Color] = [
-        Color.white.opacity(0.92),
-        Color.white.opacity(0.80)
+        Color(hex: "F0E9E6"),
+        Color(hex: "F0E9E6")
     ]
     var trackWidth: CGFloat = 64
     var trackHeight: CGFloat = 32

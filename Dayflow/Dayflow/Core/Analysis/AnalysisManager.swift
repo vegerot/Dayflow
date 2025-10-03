@@ -209,53 +209,52 @@ final class AnalysisManager: AnalysisManaging {
             
             DispatchQueue.main.async { progressHandler("Preparing to reprocess \(batchIds.count) selected batches...") }
             
-            // Delete all timeline cards for the day (since they can be merged across batches)
-            DispatchQueue.main.async { progressHandler("Deleting existing timeline cards for the day...") }
-            
-            // Get the day string from the first batch
             let allBatches = self.store.allBatches()
-            guard let firstBatch = allBatches.first(where: { batchIds.contains($0.id) }) else {
+            let existingBatchIds = Set(allBatches.map { $0.id })
+            let orderedBatchIds = batchIds.filter { existingBatchIds.contains($0) }
+
+            guard !orderedBatchIds.isEmpty else {
                 completion(.failure(NSError(domain: "AnalysisManager", code: 3, userInfo: [NSLocalizedDescriptionKey: "Could not find batch information"])))
                 return
             }
             
-            // Convert timestamp to day string
-            let date = Date(timeIntervalSince1970: TimeInterval(firstBatch.start))
-            let calendar = Calendar.current
-            let hour = calendar.component(.hour, from: date)
-            let logicalDate = hour < 4 ? calendar.date(byAdding: .day, value: -1, to: date) ?? date : date
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd"
-            let dayString = formatter.string(from: logicalDate)
-            
-            let videoPaths = self.store.deleteTimelineCards(forDay: dayString)
-            
-            // Delete observations
-            self.store.deleteObservations(forBatchIds: batchIds)
-            
-            // Delete video files
+            DispatchQueue.main.async { progressHandler("Removing timeline cards for selected batches...") }
+            let videoPaths = self.store.deleteTimelineCards(forBatchIds: orderedBatchIds)
+
+            self.store.deleteObservations(forBatchIds: orderedBatchIds)
+
             for path in videoPaths {
-                if let url = URL(string: path) {
+                if let url = URL(string: path), url.scheme != nil {
                     try? FileManager.default.removeItem(at: url)
+                } else {
+                    let fileURL = URL(fileURLWithPath: path)
+                    try? FileManager.default.removeItem(at: fileURL)
                 }
             }
-            
-            // Reset batch statuses
-            
-            DispatchQueue.main.async { progressHandler("Processing \(batchIds.count) batches...") }
-            
+
+            let resetBatchIdSet = Set(self.store.resetBatchStatuses(forBatchIds: orderedBatchIds))
+            let batchesToProcess = orderedBatchIds.filter { resetBatchIdSet.contains($0) }
+
+            guard !batchesToProcess.isEmpty else {
+                DispatchQueue.main.async { progressHandler("No eligible batches found to reprocess.") }
+                completion(.failure(NSError(domain: "AnalysisManager", code: 4, userInfo: [NSLocalizedDescriptionKey: "No eligible batches found to reprocess"])))
+                return
+            }
+
+            DispatchQueue.main.async { progressHandler("Processing \(batchesToProcess.count) batches...") }
+
             // Process batches
             var processedCount = 0
             var hasError = false
             
-            for (index, batchId) in batchIds.enumerated() {
+            for (index, batchId) in batchesToProcess.enumerated() {
                 if hasError { break }
                 
                 let batchStartTime = Date()
                 let elapsedTotal = Date().timeIntervalSince(overallStartTime)
                 
                 DispatchQueue.main.async { 
-                    progressHandler("Processing batch \(index + 1) of \(batchIds.count)... (Total elapsed: \(self.formatDuration(elapsedTotal)))")
+                    progressHandler("Processing batch \(index + 1) of \(batchesToProcess.count)... (Total elapsed: \(self.formatDuration(elapsedTotal)))")
                 }
                 
                 self.queueGeminiRequest(batchId: batchId)
@@ -303,7 +302,7 @@ final class AnalysisManager: AnalysisManaging {
             DispatchQueue.main.async {
                 progressHandler("""
                 ✅ Reprocessing complete!
-                • Processed: \(processedCount) of \(batchIds.count) batches
+                • Processed: \(processedCount) of \(batchesToProcess.count) batches
                 • Total time: \(self.formatDuration(totalDuration))
                 • Average time per batch: \(self.formatDuration(avgDuration))
                 """)

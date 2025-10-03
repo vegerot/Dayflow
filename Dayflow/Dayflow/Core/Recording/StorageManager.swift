@@ -103,8 +103,10 @@ protocol StorageManaging: Sendable {
     
     // Reprocessing Methods
     func deleteTimelineCards(forDay day: String) -> [String]  // Returns video paths to clean up
+    func deleteTimelineCards(forBatchIds batchIds: [Int64]) -> [String]
     func deleteObservations(forBatchIds batchIds: [Int64])
     func resetBatchStatuses(forDay day: String) -> [Int64]  // Returns affected batch IDs
+    func resetBatchStatuses(forBatchIds batchIds: [Int64]) -> [Int64]
     func fetchBatches(forDay day: String) -> [(id: Int64, startTs: Int, endTs: Int, status: String)]
 
     /// Chunks that belong to one batch, already sorted.
@@ -167,6 +169,7 @@ struct Distraction: Codable, Sendable, Identifiable {
 
 struct TimelineCard: Codable, Sendable, Identifiable {
     var id = UUID()
+    let batchId: Int64? // Tracks source batch for retry functionality
     let startTimestamp: String
     let endTimestamp: String
     let category: String
@@ -669,9 +672,19 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         var startDate = calendar.date(bySettingHour: startHour, minute: startMinute, second: 0, of: baseDate) ?? baseDate
 
         // If the parsed time is between midnight and 4 AM, and it's earlier than baseDate,
-        // it must be referring to the next day (batch crossed midnight)
+        // disambiguate whether it's same day (before batch) or next day (after midnight crossing)
         if startHour < 4 && startDate < baseDate {
-            startDate = calendar.date(byAdding: .day, value: 1, to: startDate) ?? startDate
+            let nextDayStartDate = calendar.date(byAdding: .day, value: 1, to: startDate) ?? startDate
+
+            // Pick whichever is closer to batch start time
+            let sameDayDistance = abs(startDate.timeIntervalSince(baseDate))
+            let nextDayDistance = abs(nextDayStartDate.timeIntervalSince(baseDate))
+
+            if nextDayDistance < sameDayDistance {
+                // Next day is closer - legitimate midnight crossing
+                startDate = nextDayStartDate
+            }
+            // Otherwise keep same day (LLM provided time before batch started)
         }
 
         let startTs = Int(startDate.timeIntervalSince1970)
@@ -680,6 +693,18 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         guard let endHour = endComponents.hour, let endMinute = endComponents.minute else { return nil }
 
         var endDate = calendar.date(bySettingHour: endHour, minute: endMinute, second: 0, of: baseDate) ?? baseDate
+
+        // Disambiguate end time day using same logic as start time
+        if endHour < 4 && endDate < baseDate {
+            let nextDayEndDate = calendar.date(byAdding: .day, value: 1, to: endDate) ?? endDate
+
+            let sameDayDistance = abs(endDate.timeIntervalSince(baseDate))
+            let nextDayDistance = abs(nextDayEndDate.timeIntervalSince(baseDate))
+
+            if nextDayDistance < sameDayDistance {
+                endDate = nextDayEndDate
+            }
+        }
 
         // Handle midnight crossing: if end time is before start time, it must be the next day
         if endDate < startDate {
@@ -740,6 +765,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     }
                 }
                 return TimelineCard(
+                    batchId: batchId,
                     startTimestamp: row["start"] ?? "",
                     endTimestamp: row["end"] ?? "",
                     category: row["category"],
@@ -756,7 +782,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             }
         }) ?? []
     }
-    
+
     // All batches, newest first
        func allBatches() -> [(id: Int64, start: Int, end: Int, status: String)] {
             (try? db.read { db in
@@ -818,6 +844,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
                 // Create TimelineCard instance using renamed columns
                 return TimelineCard(
+                    batchId: row["batch_id"],
                     startTimestamp: row["start"] ?? "", // Use row["start"]
                     endTimestamp: row["end"] ?? "",   // Use row["end"]
                     category: row["category"],
@@ -835,7 +862,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }
         return cards ?? []
     }
-    
+
     func fetchTimelineCardsByTimeRange(from: Date, to: Date) -> [TimelineCard] {
         let decoder = JSONDecoder()
         let fromTs = Int(from.timeIntervalSince1970)
@@ -865,6 +892,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
                 // Create TimelineCard instance using renamed columns
                 return TimelineCard(
+                    batchId: row["batch_id"],
                     startTimestamp: row["start"] ?? "",
                     endTimestamp: row["end"] ?? "",
                     category: row["category"],
@@ -1092,9 +1120,19 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 var startDate = calendar.date(bySettingHour: startHour, minute: startMinute, second: 0, of: baseDate) ?? baseDate
 
                 // If the parsed time is between midnight and 4 AM, and it's earlier than baseDate,
-                // it must be referring to the next day (batch crossed midnight)
+                // disambiguate whether it's same day (before batch) or next day (after midnight crossing)
                 if startHour < 4 && startDate < baseDate {
-                    startDate = calendar.date(byAdding: .day, value: 1, to: startDate) ?? startDate
+                    let nextDayStartDate = calendar.date(byAdding: .day, value: 1, to: startDate) ?? startDate
+
+                    // Pick whichever is closer to batch start time
+                    let sameDayDistance = abs(startDate.timeIntervalSince(baseDate))
+                    let nextDayDistance = abs(nextDayStartDate.timeIntervalSince(baseDate))
+
+                    if nextDayDistance < sameDayDistance {
+                        // Next day is closer - legitimate midnight crossing
+                        startDate = nextDayStartDate
+                    }
+                    // Otherwise keep same day (LLM provided time before batch started)
                 }
 
                 let startTs = Int(startDate.timeIntervalSince1970)
@@ -1103,6 +1141,18 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 guard let endHour = endComponents.hour, let endMinute = endComponents.minute else { continue }
 
                 var endDate = calendar.date(bySettingHour: endHour, minute: endMinute, second: 0, of: baseDate) ?? baseDate
+
+                // Disambiguate end time day using same logic as start time
+                if endHour < 4 && endDate < baseDate {
+                    let nextDayEndDate = calendar.date(byAdding: .day, value: 1, to: endDate) ?? endDate
+
+                    let sameDayDistance = abs(endDate.timeIntervalSince(baseDate))
+                    let nextDayDistance = abs(nextDayEndDate.timeIntervalSince(baseDate))
+
+                    if nextDayDistance < sameDayDistance {
+                        endDate = nextDayEndDate
+                    }
+                }
 
                 // Handle midnight crossing: if end time is before start time, it must be the next day
                 if endDate < startDate {
@@ -1361,7 +1411,41 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         
         return videoPaths
     }
-    
+
+    func deleteTimelineCards(forBatchIds batchIds: [Int64]) -> [String] {
+        guard !batchIds.isEmpty else { return [] }
+        var videoPaths: [String] = []
+        let placeholders = Array(repeating: "?", count: batchIds.count).joined(separator: ",")
+
+        do {
+            try timedWrite("deleteTimelineCards(forBatchIds:\(batchIds.count))") { db in
+                let rows = try Row.fetchAll(
+                    db,
+                    sql: """
+                        SELECT video_summary_url
+                        FROM timeline_cards
+                        WHERE batch_id IN (\(placeholders))
+                    """,
+                    arguments: StatementArguments(batchIds)
+                )
+
+                videoPaths = rows.compactMap { $0["video_summary_url"] as? String }
+
+                try db.execute(
+                    sql: """
+                        DELETE FROM timeline_cards
+                        WHERE batch_id IN (\(placeholders))
+                    """,
+                    arguments: StatementArguments(batchIds)
+                )
+            }
+        } catch {
+            print("deleteTimelineCards(forBatchIds:) failed: \(error)")
+        }
+
+        return videoPaths
+    }
+
     func deleteObservations(forBatchIds batchIds: [Int64]) {
         guard !batchIds.isEmpty else { return }
         
@@ -1409,6 +1493,42 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             }
         }
         
+        return affectedBatchIds
+    }
+
+    func resetBatchStatuses(forBatchIds batchIds: [Int64]) -> [Int64] {
+        guard !batchIds.isEmpty else { return [] }
+        var affectedBatchIds: [Int64] = []
+        let placeholders = Array(repeating: "?", count: batchIds.count).joined(separator: ",")
+
+        do {
+            try timedWrite("resetBatchStatuses(forBatchIds:\(batchIds.count))") { db in
+                let rows = try Row.fetchAll(
+                    db,
+                    sql: """
+                        SELECT id FROM analysis_batches
+                        WHERE id IN (\(placeholders))
+                    """,
+                    arguments: StatementArguments(batchIds)
+                )
+
+                affectedBatchIds = rows.compactMap { $0["id"] as? Int64 }
+                guard !affectedBatchIds.isEmpty else { return }
+
+                let affectedPlaceholders = Array(repeating: "?", count: affectedBatchIds.count).joined(separator: ",")
+                try db.execute(
+                    sql: """
+                        UPDATE analysis_batches
+                        SET status = 'pending', reason = NULL, llm_metadata = NULL
+                        WHERE id IN (\(affectedPlaceholders))
+                    """,
+                    arguments: StatementArguments(affectedBatchIds)
+                )
+            }
+        } catch {
+            print("resetBatchStatuses(forBatchIds:) failed: \(error)")
+        }
+
         return affectedBatchIds
     }
     

@@ -88,85 +88,84 @@ struct MainView: View {
                     BugReportView()
                         .padding(15)
                 case .timeline:
-                    VStack(alignment: .leading, spacing: 18) {
-                        // Header: Timeline title + Recording toggle (date controls moved to chips row)
-                        HStack(alignment: .top) {
-                            HStack(spacing: 16) {
-                                Text(formatDateForDisplay(selectedDate))
-                                    .font(.custom("InstrumentSerif-Regular", size: 36))
-                                    .foregroundColor(Color.black)
+                    GeometryReader { geo in
+                        HStack(alignment: .top, spacing: 0) {
+                            // Left column: header + chips + timeline
+                            VStack(alignment: .leading, spacing: 18) {
+                                // Header: Date navigation + Recording toggle
+                                HStack(alignment: .center) {
+                                    HStack(spacing: 16) {
+                                        Text(formatDateForDisplay(selectedDate))
+                                            .font(.custom("InstrumentSerif-Regular", size: 36))
+                                            .foregroundColor(Color.black)
 
-                                HStack(spacing: 3) {
-                                    Button(action: {
-                                        let from = selectedDate
-                                        let to = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
-                                        previousDate = selectedDate
-                                        selectedDate = to
-                                        lastDateNavMethod = "prev"
-                                        AnalyticsService.shared.capture("date_navigation", [
-                                            "method": "prev",
-                                            "from_day": dayString(from),
-                                            "to_day": dayString(to)
-                                        ])
-                                    }) {
-                                        Image("CalendarLeftButton")
-                                            .resizable()
-                                            .scaledToFit()
-                                            .frame(width: 26, height: 26)
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
+                                        HStack(spacing: 3) {
+                                            Button(action: {
+                                                let from = selectedDate
+                                                let to = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
+                                                previousDate = selectedDate
+                                                selectedDate = to
+                                                lastDateNavMethod = "prev"
+                                                AnalyticsService.shared.capture("date_navigation", [
+                                                    "method": "prev",
+                                                    "from_day": dayString(from),
+                                                    "to_day": dayString(to)
+                                                ])
+                                            }) {
+                                                Image("CalendarLeftButton")
+                                                    .resizable()
+                                                    .scaledToFit()
+                                                    .frame(width: 26, height: 26)
+                                            }
+                                            .buttonStyle(PlainButtonStyle())
 
-                                    Button(action: {
-                                        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
-                                        if tomorrow <= Date() {
-                                            let from = selectedDate
-                                            previousDate = selectedDate
-                                            selectedDate = tomorrow
-                                            lastDateNavMethod = "next"
-                                            AnalyticsService.shared.capture("date_navigation", [
-                                                "method": "next",
-                                                "from_day": dayString(from),
-                                                "to_day": dayString(tomorrow)
-                                            ])
+                                            Button(action: {
+                                                let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
+                                                if tomorrow <= Date() {
+                                                    let from = selectedDate
+                                                    previousDate = selectedDate
+                                                    selectedDate = tomorrow
+                                                    lastDateNavMethod = "next"
+                                                    AnalyticsService.shared.capture("date_navigation", [
+                                                        "method": "next",
+                                                        "from_day": dayString(from),
+                                                        "to_day": dayString(tomorrow)
+                                                    ])
+                                                }
+                                            }) {
+                                                Image("CalendarRightButton")
+                                                    .resizable()
+                                                    .scaledToFit()
+                                                    .frame(width: 26, height: 26)
+                                            }
+                                            .buttonStyle(PlainButtonStyle())
+                                            .disabled(Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate > Date())
                                         }
-                                    }) {
-                                        Image("CalendarRightButton")
-                                            .resizable()
-                                            .scaledToFit()
-                                            .frame(width: 26, height: 26)
                                     }
-                                    .buttonStyle(PlainButtonStyle())
-                                    .disabled(Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate > Date())
+                                    .offset(x: timelineOffset)
+                                    .opacity(timelineOpacity)
+
+                                    Spacer()
+
+                                    // Recording toggle (now inline with header)
+                                    HStack(spacing: 4) {
+                                        Text("Record")
+                                            .font(
+                                                Font.custom("Nunito", size: 12)
+                                                    .weight(.medium)
+                                            )
+                                            .foregroundColor(Color(red: 0.62, green: 0.44, blue: 0.36))
+
+                                        Toggle("Record", isOn: $appState.isRecording)
+                                            .labelsHidden()
+                                            .toggleStyle(SunriseGlassPillToggleStyle())
+                                            .scaleEffect(0.7)
+                                            .accessibilityLabel(Text("Recording"))
+                                    }
                                 }
-                            }
-                            .offset(x: timelineOffset)
-                            .opacity(timelineOpacity)
+                                .padding(.horizontal, 10)
 
-                            Spacer()
-
-                            VStack(alignment: .trailing, spacing: 10) {
-                                // Recording toggle (kept alongside header)
-                                HStack(spacing: 8) {
-                                    Text("Recording")
-                                        .font(
-                                            Font.custom("Nunito", size: 14)
-                                                .weight(.semibold)
-                                        )
-                                        .foregroundColor(.black)
-
-                                    Toggle("Recording", isOn: $appState.isRecording)
-                                        .labelsHidden()
-                                        .toggleStyle(SunriseGlassPillToggleStyle())
-                                        .accessibilityLabel(Text("Recording"))
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 10)
-
-                        // Content area: Left (chips + timeline) and Right (summary)
-                        GeometryReader { geo in
-                            HStack(alignment: .top, spacing: 20) {
-                                // Left column: chips row at top, timeline below
+                                // Content area: chips + timeline
                                 VStack(alignment: .leading, spacing: 12) {
                                     TabFilterBar(
                                         categories: categoryStore.editableCategories,
@@ -187,21 +186,35 @@ struct MainView: View {
                                     .opacity(contentOpacity)
                                 }
                                 .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            }
+                            .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            .padding(.top, 15)
+                            .padding(.bottom, 15)
+                            .padding(.leading, 15)
+                            .padding(.trailing, 5)
 
-                                // Right column: activity detail card — constrained height with internal scrolling for summary
+                            // Divider
+                            Rectangle()
+                                .fill(Color(hex: "ECECEC") ?? Color.gray)
+                                .frame(width: 1)
+                                .frame(maxHeight: .infinity)
+
+                            // Right column: activity detail card — spans full height
+                            ZStack(alignment: .topLeading) {
+                                Color.white.opacity(0.7)
+
                                 ActivityCard(
                                     activity: selectedActivity,
                                     maxHeight: geo.size.height,
                                     scrollSummary: true,
                                     hasAnyActivities: hasAnyActivities
                                 )
-                                    .frame(minWidth: 260, idealWidth: 380, maxWidth: 420)
-                                    .opacity(contentOpacity)
+                                .opacity(contentOpacity)
                             }
-                            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                            .frame(minWidth: 195, idealWidth: 285, maxWidth: 315, maxHeight: .infinity)
                         }
+                        .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
                     }
-                    .padding(15)
                 }
             }
             .padding(0)
@@ -357,10 +370,7 @@ struct MainView: View {
                         onDismiss: { showCategoryEditor = false }
                     )
                     .environmentObject(categoryStore)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        // Block tap from reaching backdrop
-                    }
+                    // Removed .contentShape(Rectangle()) and .onTapGesture to allow keyboard input
                 }
             }
         }
@@ -487,6 +497,7 @@ struct TabFilterBar: View {
                     // Spacer for edit button (8px natural spacing)
                     Color.clear.frame(width: 8)
                 }
+                .padding(.leading, 1)
                 .padding(.trailing, 34) // 26 (button width) + 8 (spacing)
             }
             .frame(height: 26)
@@ -731,7 +742,11 @@ struct ActivityCard: View {
     var hasAnyActivities: Bool = true
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var categoryStore: CategoryStore
-    
+
+    @State private var isRetrying = false
+    @State private var retryProgress: String = ""
+    @State private var retryError: String? = nil
+
     private let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "h:mm a"
@@ -741,32 +756,48 @@ struct ActivityCard: View {
     var body: some View {
         if let activity = activity {
             VStack(alignment: .leading, spacing: 16) {
-                // Header (icon removed by request)
-                HStack {
-                    Text(activity.title)
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.black)
-                    Spacer()
-                }
+                // Header
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(activity.title)
+                            .font(
+                                Font.custom("Nunito", size: 16)
+                                    .weight(.semibold)
+                            )
+                            .foregroundColor(.black)
 
-                if let badge = categoryBadge(for: activity.category) {
-                    HStack {
-                        Text(badge.name)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(badge.textColor)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(badge.background)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                        Spacer()
+                        Text("\(timeFormatter.string(from: activity.startTime)) to \(timeFormatter.string(from: activity.endTime))")
+                            .font(
+                                Font.custom("Nunito", size: 12)
+                            )
+                            .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
+                    }
+
+                    Spacer()
+
+                    // Retry button centered between title and time (only for failed cards)
+                    if isFailedCard(activity) {
+                        retryButtonInline(for: activity)
                     }
                 }
 
-                Text("\(timeFormatter.string(from: activity.startTime)) to \(timeFormatter.string(from: activity.endTime))")
-                    .font(.caption)
-                    .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
-                
+                // Error message (if retry failed)
+                if isFailedCard(activity), let error = retryError {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                            .font(.system(size: 12))
+
+                        Text(error)
+                            .font(.custom("Nunito", size: 11))
+                            .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
+                            .lineLimit(2)
+                    }
+                    .padding(8)
+                    .background(Color.red.opacity(0.05))
+                    .cornerRadius(6)
+                }
+
                 // Video thumbnail placeholder
                 if let videoURL = activity.videoSummaryURL {
                     VideoThumbnailView(
@@ -808,13 +839,7 @@ struct ActivityCard: View {
                     }
                 }
             }
-            .padding(20)
-            .background(Color.white)
-            .cornerRadius(8)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color(hex: "E5E5E5"), lineWidth: 1)
-            )
+            .padding(16)
             .if(maxHeight != nil) { view in
                 view.frame(maxHeight: maxHeight!)
             }
@@ -854,13 +879,8 @@ struct ActivityCard: View {
                 }
                 Spacer()
             }
+            .padding(16)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.white)
-            .cornerRadius(8)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color(hex: "E5E5E5"), lineWidth: 1)
-            )
             .if(maxHeight != nil) { view in
                 view.frame(maxHeight: maxHeight!)
             }
@@ -870,31 +890,42 @@ struct ActivityCard: View {
     @ViewBuilder
     private func summaryContent(for activity: TimelineActivity) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("SUMMARY")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundColor(Color(red: 0.45, green: 0.45, blue: 0.45))
-            
-            Text(activity.summary)
-                .font(.system(size: 12))
-                .foregroundColor(.black)
-                .lineLimit(nil)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-            
-            if !activity.detailedSummary.isEmpty && activity.detailedSummary != activity.summary {
-                Text("DETAILED SUMMARY")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundColor(Color(red: 0.45, green: 0.45, blue: 0.45))
-                    .padding(.top, 8)
-                
-                Text(activity.detailedSummary)
-                    .font(.system(size: 12))
+            VStack(alignment: .leading, spacing: 3) {
+                Text("SUMMARY")
+                    .font(
+                        Font.custom("Nunito", size: 12)
+                            .weight(.semibold)
+                    )
+                    .foregroundColor(Color(red: 0.55, green: 0.55, blue: 0.55))
+
+                Text(activity.summary)
+                    .font(
+                        Font.custom("Nunito", size: 12)
+                    )
                     .foregroundColor(.black)
                     .lineLimit(nil)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
+            }
+
+            if !activity.detailedSummary.isEmpty && activity.detailedSummary != activity.summary {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("DETAILED SUMMARY")
+                        .font(
+                            Font.custom("Nunito", size: 12)
+                                .weight(.semibold)
+                        )
+                        .foregroundColor(Color(red: 0.55, green: 0.55, blue: 0.55))
+
+                    Text(activity.detailedSummary)
+                        .font(
+                            Font.custom("Nunito", size: 12)
+                        )
+                        .foregroundColor(.black)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
             }
         }
     }
@@ -926,6 +957,90 @@ struct ActivityCard: View {
         }
 
         return (name: category.name, background: background, textColor: textColor)
+    }
+
+    // MARK: - Retry Functionality
+
+    private func isFailedCard(_ activity: TimelineActivity) -> Bool {
+        return activity.title == "Processing failed"
+    }
+
+    @ViewBuilder
+    private func retryButtonInline(for activity: TimelineActivity) -> some View {
+        if isRetrying {
+            // Processing state - beige pill with spinner
+            HStack(alignment: .center, spacing: 4) {
+                ProgressView()
+                    .scaleEffect(0.7)
+                    .frame(width: 16, height: 16)
+
+                Text("Processing")
+                    .font(.custom("Nunito", size: 13))
+                    .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color(red: 0.91, green: 0.85, blue: 0.8))
+            .cornerRadius(200)
+        } else {
+            // Retry button - orange pill
+            Button(action: { handleRetry(for: activity) }) {
+                HStack(alignment: .center, spacing: 4) {
+                    Text("Retry")
+                        .font(.custom("Nunito", size: 13).weight(.medium))
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .medium))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color(red: 1, green: 0.54, blue: 0.17))
+                .cornerRadius(200)
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+    }
+
+    private func handleRetry(for activity: TimelineActivity) {
+        guard let batchId = activity.batchId else {
+            retryError = "Cannot retry: batch information missing"
+            return
+        }
+
+        isRetrying = true
+        retryProgress = "Preparing to retry..."
+        retryError = nil
+
+        AnalysisManager.shared.reprocessSpecificBatches(
+            [batchId],
+            progressHandler: { progress in
+                DispatchQueue.main.async {
+                    self.retryProgress = progress
+                }
+            },
+            completion: { result in
+                DispatchQueue.main.async {
+                    self.isRetrying = false
+
+                    switch result {
+                    case .success:
+                        self.retryProgress = ""
+                        self.retryError = nil
+                        // Timeline will auto-refresh when batch completes
+
+                    case .failure(let error):
+                        self.retryProgress = ""
+                        self.retryError = "Retry failed: \(error.localizedDescription)"
+
+                        // Clear error after 10 seconds
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                            self.retryError = nil
+                        }
+                    }
+                }
+            }
+        )
     }
 }
 

@@ -34,7 +34,9 @@ struct CanvasTimelineDataView: View {
     @State private var positionedActivities: [CanvasPositionedActivity] = []
     @State private var refreshTimer: Timer?
     @State private var didInitialScrollInView: Bool = false
+    @State private var isBreathing = false
     @EnvironmentObject private var categoryStore: CategoryStore
+    @EnvironmentObject private var appState: AppState
 
     private let storageManager = StorageManager.shared
 
@@ -125,6 +127,9 @@ struct CanvasTimelineDataView: View {
             hourLines
                 .padding(.leading, CanvasConfig.timeColumnWidth)
 
+            // Current time indicator
+            currentTimeIndicator
+
             // Main content with time labels and cards
             mainTimelineRow
         }
@@ -205,6 +210,68 @@ struct CanvasTimelineDataView: View {
         }
     }
 
+    @ViewBuilder
+    private var currentTimeIndicator: some View {
+        if Calendar.current.isDateInToday(selectedDate) {
+            VStack(alignment: .leading, spacing: 5) {
+                // Horizontal line with circle on left edge
+                ZStack(alignment: .leading) {
+                    Rectangle()
+                        .fill(Color(hex: "FF986C"))
+                        .frame(maxWidth: .infinity, maxHeight: 1)
+
+                    ZStack {
+                        // Outer glow layer - intense red pulse
+                        Circle()
+                            .fill(Color(hex: "FF5D44"))
+                            .frame(width: 7, height: 7)
+                            .blur(radius: isBreathing ? 8 : 3)
+                            .opacity(isBreathing ? 0.8 : 0.4)
+                            .scaleEffect(isBreathing ? 2.0 : 1.2)
+
+                        // Mid glow layer
+                        Circle()
+                            .fill(Color(hex: "FF5D44"))
+                            .frame(width: 7, height: 7)
+                            .blur(radius: isBreathing ? 5 : 2)
+                            .opacity(isBreathing ? 0.9 : 0.5)
+                            .scaleEffect(isBreathing ? 1.6 : 1.1)
+
+                        // Core dot - stays solid
+                        Circle()
+                            .fill(Color(hex: "FF5D44"))
+                            .frame(width: 7, height: 7)
+                            .scaleEffect(isBreathing ? 1.1 : 1.0)
+                    }
+                    .animation(
+                        .easeInOut(duration: 1.5)
+                        .repeatForever(autoreverses: true),
+                        value: isBreathing
+                    )
+                }
+                .frame(height: 1)
+                .onAppear {
+                    isBreathing = appState.isRecording
+                }
+                .onChange(of: appState.isRecording) { newValue in
+                    isBreathing = newValue
+                }
+
+                // Status text
+                Text(appState.isRecording
+                    ? "Recording is in process. The timeline will update every 20-25 minutes."
+                    : "Dayflow is paused.")
+                    .font(.custom("Nunito", size: 12))
+                    .foregroundColor(Color(red: 0.62, green: 0.44, blue: 0.36))
+                    .padding(.leading, 8)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .offset(y: calculateYPosition(for: Date()))
+            .padding(.leading, CanvasConfig.timeColumnWidth)
+            .allowsHitTesting(false) // Don't interfere with card interactions
+        }
+    }
+
 
     private func loadActivities() {
         DispatchQueue.global(qos: .userInitiated).async {
@@ -230,17 +297,17 @@ struct CanvasTimelineDataView: View {
 
             let positioned = segments.map { seg -> CanvasPositionedActivity in
                 let y = calculateYPosition(for: seg.start)
-                // Preserve Canvas spacing: -4 total (2px top + 2px bottom)
+                // Card spacing: -2 total (1px top + 1px bottom)
                 let durationMinutes = max(0, seg.end.timeIntervalSince(seg.start) / 60)
                 let rawHeight = CGFloat(durationMinutes) * CanvasConfig.pixelsPerMinute
-                let height = max(10, rawHeight - 4)
+                let height = max(10, rawHeight - 2)
                 let primaryHost = normalizeHost(seg.activity.appSites?.primary)
                 let secondaryHost = normalizeHost(seg.activity.appSites?.secondary)
 
                 return CanvasPositionedActivity(
                     id: seg.activity.id,
                     activity: seg.activity,
-                    yPosition: y + 2, // 2px top spacing like original Canvas
+                    yPosition: y + 1, // 1px top spacing
                     height: height,
                     durationMinutes: durationMinutes,
                     title: seg.activity.title,
@@ -323,6 +390,7 @@ struct CanvasTimelineDataView: View {
             }
 
             return TimelineActivity(
+                batchId: card.batchId,
                 startTime: adjustedStartDate,
                 endTime: adjustedEndDate,
                 title: card.title,
@@ -561,14 +629,25 @@ struct CanvasActivityCard: View {
     let faviconPrimaryHost: String?
     let faviconSecondaryHost: String?
 
+    private var isFailedCard: Bool {
+        title == "Processing failed"
+    }
+
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: isFailedCard ? 10 : 8) {
             if durationMinutes >= 10 {
-                FaviconOrSparkleView(primaryHost: faviconPrimaryHost, secondaryHost: faviconSecondaryHost)
-                    .frame(width: 16, height: 16)
+                if !isFailedCard {
+                    if faviconPrimaryHost != nil || faviconSecondaryHost != nil {
+                        FaviconOrSparkleView(primaryHost: faviconPrimaryHost, secondaryHost: faviconSecondaryHost)
+                            .frame(width: 16, height: 16)
+                    }
+                }
 
                 Text(title)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(
+                        Font.custom("Nunito", size: 13)
+                            .weight(.semibold)
+                    )
                     .foregroundColor(style.text)
 
                 Spacer()
@@ -583,16 +662,32 @@ struct CanvasActivityCard: View {
                     .truncationMode(.tail)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .padding(.vertical, isFailedCard ? 0 : 6)
         .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .topLeading)
-        .background(Color(hex: "FFF8F1"))
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(style.accent)
-                .frame(width: 5)
-        }
+        .background(isFailedCard ? Color(hex: "FFECE4") ?? Color.white : (Color(hex: "FFFBF8") ?? Color.white))
         .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .inset(by: 0.25)
+                .stroke(
+                    isFailedCard ? Color(red: 1, green: 0.16, blue: 0.11) : (Color(hex: "E8E8E8") ?? Color.gray),
+                    style: isFailedCard ? StrokeStyle(lineWidth: 0.5, dash: [2.5, 2.5]) : StrokeStyle(lineWidth: 0.25)
+                )
+        )
+        .overlay(alignment: .leading) {
+            if !isFailedCard {
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 2,
+                    bottomLeadingRadius: 2,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 0,
+                    style: .continuous
+                )
+                .fill(style.accent)
+                .frame(width: 6)
+            }
+        }
         .padding(.horizontal, 6)
         .contentShape(Rectangle())
         .onTapGesture { onTap() }
@@ -612,6 +707,7 @@ struct CanvasActivityCard: View {
                                    hasAnyActivities: .constant(true))
                 .frame(width: 800, height: 600)
                 .environmentObject(CategoryStore())
+                .environmentObject(AppState.shared)
         }
     }
     return PreviewWrapper()
