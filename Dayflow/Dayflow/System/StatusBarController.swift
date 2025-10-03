@@ -68,6 +68,13 @@ final class StatusBarController {
         updates.target = self
         m.addItem(updates)
 
+        // View Release Notes
+        let releaseNotes = NSMenuItem(title: "View Release Notes",
+                                      action: #selector(viewReleaseNotes),
+                                      keyEquivalent: "")
+        releaseNotes.target = self
+        m.addItem(releaseNotes)
+
         m.addItem(NSMenuItem.separator())
 
         // Quit Completely
@@ -98,6 +105,15 @@ final class StatusBarController {
     }
     @objc private func toggle() { AppState.shared.isRecording.toggle() }
     @objc private func checkForUpdates() { UpdaterManager.shared.checkForUpdates(showUI: true) }
+
+    @objc private func viewReleaseNotes() {
+        // First, bring app to foreground
+        openMainUI()
+
+        // Then post notification to show What's New modal
+        NotificationCenter.default.post(name: .showWhatsNew, object: nil)
+    }
+
     @objc private func quit()   {
         // Allow termination only when explicitly quitting from the status bar
         AppDelegate.allowTermination = true

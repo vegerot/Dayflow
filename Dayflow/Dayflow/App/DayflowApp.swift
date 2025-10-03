@@ -8,10 +8,49 @@ import Sparkle
 
 struct AppRootView: View {
     @EnvironmentObject private var categoryStore: CategoryStore
+    @State private var whatsNewNote: ReleaseNote? = nil
+
     var body: some View {
         MainView()
             .environmentObject(AppState.shared)
             .environmentObject(categoryStore)
+            .onAppear {
+                // Check if we should show What's New automatically
+                if whatsNewNote == nil {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        whatsNewNote = WhatsNewView.shouldShowWhatsNew()
+                    }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showWhatsNew)) { _ in
+                // Manual trigger from menu - show latest release notes
+                if let latestNote = releaseNotes.first {
+                    whatsNewNote = latestNote
+
+                    // Analytics: track manual view
+                    AnalyticsService.shared.capture("whats_new_viewed_manual", [
+                        "version": latestNote.version
+                    ])
+                }
+            }
+            .sheet(item: $whatsNewNote) { note in
+                ZStack {
+                    // Backdrop
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+
+                    WhatsNewView(releaseNote: note) {
+                        whatsNewNote = nil
+                    }
+                }
+            }
+            .onDisappear {
+                // Mark as seen only if this was automatic (current version)
+                if let note = whatsNewNote,
+                   note.version == Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+                    WhatsNewView.markAsSeen()
+                }
+            }
     }
 }
 
@@ -122,8 +161,23 @@ struct DayflowApp: App {
                 Button("Check for Updates…") {
                     updaterManager.checkForUpdates(showUI: true)
                 }
+
+                Button("View Release Notes") {
+                    // Activate the app and bring to foreground
+                    NSApp.activate(ignoringOtherApps: true)
+
+                    // Post notification to show What's New modal
+                    NotificationCenter.default.post(name: .showWhatsNew, object: nil)
+                }
+                .keyboardShortcut("N", modifiers: [.command, .shift])
             }
         }
         .defaultSize(width: 1200, height: 800)
     }
+}
+
+// MARK: - Notification Names
+
+extension Notification.Name {
+    static let showWhatsNew = Notification.Name("showWhatsNew")
 }
