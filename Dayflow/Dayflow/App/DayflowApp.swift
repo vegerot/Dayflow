@@ -9,6 +9,7 @@ import Sparkle
 struct AppRootView: View {
     @EnvironmentObject private var categoryStore: CategoryStore
     @State private var whatsNewNote: ReleaseNote? = nil
+    @State private var activeWhatsNewVersion: String? = nil
 
     var body: some View {
         MainView()
@@ -18,7 +19,10 @@ struct AppRootView: View {
                 // Check if we should show What's New automatically
                 if whatsNewNote == nil {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        whatsNewNote = WhatsNewView.shouldShowWhatsNew()
+                        if let note = WhatsNewView.shouldShowWhatsNew() {
+                            whatsNewNote = note
+                            activeWhatsNewVersion = note.version
+                        }
                     }
                 }
             }
@@ -26,6 +30,7 @@ struct AppRootView: View {
                 // Manual trigger from menu - show latest release notes
                 if let latestNote = releaseNotes.first {
                     whatsNewNote = latestNote
+                    activeWhatsNewVersion = latestNote.version
 
                     // Analytics: track manual view
                     AnalyticsService.shared.capture("whats_new_viewed_manual", [
@@ -33,24 +38,27 @@ struct AppRootView: View {
                     ])
                 }
             }
-            .sheet(item: $whatsNewNote) { note in
+            .sheet(item: $whatsNewNote, onDismiss: handleWhatsNewDismissed) { note in
                 ZStack {
                     // Backdrop
                     Color.black.opacity(0.4)
                         .ignoresSafeArea()
 
                     WhatsNewView(releaseNote: note) {
-                        whatsNewNote = nil
+                        closeWhatsNew()
                     }
                 }
             }
-            .onDisappear {
-                // Mark as seen only if this was automatic (current version)
-                if let note = whatsNewNote,
-                   note.version == Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
-                    WhatsNewView.markAsSeen()
-                }
-            }
+    }
+
+    private func closeWhatsNew() {
+        whatsNewNote = nil
+    }
+
+    private func handleWhatsNewDismissed() {
+        guard activeWhatsNewVersion != nil else { return }
+        WhatsNewView.markAsSeen()
+        activeWhatsNewVersion = nil
     }
 }
 

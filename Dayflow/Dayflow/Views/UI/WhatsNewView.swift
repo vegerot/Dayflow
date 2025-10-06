@@ -238,6 +238,9 @@ struct WhatsNewView: View {
             AnalyticsService.shared.capture("whats_new_referral", referral)
         }
 
+        // Mark this version as seen
+        WhatsNewView.markAsSeen()
+
         onDismiss()
     }
 
@@ -331,17 +334,17 @@ extension WhatsNewView {
             return nil
         }
 
-        // Check if this is a fresh install (no lastSeenWhatsNewVersion exists)
-        guard UserDefaults.standard.string(forKey: "lastSeenWhatsNewVersion") != nil else {
-            // Fresh install - save current version but don't show What's New
+        let lastSeenVersion = UserDefaults.standard.string(forKey: "lastSeenWhatsNewVersion") ?? ""
+
+        // If never seen before, save current and don't show (fresh install)
+        if lastSeenVersion.isEmpty {
             UserDefaults.standard.set(currentBuild, forKey: "lastSeenWhatsNewVersion")
             return nil
         }
 
-        // Check if user has already seen What's New for this version
-        let lastSeenVersion = UserDefaults.standard.string(forKey: "lastSeenWhatsNewVersion") ?? ""
+        // If already seen this version, don't show
         if lastSeenVersion == currentBuild {
-            return nil  // Already seen this version
+            return nil
         }
 
         // Find the release note for current version

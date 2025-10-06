@@ -25,10 +25,11 @@ struct FlexibleProviderCard: View {
     let isSelected: Bool
     let buttonMode: ProviderCardButtonMode
     let showCurrentlySelected: Bool
+    let customStatusText: String?
     let onSelect: (() -> Void)?
-    
+
     private let isComingSoon: Bool
-    
+
     init(
         id: String,
         title: String,
@@ -39,6 +40,7 @@ struct FlexibleProviderCard: View {
         isSelected: Bool,
         buttonMode: ProviderCardButtonMode,
         showCurrentlySelected: Bool = false,
+        customStatusText: String? = nil,
         onSelect: (() -> Void)? = nil
     ) {
         self.id = id
@@ -50,6 +52,7 @@ struct FlexibleProviderCard: View {
         self.isSelected = isSelected
         self.buttonMode = buttonMode
         self.showCurrentlySelected = showCurrentlySelected
+        self.customStatusText = customStatusText
         self.onSelect = onSelect
         self.isComingSoon = id == "dayflow"
     }
@@ -154,7 +157,7 @@ struct FlexibleProviderCard: View {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 12))
                         .foregroundColor(.green)
-                    Text("Currently selected")
+                    Text(customStatusText ?? "Currently selected")
                         .font(.custom("Nunito", size: 12))
                         .fontWeight(.medium)
                         .foregroundColor(.black.opacity(0.6))
@@ -211,7 +214,7 @@ struct FlexibleProviderCard: View {
         case .onboarding(let onProceed):
             return { if !isComingSoon { onProceed() } }
         case .settings(let onSwitch):
-            return { if !isComingSoon && !isSelected { onSwitch() } }
+            return { if !isComingSoon { onSwitch() } }  // Removed !isSelected check - allow editing
         }
     }
     
@@ -219,12 +222,12 @@ struct FlexibleProviderCard: View {
         if isComingSoon {
             return "Coming Soon"
         }
-        
+
         switch buttonMode {
         case .onboarding:
             return "Proceed"
         case .settings:
-            return isSelected ? "Currently Active" : "Switch"
+            return isSelected ? "Edit Configuration" : "Switch"
         }
     }
     
@@ -232,12 +235,12 @@ struct FlexibleProviderCard: View {
         if isComingSoon {
             return true
         }
-        
+
         switch buttonMode {
         case .onboarding:
             return false
         case .settings:
-            return isSelected
+            return false  // Always enabled - allows editing when selected
         }
     }
     

@@ -44,23 +44,14 @@ struct VideoLaunchView: View {
     }
     
     private func setupVideo() {
-        guard let videoData = NSDataAsset(name: "DayflowAnimation")?.data else {
-            // No fallback - just complete immediately
+        // Play directly from bundle - no need to write to temp file
+        guard let videoURL = Bundle.main.url(forResource: "DayflowAnimation", withExtension: "mp4") else {
+            print("Failed to find video in bundle")
             completeVideo()
             return
         }
-        
-        // Create temporary file URL for AVPlayer
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("dayflow_launch.mp4")
-        do {
-            try videoData.write(to: tempURL)
-        } catch {
-            print("Failed to write video to temp file: \(error)")
-            completeVideo()
-            return
-        }
-        
-        let playerItem = AVPlayerItem(url: tempURL)
+
+        let playerItem = AVPlayerItem(url: videoURL)
         player = AVPlayer(playerItem: playerItem)
 
         // Silence audio to prevent interrupting user's music

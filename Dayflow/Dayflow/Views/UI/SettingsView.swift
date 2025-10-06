@@ -163,6 +163,37 @@ struct SettingsView: View {
     }
     
     
+    private func statusText(for providerId: String) -> String? {
+        guard currentProvider == providerId else { return nil }
+
+        switch providerId {
+        case "ollama":
+            // Format: "Engine - Model"
+            let engineName: String
+            switch localEngine {
+            case .ollama:
+                engineName = "Ollama"
+            case .lmstudio:
+                engineName = "LM Studio"
+            case .custom:
+                engineName = "Custom"
+            }
+
+            // Safeguard: use default if empty
+            let displayModel = localModelId.isEmpty ? "qwen2.5vl:3b" : localModelId
+
+            // Truncate very long model names (>30 chars)
+            let truncatedModel = displayModel.count > 30
+                ? String(displayModel.prefix(27)) + "..."
+                : displayModel
+
+            return "\(engineName) - \(truncatedModel)"
+
+        default:
+            return nil  // Gemini and others use default "Currently selected"
+        }
+    }
+
     private var providerCards: [FlexibleProviderCard] {
         [
             FlexibleProviderCard(
@@ -181,7 +212,8 @@ struct SettingsView: View {
                 ],
                 isSelected: currentProvider == "ollama",
                 buttonMode: .settings(onSwitch: { switchToProvider("ollama") }),
-                showCurrentlySelected: true
+                showCurrentlySelected: true,
+                customStatusText: statusText(for: "ollama")
             ),
             
             FlexibleProviderCard(
@@ -198,7 +230,8 @@ struct SettingsView: View {
                 ],
                 isSelected: currentProvider == "gemini",
                 buttonMode: .settings(onSwitch: { switchToProvider("gemini") }),
-                showCurrentlySelected: true
+                showCurrentlySelected: true,
+                customStatusText: statusText(for: "gemini")
             ),
             
             /*
@@ -218,7 +251,8 @@ struct SettingsView: View {
                 ],
                 isSelected: currentProvider == "dayflow",
                 buttonMode: .settings(onSwitch: { switchToProvider("dayflow") }),
-                showCurrentlySelected: true
+                showCurrentlySelected: true,
+                customStatusText: statusText(for: "dayflow")
             )
             */
         ]
@@ -242,15 +276,19 @@ struct SettingsView: View {
     }
     
     private func switchToProvider(_ providerId: String) {
-        guard providerId != currentProvider else { return }
-        
         // For Dayflow Pro, just show coming soon
         if providerId == "dayflow" {
             return
         }
-        
-        // Open setup flow for the selected provider
-        AnalyticsService.shared.capture("provider_switch_initiated", ["from": currentProvider, "to": providerId])
+
+        let isEditingCurrent = providerId == currentProvider
+
+        if isEditingCurrent {
+            AnalyticsService.shared.capture("provider_edit_initiated", ["provider": providerId])
+        } else {
+            AnalyticsService.shared.capture("provider_switch_initiated", ["from": currentProvider, "to": providerId])
+        }
+
         setupModalProvider = providerId
     }
     

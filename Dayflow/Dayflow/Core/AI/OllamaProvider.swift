@@ -702,7 +702,6 @@ final class OllamaProvider: LLMProvider {
 
           SUMMARY GUIDELINES:
           - Write in first person without using "I" (like a personal journal entry)
-          - Start sentences with action verbs: "Managed...", "Browsed...", "Searched..."
           - 2-3 sentences maximum
           - Include specific details (app names, search topics, etc.)
           - Natural, conversational tone
