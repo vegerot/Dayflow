@@ -185,6 +185,18 @@ final class LLMService: LLMServicing {
                 
                 // If no observations, mark batch as complete with no activities
                 guard !observations.isEmpty else {
+                    print("⚠️ [LLMService] Transcription returned 0 observations for batch \(batchId)")
+                    if let logOutput = transcribeLog.output, !logOutput.isEmpty {
+                        print("   ↳ transcribeLog.output: \(logOutput)")
+                    }
+                    if let logInput = transcribeLog.input, !logInput.isEmpty {
+                        print("   ↳ transcribeLog.input: \(logInput)")
+                    }
+                    await AnalyticsService.shared.capture("transcription_returned_empty", [
+                        "batch_id": batchId,
+                        "provider": providerName(),
+                        "transcribe_latency_ms": Int((transcribeLog.latency ?? 0) * 1000)
+                    ])
                     StorageManager.shared.updateBatch(batchId, status: "analyzed")
                     completion(.success(ProcessedBatchResult(cards: [], cardIds: [])))
                     return
