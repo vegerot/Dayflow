@@ -7,17 +7,38 @@ import Foundation
 
 final class GeminiDirectProvider: LLMProvider {
     private let apiKey: String
-    private let genEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent"
     private let fileEndpoint = "https://generativelanguage.googleapis.com/upload/v1beta/files"
-    private let proModel = "gemini-2.5-pro"
-    private let flashModel = "gemini-2.5-flash"
+    private let modelPreference: GeminiModelPreference
 
-    private func endpointForModel(_ model: String) -> String {
-        return "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent"
+    private static let capacityErrorCodes: Set<Int> = [403, 429, 503]
+
+    private struct ModelRunState {
+        private let models: [GeminiModel]
+        private(set) var index: Int = 0
+
+        init(models: [GeminiModel]) {
+            self.models = models.isEmpty ? GeminiModelPreference.default.orderedModels : models
+        }
+
+        var current: GeminiModel {
+            models[min(index, models.count - 1)]
+        }
+
+        mutating func advance() -> (from: GeminiModel, to: GeminiModel)? {
+            guard index < models.count - 1 else { return nil }
+            let fromModel = models[index]
+            index += 1
+            return (fromModel, models[index])
+        }
+    }
+
+    private func endpointForModel(_ model: GeminiModel) -> String {
+        return "https://generativelanguage.googleapis.com/v1beta/models/\(model.rawValue):generateContent"
     }
     
-    init(apiKey: String) {
+    init(apiKey: String, preference: GeminiModelPreference = .default) {
         self.apiKey = apiKey
+        self.modelPreference = preference
     }
 
     private func categoriesSection(from descriptors: [LLMCategoryDescriptor]) -> String {
@@ -317,24 +338,22 @@ final class GeminiDirectProvider: LLMProvider {
         var lastError: Error?
         var finalResponse = ""
         var finalObservations: [Observation] = []
-        var finalUsedModel = proModel
+        var finalUsedModel = modelPreference.primary.rawValue
 
-        // Model state for Flash fallback (persists across retries)
-        var currentModel = proModel
-        var downgraded = false
+        var modelState = ModelRunState(models: modelPreference.orderedModels)
         let callGroupId = UUID().uuidString
 
         while attempt < maxRetries {
             do {
                 print("🔄 Video transcribe attempt \(attempt + 1)/\(maxRetries)")
-
+                let activeModel = modelState.current
                 let (response, usedModel) = try await geminiTranscribeRequest(
                     fileURI: fileURI,
                     mimeType: mimeType,
                     prompt: finalTranscriptionPrompt,
                     batchId: batchId,
                     groupId: callGroupId,
-                    model: currentModel,
+                    model: activeModel,
                     attempt: attempt + 1
                 )
 
@@ -394,32 +413,29 @@ final class GeminiDirectProvider: LLMProvider {
                 lastError = error
                 print("❌ Attempt \(attempt + 1) failed: \(error.localizedDescription)")
 
-                // Check for Flash downgrade on capacity errors (429, 503, 403)
+                var appliedFallback = false
                 if let nsError = error as NSError?,
                    nsError.domain == "GeminiError",
-                   (nsError.code == 429 || nsError.code == 503 || nsError.code == 403),
-                   currentModel == proModel && !downgraded {
+                   Self.capacityErrorCodes.contains(nsError.code),
+                   let transition = modelState.advance() {
 
-                    let reason = nsError.code == 429 ? "rate_limit_429" :
-                                 nsError.code == 503 ? "service_unavailable_503" : "forbidden_quota_403"
-                    print("↘️ Downgrading to \(flashModel) after \(nsError.code)")
+                    appliedFallback = true
+                    let reason = fallbackReason(for: nsError.code)
+                    print("↘️ Downgrading to \(transition.to.rawValue) after \(nsError.code)")
 
                     Task { @MainActor in
                         await AnalyticsService.shared.capture("llm_model_fallback", [
                             "provider": "gemini",
                             "operation": "transcribe",
-                            "from_model": currentModel,
-                            "to_model": flashModel,
+                            "from_model": transition.from.rawValue,
+                            "to_model": transition.to.rawValue,
                             "reason": reason,
                             "batch_id": batchId as Any
                         ])
                     }
+                }
 
-                    currentModel = flashModel
-                    downgraded = true
-                    // Continue immediately to next attempt with Flash (no extra delay)
-
-                } else {
+                if !appliedFallback {
                     // Normal error handling with backoff
                     let strategy = classifyError(error)
 
@@ -466,6 +482,19 @@ final class GeminiDirectProvider: LLMProvider {
         case longBackoff        // Rate limits - retry with 30s, 60s, 120s
         case enhancedPrompt     // Validation errors - retry with enhanced prompt
         case noRetry            // Auth/permanent errors - don't retry
+    }
+
+    private func fallbackReason(for code: Int) -> String {
+        switch code {
+        case 429:
+            return "rate_limit_429"
+        case 503:
+            return "service_unavailable_503"
+        case 403:
+            return "forbidden_quota_403"
+        default:
+            return "http_\(code)"
+        }
     }
 
     private func classifyError(_ error: Error) -> RetryStrategy {
@@ -717,21 +746,19 @@ final class GeminiDirectProvider: LLMProvider {
         var finalResponse = ""
         var finalCards: [ActivityCardData] = []
 
-        // Model state for Flash fallback (persists across retries)
-        var currentModel = proModel
-        var downgraded = false
+        var modelState = ModelRunState(models: modelPreference.orderedModels)
         let callGroupId = UUID().uuidString
 
         while attempt < maxRetries {
             do {
                 // THE ENTIRE PIPELINE: Request → Parse → Validate
                 print("🔄 Activity cards attempt \(attempt + 1)/\(maxRetries)")
-
+                let activeModel = modelState.current
                 let response = try await geminiCardsRequest(
                     prompt: actualPromptUsed,
                     batchId: batchId,
                     groupId: callGroupId,
-                    model: currentModel,
+                    model: activeModel,
                     attempt: attempt + 1
                 )
 
@@ -792,32 +819,29 @@ final class GeminiDirectProvider: LLMProvider {
                 lastError = error
                 print("❌ Attempt \(attempt + 1) failed: \(error.localizedDescription)")
 
-                // Check for Flash downgrade on capacity errors (429, 503, 403)
+                var appliedFallback = false
                 if let nsError = error as NSError?,
                    nsError.domain == "GeminiError",
-                   (nsError.code == 429 || nsError.code == 503 || nsError.code == 403),
-                   currentModel == proModel && !downgraded {
+                   Self.capacityErrorCodes.contains(nsError.code),
+                   let transition = modelState.advance() {
 
-                    let reason = nsError.code == 429 ? "rate_limit_429" :
-                                 nsError.code == 503 ? "service_unavailable_503" : "forbidden_quota_403"
-                    print("↘️ Downgrading to \(flashModel) after \(nsError.code)")
+                    appliedFallback = true
+                    let reason = fallbackReason(for: nsError.code)
+                    print("↘️ Downgrading to \(transition.to.rawValue) after \(nsError.code)")
 
                     Task { @MainActor in
                         await AnalyticsService.shared.capture("llm_model_fallback", [
                             "provider": "gemini",
                             "operation": "generate_activity_cards",
-                            "from_model": currentModel,
-                            "to_model": flashModel,
+                            "from_model": transition.from.rawValue,
+                            "to_model": transition.to.rawValue,
                             "reason": reason,
                             "batch_id": batchId as Any
                         ])
                     }
+                }
 
-                    currentModel = flashModel
-                    downgraded = true
-                    // Continue immediately to next attempt with Flash (no extra delay)
-
-                } else {
+                if !appliedFallback {
                     // Normal error handling with backoff
                     let strategy = classifyError(error)
 
@@ -1092,7 +1116,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         return "UNKNOWN"
     }
     
-    private func geminiTranscribeRequest(fileURI: String, mimeType: String, prompt: String, batchId: Int64?, groupId: String, model: String, attempt: Int) async throws -> (String, String) {
+    private func geminiTranscribeRequest(fileURI: String, mimeType: String, prompt: String, batchId: Int64?, groupId: String, model: GeminiModel, attempt: Int) async throws -> (String, String) {
         let transcriptionSchema: [String:Any] = [
           "type":"ARRAY",
           "items": [
@@ -1166,13 +1190,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             let responseHeaders: [String:String] = httpResponse.allHeaderFields.reduce(into: [:]) { acc, kv in
                 if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible { acc[k] = v.description }
             } ?? [:]
-            let modelName: String? = {
-                if let u = URL(string: urlWithKey) {
-                    let last = u.path.split(separator: "/").last.map(String.init)
-                    return last?.split(separator: ":").first.map(String.init)
-                }
-                return nil
-            }()
+            let modelName = model.rawValue
             let ctx = LLMCallContext(
                 batchId: batchId,
                 callGroupId: groupId,
@@ -1286,18 +1304,12 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                 finishedAt: Date()
             )
 
-            return (text, model)
+            return (text, model.rawValue)
                 
             } catch {
                 // Only log if this is a network/transport error (not our custom GeminiError which was already logged)
                 if (error as NSError).domain != "GeminiError" {
-                    let modelName: String? = {
-                        if let u = request.url {
-                            let last = u.path.split(separator: "/").last.map(String.init)
-                            return last?.split(separator: ":").first.map(String.init)
-                        }
-                        return nil
-                    }()
+                    let modelName = model.rawValue
                     let ctx = LLMCallContext(
                         batchId: batchId,
                         callGroupId: groupId,
@@ -1391,7 +1403,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         }
     }
     
-    private func geminiCardsRequest(prompt: String, batchId: Int64?, groupId: String, model: String, attempt: Int) async throws -> String {
+    private func geminiCardsRequest(prompt: String, batchId: Int64?, groupId: String, model: GeminiModel, attempt: Int) async throws -> String {
         let distractionSchema: [String: Any] = [
             "type": "OBJECT", "properties": ["startTime": ["type": "STRING"], "endTime": ["type": "STRING"], "title": ["type": "STRING"], "summary": ["type": "STRING"]],
             "required": ["startTime", "endTime", "title", "summary"], "propertyOrdering": ["startTime", "endTime", "title", "summary"]
@@ -1476,13 +1488,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             let responseHeaders: [String:String] = httpResponse.allHeaderFields.reduce(into: [:]) { acc, kv in
                 if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible { acc[k] = v.description }
             } ?? [:]
-            let modelName: String? = {
-                if let u = URL(string: urlWithKey) {
-                    let last = u.path.split(separator: "/").last.map(String.init)
-                    return last?.split(separator: ":").first.map(String.init)
-                }
-                return nil
-            }()
+            let modelName = model.rawValue
             let ctx = LLMCallContext(
                 batchId: batchId,
                 callGroupId: groupId,
@@ -1578,13 +1584,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         } catch {
             // Only log if this is a network/transport error (not our custom GeminiError which was already logged)
             if (error as NSError).domain != "GeminiError" {
-                let modelName: String? = {
-                    if let u = request.url {
-                        let last = u.path.split(separator: "/").last.map(String.init)
-                        return last?.split(separator: ":").first.map(String.init)
-                    }
-                    return nil
-                }()
+                let modelName = model.rawValue
                 let ctx = LLMCallContext(
                     batchId: batchId,
                     callGroupId: groupId,

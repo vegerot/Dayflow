@@ -53,7 +53,8 @@ final class LLMService: LLMServicing {
         switch type {
         case .geminiDirect:
             if let apiKey = KeychainManager.shared.retrieve(for: "gemini"), !apiKey.isEmpty {
-                return GeminiDirectProvider(apiKey: apiKey)
+                let preference = GeminiModelPreference.load()
+                return GeminiDirectProvider(apiKey: apiKey, preference: preference)
             } else {
                 print("❌ [LLMService] Failed to retrieve Gemini API key from Keychain")
                 return nil
