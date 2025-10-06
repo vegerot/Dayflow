@@ -50,6 +50,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 // Enable automatic session tracking
                 options.enableAutoSessionTracking = true
             }
+            // Enable safe wrapper now that Sentry is initialized
+            SentryHelper.isEnabled = true
         }
 
         // Configure analytics (prod only; default opt-in ON)

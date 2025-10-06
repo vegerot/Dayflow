@@ -335,7 +335,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         let writeBreadcrumb = Breadcrumb(level: .debug, category: "database")
         writeBreadcrumb.message = "DB write: \(label)"
         writeBreadcrumb.type = "debug"
-        SentrySDK.addBreadcrumb(writeBreadcrumb)
+        SentryHelper.addBreadcrumb(writeBreadcrumb)
 
         let result = try db.write(block)
         let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
@@ -348,7 +348,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             slowWriteBreadcrumb.message = "SLOW DB write: \(label)"
             slowWriteBreadcrumb.data = ["duration_ms": Int(elapsed)]
             slowWriteBreadcrumb.type = "error"
-            SentrySDK.addBreadcrumb(slowWriteBreadcrumb)
+            SentryHelper.addBreadcrumb(slowWriteBreadcrumb)
         }
 
         return result
@@ -361,7 +361,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         let readBreadcrumb = Breadcrumb(level: .debug, category: "database")
         readBreadcrumb.message = "DB read: \(label)"
         readBreadcrumb.type = "debug"
-        SentrySDK.addBreadcrumb(readBreadcrumb)
+        SentryHelper.addBreadcrumb(readBreadcrumb)
 
         let result = try db.read(block)
         let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
@@ -374,7 +374,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             slowReadBreadcrumb.message = "SLOW DB read: \(label)"
             slowReadBreadcrumb.data = ["duration_ms": Int(elapsed)]
             slowReadBreadcrumb.type = "error"
-            SentrySDK.addBreadcrumb(slowReadBreadcrumb)
+            SentryHelper.addBreadcrumb(slowReadBreadcrumb)
         }
 
         return result

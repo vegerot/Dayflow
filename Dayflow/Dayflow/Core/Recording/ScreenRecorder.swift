@@ -169,7 +169,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
         if let ctx = context {
             breadcrumb.data?["context"] = ctx
         }
-        SentrySDK.addBreadcrumb(breadcrumb)
+        SentryHelper.addBreadcrumb(breadcrumb)
     }
 
     func start() {
@@ -409,7 +409,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
             "file": url.lastPathComponent,
             "resolution": "\(recordingWidth)x\(recordingHeight)"
         ]
-        SentrySDK.addBreadcrumb(beginBreadcrumb)
+        SentryHelper.addBreadcrumb(beginBreadcrumb)
 
         StorageManager.shared.registerChunk(url: url)
         do {
@@ -475,7 +475,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
             "frames": frames,
             "file": fileURL?.lastPathComponent ?? "nil"
         ]
-        SentrySDK.addBreadcrumb(finishBreadcrumb)
+        SentryHelper.addBreadcrumb(finishBreadcrumb)
 
         // 1. stop the timer that would have closed the file
         timer?.cancel()

@@ -300,7 +300,7 @@ struct MainView: View {
             }
 
             // Add Sentry context for app state tracking
-            SentrySDK.configureScope { scope in
+            SentryHelper.configureScope { scope in
                 scope.setContext(value: [
                     "active_view": tabName,
                     "selected_date": dayString(selectedDate),
@@ -312,7 +312,7 @@ struct MainView: View {
             let navBreadcrumb = Breadcrumb(level: .info, category: "navigation")
             navBreadcrumb.message = "Navigated to \(tabName)"
             navBreadcrumb.data = ["view": tabName]
-            SentrySDK.addBreadcrumb(navBreadcrumb)
+            SentryHelper.addBreadcrumb(navBreadcrumb)
 
             AnalyticsService.shared.capture("tab_selected", ["tab": tabName])
             AnalyticsService.shared.screen(tabName)
