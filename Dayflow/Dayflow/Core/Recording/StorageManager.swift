@@ -7,23 +7,13 @@ import Foundation
 import GRDB
 import Sentry
 
-// Helper DateFormatter (can be static var in an extension or class)
 extension DateFormatter {
     static let yyyyMMdd: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
-        // Using current time zone. Consider UTC if needed for absolute consistency.
         formatter.timeZone = Calendar.current.timeZone
         return formatter
     }()
-
-    // Add ISO8601 formatter if needed for parsing Gemini strings elsewhere
-    // Example:
-    // static let iso8601Full: ISO8601DateFormatter = {
-    //     let formatter = ISO8601DateFormatter()
-    //     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    //     return formatter
-    // }()
 }
 
 extension Date {
@@ -299,7 +289,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     private let db: DatabaseQueue
     private let fileMgr = FileManager.default
     private let root: URL
-    private let quota = 5 * 1024 * 1024 * 1024  // 5 GB
     var recordingsRoot: URL { root }
 
     // TEMPORARY DEBUG: Remove after identifying slow queries
@@ -1041,6 +1030,15 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }) ?? []
     }
 
+    func updateStorageLimit(bytes: Int64) {
+        let previous = StoragePreferences.recordingsLimitBytes
+        StoragePreferences.recordingsLimitBytes = bytes
+
+        if bytes < previous {
+            purgeIfNeeded()
+        }
+    }
+
     func fetchLLMCallsForBatches(batchIds: [Int64], limit: Int) -> [LLMCallDebugEntry] {
         guard !batchIds.isEmpty, limit > 0 else { return [] }
 
@@ -1684,15 +1682,20 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             guard let self = self else { return }
             
             do {
-                // Check current size
+                // Check current size and user-defined limit
                 let currentSize = try self.fileMgr.allocatedSizeOfDirectory(at: self.root)
+                let limit = StoragePreferences.recordingsLimitBytes
+
+                if limit == Int64.max {
+                    return // Unlimited storage - skip purge
+                }
                 
                 // 3 days cutoff for all chunks
                 let cutoffDate = Date().addingTimeInterval(-3 * 24 * 60 * 60)
                 let cutoffTimestamp = Int(cutoffDate.timeIntervalSince1970)
                 
-                // Clean up if over 20GB
-                if currentSize > 10_000_000_000 {
+                // Clean up if above limit
+                if currentSize > limit {
 
                     try self.timedWrite("purgeIfNeeded") { db in
                         // Get chunks older than 3 days with file paths still set
@@ -1708,18 +1711,18 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                         """, arguments: [cutoffTimestamp])
                         
                         var deletedCount = 0
-                        var freedSpace: Int = 0
+                        var freedSpace: Int64 = 0
                         
                         for chunk in oldChunks {
                             guard let id: Int64 = chunk["id"],
                                   let path: String = chunk["file_url"] else { continue }
 
                             // Get file size before deletion
-                            var fileSize: Int = 0
+                            var fileSize: Int64 = 0
                             if FileManager.default.fileExists(atPath: path) {
                                 if let attrs = try? self.fileMgr.attributesOfItem(atPath: path),
                                    let size = attrs[.size] as? NSNumber {
-                                    fileSize = size.intValue
+                                    fileSize = size.int64Value
                                 }
                             }
 
@@ -1746,7 +1749,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                             }
 
                             // Stop if we've freed enough space (under 10GB)
-                            if currentSize - freedSpace < 10_000_000_000 {
+                            if currentSize - freedSpace < limit {
                                 break
                             }
                         }
@@ -1762,11 +1765,27 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 }
 
 
-private extension FileManager {
-    func allocatedSizeOfDirectory(at url: URL) throws -> Int {
-        try contentsOfDirectory(at: url, includingPropertiesForKeys: [.totalFileAllocatedSizeKey])
-            .reduce(0) { sum, file in
-                sum + (try file.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize ?? 0)
+extension FileManager {
+    func allocatedSizeOfDirectory(at url: URL) throws -> Int64 {
+        guard let enumerator = enumerator(
+            at: url,
+            includingPropertiesForKeys: [.totalFileAllocatedSizeKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return 0 }
+
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            do {
+                let values = try fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey, .isDirectoryKey])
+                if values.isDirectory == true {
+                    // Directories report 0, rely on enumerator to traverse contents
+                    continue
+                }
+                total += Int64(values.totalFileAllocatedSize ?? 0)
+            } catch {
+                continue
             }
+        }
+        return total
     }
 }
