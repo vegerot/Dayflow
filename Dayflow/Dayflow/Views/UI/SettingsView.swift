@@ -882,7 +882,7 @@ struct SettingsView: View {
                 showCurrentlySelected: true,
                 customStatusText: statusText(for: "gemini")
             )
-        ]
+        ].filter { !$0.isSelected }
     }
 
     private func statusText(for providerId: String) -> String? {
