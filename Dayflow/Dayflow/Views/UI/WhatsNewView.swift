@@ -25,10 +25,12 @@ struct ReleaseNote: Identifiable {
 // MARK: - Release Notes Database
 // TO UPDATE: Add new releases at the TOP of this array
 
+private let currentAppVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.0"
+
 let releaseNotes: [ReleaseNote] = [
-    // Version 1.1.0 - First major update
+    // Current release - update highlights when shipping a new build
     ReleaseNote(
-        version: "1.1.0",
+        version: currentAppVersion,
         title: "Thanks for being an early user of Dayflow! This is the first major update to the app - really appreciate everyone who spent the time to send in feedback.",
         highlights: [
             "Huge UI refresh - Dayflow should feel much more pleasant on the eyes.",
