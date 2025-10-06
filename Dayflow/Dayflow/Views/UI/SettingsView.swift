@@ -138,7 +138,6 @@ struct SettingsView: View {
         }
         .onChange(of: analyticsEnabled) { enabled in
             AnalyticsService.shared.setOptIn(enabled)
-            AnalyticsService.shared.capture("analytics_opt_in_changed", ["enabled": enabled])
         }
         .onChange(of: currentProvider) { _ in
             // Keep local tester in sync when switching providers
