@@ -35,6 +35,7 @@ struct CanvasTimelineDataView: View {
     @State private var refreshTimer: Timer?
     @State private var didInitialScrollInView: Bool = false
     @State private var isBreathing = false
+    @State private var loadTask: Task<Void, Never>?
     @EnvironmentObject private var categoryStore: CategoryStore
     @EnvironmentObject private var appState: AppState
 
@@ -108,6 +109,8 @@ struct CanvasTimelineDataView: View {
         }
         .onDisappear {
             stopRefreshTimer()
+            loadTask?.cancel()
+            loadTask = nil
         }
         .onChange(of: selectedDate) { _ in
             loadActivities()
@@ -274,35 +277,44 @@ struct CanvasTimelineDataView: View {
 
 
     private func loadActivities() {
-        DispatchQueue.global(qos: .userInitiated).async {
+        // Cancel any in-flight database read to prevent query pileup
+        loadTask?.cancel()
+
+        loadTask = Task.detached(priority: .userInitiated) {
             // Determine logical date (4 AM boundary)
-            var logicalDate = selectedDate
+            var logicalDate = await self.selectedDate
             let calendar = Calendar.current
-            let hour = calendar.component(.hour, from: selectedDate)
+            let hour = calendar.component(.hour, from: logicalDate)
             if hour < 4 {
-                logicalDate = calendar.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
+                logicalDate = calendar.date(byAdding: .day, value: -1, to: logicalDate) ?? logicalDate
             }
 
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyy-MM-dd"
             let dayString = formatter.string(from: logicalDate)
 
-            let timelineCards = storageManager.fetchTimelineCards(forDay: dayString)
-            let activities = processTimelineCards(timelineCards, for: logicalDate)
+            // Check for cancellation before expensive database read
+            guard !Task.isCancelled else { return }
+
+            let timelineCards = await self.storageManager.fetchTimelineCards(forDay: dayString)
+            let activities = await self.processTimelineCards(timelineCards, for: logicalDate)
+
+            // Check for cancellation before expensive processing
+            guard !Task.isCancelled else { return }
 
             // Mitigation transform: resolve visual overlaps by trimming larger cards
             // so that smaller cards "win". This is a display-only fix to handle
             // upstream card-generation overlap bugs without touching stored data.
-            let segments = resolveOverlapsForDisplay(activities)
+            let segments = await self.resolveOverlapsForDisplay(activities)
 
-            let positioned = segments.map { seg -> CanvasPositionedActivity in
-                let y = calculateYPosition(for: seg.start)
+            let positioned = await segments.map { seg -> CanvasPositionedActivity in
+                let y = self.calculateYPosition(for: seg.start)
                 // Card spacing: -2 total (1px top + 1px bottom)
                 let durationMinutes = max(0, seg.end.timeIntervalSince(seg.start) / 60)
                 let rawHeight = CGFloat(durationMinutes) * CanvasConfig.pixelsPerMinute
                 let height = max(10, rawHeight - 2)
-                let primaryHost = normalizeHost(seg.activity.appSites?.primary)
-                let secondaryHost = normalizeHost(seg.activity.appSites?.secondary)
+                let primaryHost = self.normalizeHost(seg.activity.appSites?.primary)
+                let secondaryHost = self.normalizeHost(seg.activity.appSites?.secondary)
 
                 return CanvasPositionedActivity(
                     id: seg.activity.id,
@@ -311,14 +323,17 @@ struct CanvasTimelineDataView: View {
                     height: height,
                     durationMinutes: durationMinutes,
                     title: seg.activity.title,
-                    timeLabel: formatRange(start: seg.start, end: seg.end),
+                    timeLabel: self.formatRange(start: seg.start, end: seg.end),
                     categoryName: seg.activity.category,
                     faviconPrimaryHost: primaryHost,
                     faviconSecondaryHost: secondaryHost
                 )
             }
 
-            DispatchQueue.main.async {
+            // Final cancellation check before updating UI
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
                 self.positionedActivities = positioned
                 self.hasAnyActivities = !positioned.isEmpty
             }
