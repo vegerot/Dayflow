@@ -330,6 +330,27 @@ struct LLMProviderSetupView: View {
                         return key.hasPrefix("AIza") && key.count > 30
                     }
                 )
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Choose your Gemini model")
+                        .font(.custom("Nunito", size: 16))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.black.opacity(0.85))
+
+                    Picker("Gemini model", selection: $setupState.geminiModel) {
+                        ForEach(GeminiModel.allCases, id: \.self) { model in
+                            Text(model.shortLabel).tag(model)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text(GeminiModelPreference(primary: setupState.geminiModel).fallbackSummary)
+                        .font(.custom("Nunito", size: 13))
+                        .foregroundColor(.black.opacity(0.55))
+                }
+                .onChange(of: setupState.geminiModel) { _ in
+                    setupState.persistGeminiModelSelection(source: "onboarding_picker")
+                }
                 
                 HStack {
                     Spacer()
@@ -557,6 +578,7 @@ struct LLMProviderSetupView: View {
         // Save API key to keychain for Gemini
         if providerType == "gemini" && !setupState.apiKey.isEmpty {
             KeychainManager.shared.store(setupState.apiKey, for: "gemini")
+            GeminiModelPreference(primary: setupState.geminiModel).save()
         }
         
         // Save local endpoint for local engine selection
@@ -628,10 +650,19 @@ class ProviderSetupState: ObservableObject {
     @Published var apiKey: String = ""
     @Published var hasTestedConnection: Bool = false
     @Published var testSuccessful: Bool = false
+    @Published var geminiModel: GeminiModel
     // Local engine configuration
     @Published var localEngine: LocalEngine = .ollama
     @Published var localBaseURL: String = "http://localhost:11434"
     @Published var localModelId: String = "qwen2.5vl:3b"
+
+    private var lastSavedGeminiModel: GeminiModel
+
+    init() {
+        let preference = GeminiModelPreference.load()
+        self.geminiModel = preference.primary
+        self.lastSavedGeminiModel = preference.primary
+    }
     
     var currentStep: SetupStep {
         guard currentStepIndex < steps.count else {
@@ -690,8 +721,9 @@ class ProviderSetupState: ObservableObject {
             // Reset test state when API key changes
             hasTestedConnection = false
             testSuccessful = false
+            persistGeminiModelSelection(source: "onboarding_step")
         }
-        
+
         if currentStepIndex < steps.count - 1 {
             currentStepIndex += 1
         }
@@ -719,6 +751,23 @@ class ProviderSetupState: ObservableObject {
         if currentStepIndex < steps.count {
             steps[currentStepIndex].markCompleted()
         }
+    }
+
+    func persistGeminiModelSelection(source: String) {
+        guard geminiModel != lastSavedGeminiModel else { return }
+        lastSavedGeminiModel = geminiModel
+        GeminiModelPreference(primary: geminiModel).save()
+
+        Task { @MainActor in
+            await AnalyticsService.shared.capture("gemini_model_selected", [
+                "source": source,
+                "model": geminiModel.rawValue
+            ])
+        }
+
+        // Changing models should prompt the user to re-run the connection test
+        hasTestedConnection = false
+        testSuccessful = false
     }
 }
 
