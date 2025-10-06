@@ -957,12 +957,19 @@ private struct GeminiModelSettingsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            Text("Gemini model")
+                .font(.custom("Nunito", size: 13))
+                .fontWeight(.semibold)
+                .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
+
             Picker("Gemini model", selection: $selectedModel) {
                 ForEach(GeminiModel.allCases, id: \.self) { model in
                     Text(model.displayName).tag(model)
                 }
             }
             .pickerStyle(.segmented)
+            .labelsHidden()
+            .environment(\.colorScheme, .light)
 
             Text(GeminiModelPreference(primary: selectedModel).fallbackSummary)
                 .font(.custom("Nunito", size: 12))
