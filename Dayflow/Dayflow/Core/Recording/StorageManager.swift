@@ -88,6 +88,7 @@ protocol StorageManaging: Sendable {
     func fetchRecentTimelineCardsForDebug(limit: Int) -> [TimelineCardDebugEntry]
 
     func fetchRecentLLMCallsForDebug(limit: Int) -> [LLMCallDebugEntry]
+    func fetchRecentAnalysisBatchesForDebug(limit: Int) -> [AnalysisBatchDebugEntry]
     func fetchLLMCallsForBatches(batchIds: [Int64], limit: Int) -> [LLMCallDebugEntry]
 
     // Note: Transcript storage methods removed in favor of Observations
@@ -266,6 +267,14 @@ private struct TimelineMetadata: Codable {
     let appSites: AppSites?
 }
 
+struct AnalysisBatchDebugEntry: Sendable {
+    let id: Int64
+    let status: String
+    let startTs: Int
+    let endTs: Int
+    let createdAt: Date?
+}
+
 // Extended TimelineCard with timestamp fields for internal use
 struct TimelineCardWithTimestamps {
     let id: Int64
@@ -307,7 +316,15 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         // Ensure directory exists
         try? fileMgr.createDirectory(at: root, withIntermediateDirectories: true)
 
-        db = try! DatabaseQueue(path: root.appendingPathComponent("chunks.sqlite").path)
+        // Configure database with WAL mode for better performance and safety
+        var config = Configuration()
+        config.prepareDatabase { db in
+            try db.execute(sql: "PRAGMA journal_mode = WAL")
+            try db.execute(sql: "PRAGMA synchronous = NORMAL")
+            try db.execute(sql: "PRAGMA busy_timeout = 5000")
+        }
+
+        db = try! DatabaseQueue(path: root.appendingPathComponent("chunks.sqlite").path, configuration: config)
 
         // TEMPORARY DEBUG: SQL statement tracing (via configuration)
         #if DEBUG
@@ -482,6 +499,29 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 CREATE INDEX IF NOT EXISTS idx_llm_calls_group ON llm_calls(call_group_id, attempt);
                 CREATE INDEX IF NOT EXISTS idx_llm_calls_batch ON llm_calls(batch_id);
             """)
+
+            // Migration: Add soft delete column to timeline_cards if it doesn't exist
+            let timelineCardsColumns = try db.columns(in: "timeline_cards").map { $0.name }
+            if !timelineCardsColumns.contains("is_deleted") {
+                try db.execute(sql: """
+                    ALTER TABLE timeline_cards ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0;
+                """)
+
+                // Create composite partial indexes for common query patterns
+                try db.execute(sql: """
+                    CREATE INDEX IF NOT EXISTS idx_timeline_cards_active_start_ts
+                    ON timeline_cards(start_ts)
+                    WHERE is_deleted = 0;
+                """)
+
+                try db.execute(sql: """
+                    CREATE INDEX IF NOT EXISTS idx_timeline_cards_active_batch
+                    ON timeline_cards(batch_id)
+                    WHERE is_deleted = 0;
+                """)
+
+                print("✅ Added is_deleted column and composite indexes to timeline_cards")
+            }
         }
     }
 
@@ -539,6 +579,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 SELECT * FROM chunks
                 WHERE start_ts >= ?
                   AND status = 'completed'
+                  AND (is_deleted = 0 OR is_deleted IS NULL)
                   AND id NOT IN (SELECT chunk_id FROM batch_chunks)
                 ORDER BY start_ts ASC
             """, arguments: [oldestAllowed])
@@ -608,6 +649,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 SELECT c.* FROM batch_chunks bc
                 JOIN chunks c ON c.id = bc.chunk_id
                 WHERE bc.batch_id = ?
+                  AND (c.is_deleted = 0 OR c.is_deleted IS NULL)
                 ORDER BY c.start_ts ASC
                 """, arguments: [batchId]
             ).map { r in
@@ -630,9 +672,10 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     func fetchChunksInTimeRange(startTs: Int, endTs: Int) -> [RecordingChunk] {
         (try? timedRead("fetchChunksInTimeRange") { db in
             try Row.fetchAll(db, sql: """
-                SELECT * FROM chunks 
+                SELECT * FROM chunks
                 WHERE status = 'completed'
-                  AND ((start_ts <= ? AND end_ts >= ?) 
+                  AND (is_deleted = 0 OR is_deleted IS NULL)
+                  AND ((start_ts <= ? AND end_ts >= ?)
                        OR (start_ts >= ? AND start_ts <= ?)
                        OR (end_ts >= ? AND end_ts <= ?))
                 ORDER BY start_ts ASC
@@ -752,7 +795,12 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     func fetchTimelineCards(forBatch batchId: Int64) -> [TimelineCard] {
         let decoder = JSONDecoder()
         return (try? timedRead("fetchTimelineCards(forBatch)") { db in
-            try Row.fetchAll(db, sql: "SELECT * FROM timeline_cards WHERE batch_id = ? ORDER BY start ASC", arguments: [batchId]).map { row in
+            try Row.fetchAll(db, sql: """
+                SELECT * FROM timeline_cards
+                WHERE batch_id = ?
+                  AND is_deleted = 0
+                ORDER BY start ASC
+            """, arguments: [batchId]).map { row in
                 var distractions: [Distraction]? = nil
                 var appSites: AppSites? = nil
                 if let metadataString: String = row["metadata"],
@@ -794,6 +842,27 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             }) ?? []
         }
 
+    func fetchRecentAnalysisBatchesForDebug(limit: Int) -> [AnalysisBatchDebugEntry] {
+        guard limit > 0 else { return [] }
+
+        return (try? db.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT id, status, batch_start_ts, batch_end_ts, created_at
+                FROM analysis_batches
+                ORDER BY id DESC
+                LIMIT ?
+            """, arguments: [limit]).map { row in
+                AnalysisBatchDebugEntry(
+                    id: row["id"],
+                    status: row["status"] ?? "unknown",
+                    startTs: row["batch_start_ts"] ?? 0,
+                    endTs: row["batch_end_ts"] ?? 0,
+                    createdAt: row["created_at"]
+                )
+            }
+        }) ?? []
+    }
+
 
     func fetchTimelineCards(forDay day: String) -> [TimelineCard] {
         let decoder = JSONDecoder()
@@ -826,6 +895,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             try Row.fetchAll(db, sql: """
                 SELECT * FROM timeline_cards
                 WHERE start_ts >= ? AND start_ts < ?
+                  AND is_deleted = 0
                 ORDER BY start_ts ASC, start ASC
             """, arguments: [startTs, endTs])
             .map { row in
@@ -872,8 +942,9 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         let cards: [TimelineCard]? = try? timedRead("fetchTimelineCardsByTimeRange") { db in
             try Row.fetchAll(db, sql: """
                 SELECT * FROM timeline_cards
-                WHERE (start_ts < ? AND end_ts > ?)
-                   OR (start_ts >= ? AND start_ts < ?)
+                WHERE ((start_ts < ? AND end_ts > ?)
+                   OR (start_ts >= ? AND start_ts < ?))
+                  AND is_deleted = 0
                 ORDER BY start_ts ASC
             """, arguments: [toTs, fromTs, fromTs, toTs])
             .map { row in
@@ -919,6 +990,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             try Row.fetchAll(db, sql: """
                 SELECT batch_id, day, start, end, category, subcategory, title, summary, detailed_summary, created_at
                 FROM timeline_cards
+                WHERE is_deleted = 0
                 ORDER BY created_at DESC, id DESC
                 LIMIT ?
             """, arguments: [limit]).map { row in
@@ -1010,7 +1082,9 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
         return try? timedRead("fetchTimelineCard(byId)") { db in
             guard let row = try Row.fetchOne(db, sql: """
-                SELECT * FROM timeline_cards WHERE id = ?
+                SELECT * FROM timeline_cards
+                WHERE id = ?
+                  AND is_deleted = 0
             """, arguments: [id]) else { return nil }
             
             // Decode distractions from metadata JSON
@@ -1057,42 +1131,47 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         timeFormatter.locale = Locale(identifier: "en_US_POSIX")
 
         try? timedWrite("replaceTimelineCardsInRange(\(newCards.count)_cards)") { db in
-            // First, fetch the video paths that will be deleted
+            // First, fetch the video paths that will be soft-deleted
             let videoRows = try Row.fetchAll(db, sql: """
                 SELECT video_summary_url FROM timeline_cards
                 WHERE ((start_ts < ? AND end_ts > ?)
                    OR (start_ts >= ? AND start_ts < ?))
                    AND video_summary_url IS NOT NULL
+                   AND is_deleted = 0
             """, arguments: [toTs, fromTs, fromTs, toTs])
-            
+
             videoPaths = videoRows.compactMap { $0["video_summary_url"] as? String }
-            
+
             // Fetch the cards that will be deleted for debugging
             let cardsToDelete = try Row.fetchAll(db, sql: """
                 SELECT id, start, end, title FROM timeline_cards
-                WHERE (start_ts < ? AND end_ts > ?)
-                   OR (start_ts >= ? AND start_ts < ?)
+                WHERE ((start_ts < ? AND end_ts > ?)
+                   OR (start_ts >= ? AND start_ts < ?))
+                   AND is_deleted = 0
             """, arguments: [toTs, fromTs, fromTs, toTs])
-            
+
             for card in cardsToDelete {
                 let id: Int64 = card["id"]
                 let start: String = card["start"]
                 let end: String = card["end"]
                 let title: String = card["title"]
             }
-            
-            // Delete existing cards in the range using timestamp columns
+
+            // Soft delete existing cards in the range using timestamp columns
             try db.execute(sql: """
-                DELETE FROM timeline_cards
-                WHERE (start_ts < ? AND end_ts > ?)
-                   OR (start_ts >= ? AND start_ts < ?)
+                UPDATE timeline_cards
+                SET is_deleted = 1
+                WHERE ((start_ts < ? AND end_ts > ?)
+                   OR (start_ts >= ? AND start_ts < ?))
+                   AND is_deleted = 0
             """, arguments: [toTs, fromTs, fromTs, toTs])
-            
-            // Verify deletion
+
+            // Verify soft deletion (count remaining active cards)
             let remainingCount = try Int.fetchOne(db, sql: """
                 SELECT COUNT(*) FROM timeline_cards
-                WHERE (start_ts < ? AND end_ts > ?)
-                   OR (start_ts >= ? AND start_ts < ?)
+                WHERE ((start_ts < ? AND end_ts > ?)
+                   OR (start_ts >= ? AND start_ts < ?))
+                   AND is_deleted = 0
             """, arguments: [toTs, fromTs, fromTs, toTs]) ?? 0
             
             if remainingCount > 0 {
@@ -1258,9 +1337,10 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 FROM chunks c
                 JOIN batch_chunks bc ON c.id = bc.chunk_id
                 WHERE bc.batch_id = ?
+                  AND (c.is_deleted = 0 OR c.is_deleted IS NULL)
                 ORDER BY c.start_ts
             """
-            
+
             let rows = try Row.fetchAll(db, sql: sql, arguments: [batchId])
             return rows.compactMap { $0["file_url"] as? String }
         }) ?? []
@@ -1352,7 +1432,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         guard !paths.isEmpty else { return [:] }
         var out: [String: (Int, Int)] = [:]
         let placeholders = Array(repeating: "?", count: paths.count).joined(separator: ",")
-        let sql = "SELECT file_url, start_ts, end_ts FROM chunks WHERE file_url IN (\(placeholders))"
+        let sql = "SELECT file_url, start_ts, end_ts FROM chunks WHERE file_url IN (\(placeholders)) AND (is_deleted = 0 OR is_deleted IS NULL)"
         try? db.read { db in
             let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(paths))
             for row in rows {
@@ -1395,17 +1475,22 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         let endTs = Int(dayEnd.timeIntervalSince1970)
 
         try? timedWrite("deleteTimelineCards(forDay:\(day))") { db in
-            // First fetch all video paths before deletion
+            // First fetch all video paths before soft deletion
             let rows = try Row.fetchAll(db, sql: """
                 SELECT video_summary_url FROM timeline_cards
-                WHERE start_ts >= ? AND start_ts < ? AND video_summary_url IS NOT NULL
+                WHERE start_ts >= ? AND start_ts < ?
+                  AND video_summary_url IS NOT NULL
+                  AND is_deleted = 0
             """, arguments: [startTs, endTs])
-            
+
             videoPaths = rows.compactMap { $0["video_summary_url"] as? String }
-            
-            // Delete the timeline cards
+
+            // Soft delete the timeline cards by setting is_deleted = 1
             try db.execute(sql: """
-                DELETE FROM timeline_cards WHERE start_ts >= ? AND start_ts < ?
+                UPDATE timeline_cards
+                SET is_deleted = 1
+                WHERE start_ts >= ? AND start_ts < ?
+                  AND is_deleted = 0
             """, arguments: [startTs, endTs])
         }
         
@@ -1419,22 +1504,28 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
         do {
             try timedWrite("deleteTimelineCards(forBatchIds:\(batchIds.count))") { db in
+                // Fetch video paths for active records only
                 let rows = try Row.fetchAll(
                     db,
                     sql: """
                         SELECT video_summary_url
                         FROM timeline_cards
                         WHERE batch_id IN (\(placeholders))
+                          AND video_summary_url IS NOT NULL
+                          AND is_deleted = 0
                     """,
                     arguments: StatementArguments(batchIds)
                 )
 
                 videoPaths = rows.compactMap { $0["video_summary_url"] as? String }
 
+                // Soft delete the records
                 try db.execute(
                     sql: """
-                        DELETE FROM timeline_cards
+                        UPDATE timeline_cards
+                        SET is_deleted = 1
                         WHERE batch_id IN (\(placeholders))
+                          AND is_deleted = 0
                     """,
                     arguments: StatementArguments(batchIds)
                 )
@@ -1620,27 +1711,40 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                         var freedSpace: Int = 0
                         
                         for chunk in oldChunks {
-                            guard let id: Int64 = chunk["id"], 
+                            guard let id: Int64 = chunk["id"],
                                   let path: String = chunk["file_url"] else { continue }
-                            
-                            // Delete physical file
+
+                            // Get file size before deletion
+                            var fileSize: Int = 0
                             if FileManager.default.fileExists(atPath: path) {
                                 if let attrs = try? self.fileMgr.attributesOfItem(atPath: path),
-                                   let fileSize = attrs[.size] as? NSNumber {
-                                    freedSpace += fileSize.intValue
+                                   let size = attrs[.size] as? NSNumber {
+                                    fileSize = size.intValue
                                 }
-                                try? self.fileMgr.removeItem(atPath: path)
                             }
-                            
-                            // Mark as deleted
+
+                            // Mark as deleted in DB first (safer ordering)
                             try db.execute(sql: """
-                                UPDATE chunks 
-                                SET is_deleted = 1 
+                                UPDATE chunks
+                                SET is_deleted = 1
                                 WHERE id = ?
                             """, arguments: [id])
-                            
-                            deletedCount += 1
-                            
+
+                            // Then delete physical file
+                            if FileManager.default.fileExists(atPath: path) {
+                                do {
+                                    try self.fileMgr.removeItem(atPath: path)
+                                    freedSpace += fileSize
+                                    deletedCount += 1
+                                } catch {
+                                    print("⚠️ Failed to delete chunk file at \(path): \(error)")
+                                    // Don't count as freed space if deletion failed
+                                }
+                            } else {
+                                // File already gone, still count the DB cleanup
+                                deletedCount += 1
+                            }
+
                             // Stop if we've freed enough space (under 10GB)
                             if currentSize - freedSpace < 10_000_000_000 {
                                 break
