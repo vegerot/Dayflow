@@ -137,12 +137,20 @@ struct BugReportView: View {
             // Extract unique batch IDs from timeline cards
             let batchIds = Array(Set(timeline.compactMap { $0.batchId }))
 
-            // Fetch LLM calls only for these batches (use higher limit as safety cap)
-            let llmCalls = batchIds.isEmpty
-                ? []
-                : StorageManager.shared.fetchLLMCallsForBatches(batchIds: batchIds, limit: 100)
+            // Fetch LLM calls, falling back to global recent calls if we have no timeline batches
+            let llmCalls: [LLMCallDebugEntry]
+            let llmCallSource: String
+            if batchIds.isEmpty {
+                llmCalls = StorageManager.shared.fetchRecentLLMCallsForDebug(limit: 20)
+                llmCallSource = "global"
+            } else {
+                llmCalls = StorageManager.shared.fetchLLMCallsForBatches(batchIds: batchIds, limit: 100)
+                llmCallSource = "timeline_batches"
+            }
 
-            let logString = DebugLogFormatter.makeLog(timeline: timeline, llmCalls: llmCalls)
+            let batches = StorageManager.shared.fetchRecentAnalysisBatchesForDebug(limit: 5)
+
+            let logString = DebugLogFormatter.makeLog(timeline: timeline, llmCalls: llmCalls, batches: batches)
 
             await MainActor.run {
                 let pasteboard = NSPasteboard.general
@@ -153,7 +161,9 @@ struct BugReportView: View {
                     "bug_report_debug_logs_copied",
                     [
                         "timeline_count": timeline.count,
-                        "llm_call_count": llmCalls.count
+                        "llm_call_count": llmCalls.count,
+                        "llm_call_source": llmCallSource,
+                        "batch_count": batches.count
                     ]
                 )
 

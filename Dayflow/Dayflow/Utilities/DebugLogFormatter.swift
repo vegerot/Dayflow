@@ -1,7 +1,7 @@
 import Foundation
 
 struct DebugLogFormatter {
-    static func makeLog(timeline: [TimelineCardDebugEntry], llmCalls: [LLMCallDebugEntry]) -> String {
+    static func makeLog(timeline: [TimelineCardDebugEntry], llmCalls: [LLMCallDebugEntry], batches: [AnalysisBatchDebugEntry]) -> String {
         var sections: [String] = []
 
         let timestampFormatter = DateFormatter()
@@ -93,6 +93,25 @@ struct DebugLogFormatter {
                     lines.append(contentsOf: block(label: "Response", body: response))
                 }
             }
+            sections.append(lines.joined(separator: "\n"))
+        }
+
+        if batches.isEmpty {
+            sections.append("--- Analysis batches: none ---")
+        } else {
+            var lines: [String] = []
+            lines.append("--- Analysis batches (latest \(batches.count)) ---")
+
+            for (index, batch) in batches.enumerated() {
+                let created = batch.createdAt.map { timestampFormatter.string(from: $0) } ?? "unknown"
+                let start = Date(timeIntervalSince1970: TimeInterval(batch.startTs))
+                let end = Date(timeIntervalSince1970: TimeInterval(batch.endTs))
+                let startString = timestampFormatter.string(from: start)
+                let endString = timestampFormatter.string(from: end)
+                lines.append("\(index + 1). id=\(batch.id) | status=\(batch.status) | created \(created)")
+                lines.append("   window: \(startString) → \(endString)")
+            }
+
             sections.append(lines.joined(separator: "\n"))
         }
 
