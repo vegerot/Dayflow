@@ -14,6 +14,8 @@ final class TimelapseStorageManager {
         try? fileMgr.createDirectory(at: root, withIntermediateDirectories: true)
     }
 
+    var rootURL: URL { root }
+
     func currentUsageBytes() -> Int64 {
         (try? fileMgr.allocatedSizeOfDirectory(at: root)) ?? 0
     }

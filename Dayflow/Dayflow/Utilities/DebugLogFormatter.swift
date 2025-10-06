@@ -110,6 +110,9 @@ struct DebugLogFormatter {
                 let endString = timestampFormatter.string(from: end)
                 lines.append("\(index + 1). id=\(batch.id) | status=\(batch.status) | created \(created)")
                 lines.append("   window: \(startString) → \(endString)")
+                if let reason = cleaned(batch.reason) {
+                    lines.append("   reason: \(reason)")
+                }
             }
 
             sections.append(lines.joined(separator: "\n"))

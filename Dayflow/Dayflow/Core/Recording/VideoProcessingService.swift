@@ -398,6 +398,8 @@ actor VideoProcessingService {
             print("Timelapse export failed. Status: \(writer.status). Error: \(writer.error?.localizedDescription ?? "No error description available")")
             throw VideoProcessingError.exportFailed(writer.error)
         }
+
+        TimelapseStorageManager.shared.purgeIfNeeded()
     }
 
     func cleanupTemporaryFile(at url: URL) {

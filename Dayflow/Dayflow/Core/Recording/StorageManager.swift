@@ -263,6 +263,7 @@ struct AnalysisBatchDebugEntry: Sendable {
     let startTs: Int
     let endTs: Int
     let createdAt: Date?
+    let reason: String?
 }
 
 // Extended TimelineCard with timestamp fields for internal use
@@ -330,6 +331,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
         // Run initial purge, then schedule hourly
         purgeIfNeeded()
+        TimelapseStorageManager.shared.purgeIfNeeded()
         startPurgeScheduler()
     }
 
@@ -836,7 +838,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
         return (try? db.read { db in
             try Row.fetchAll(db, sql: """
-                SELECT id, status, batch_start_ts, batch_end_ts, created_at
+                SELECT id, status, batch_start_ts, batch_end_ts, created_at, reason
                 FROM analysis_batches
                 ORDER BY id DESC
                 LIMIT ?
@@ -846,7 +848,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     status: row["status"] ?? "unknown",
                     startTs: row["batch_start_ts"] ?? 0,
                     endTs: row["batch_end_ts"] ?? 0,
-                    createdAt: row["created_at"]
+                    createdAt: row["created_at"],
+                    reason: row["reason"]
                 )
             }
         }) ?? []
@@ -1672,6 +1675,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         timer.schedule(deadline: .now() + 3600, repeating: 3600) // Every hour
         timer.setEventHandler { [weak self] in
             self?.purgeIfNeeded()
+            TimelapseStorageManager.shared.purgeIfNeeded()
         }
         timer.resume()
         purgeTimer = timer
