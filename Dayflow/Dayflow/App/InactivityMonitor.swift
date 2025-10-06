@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CoreGraphics
 
 @MainActor
 final class InactivityMonitor: ObservableObject {
@@ -26,7 +27,6 @@ final class InactivityMonitor: ObservableObject {
     }
 
     // State
-    private var lastInteractionAt: Date = Date()
     private var lastResetAt: Date? = nil
     private var checkTimer: Timer?
     private var monitors: [Any] = []
@@ -53,11 +53,11 @@ final class InactivityMonitor: ObservableObject {
     private func setupEventMonitors() {
         removeEventMonitors()
 
+        // Only monitor significant user actions, not mouse movements or scroll
+        // This eliminates 100-500 main thread interrupts per second
         let masks: [NSEvent.EventTypeMask] = [
-            .keyDown, .flagsChanged,
-            .leftMouseDown, .rightMouseDown, .otherMouseDown,
-            .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
-            .mouseMoved, .scrollWheel
+            .keyDown,
+            .leftMouseDown, .rightMouseDown, .otherMouseDown
         ]
 
         for mask in masks {
@@ -91,7 +91,7 @@ final class InactivityMonitor: ObservableObject {
     }
 
     private func handleInteraction() {
-        lastInteractionAt = Date()
+        // Reset pending state when user explicitly interacts
         lastResetAt = nil
         if pendingReset { pendingReset = false }
     }
@@ -112,9 +112,15 @@ final class InactivityMonitor: ObservableObject {
     }
 
     private func checkIdle() {
-        let elapsed = Date().timeIntervalSince(lastInteractionAt)
+        // Use system idle time API instead of tracking events manually
+        // This eliminates the need for high-frequency event monitoring
+        let idleSeconds = CGEventSource.secondsSinceLastEventType(
+            .combinedSessionState,
+            eventType: .mouseMoved
+        )
+
         let threshold = thresholdSeconds
-        guard elapsed >= threshold else { return }
+        guard idleSeconds >= threshold else { return }
 
         let now = Date()
         if let lastResetAt, now.timeIntervalSince(lastResetAt) < threshold {
