@@ -316,22 +316,66 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
                 self?.transition(to: .idle, context: "makeStream failed")
             }
 
+            // Extract error details for analytics
+            let nsError = error as NSError
+            let errorDomain = nsError.domain
+            let errorCode = nsError.code
+            let isNoDisplay = (error as? RecorderError) == .noDisplay
+
             // Check if this is a user-initiated stop
             if isUserInitiatedStop(error) {
                 dbg("User stopped recording during startup - updating app state")
-                Task { @MainActor in self.forceStopFlag() }
+
+                Task { @MainActor in
+                    AnalyticsService.shared.capture("recording_startup_failed", [
+                        "attempt": attempt,
+                        "max_attempts": maxAttempts,
+                        "error_domain": errorDomain,
+                        "error_code": errorCode,
+                        "error_type": "user_initiated",
+                        "outcome": "user_cancelled"
+                    ])
+                    self.forceStopFlag()
+                }
                 return
             }
 
             // Treat `noDisplay` like other transient issues
-            let retryable = shouldRetry(error) || (error as? RecorderError) == .noDisplay
+            let retryable = shouldRetry(error) || isNoDisplay
 
             if retryable, attempt < maxAttempts {
                 let delay = Double(attempt)        // 1 s, 2 s, 3 s …
                 dbg("retrying in \(delay)s")
+
+                Task { @MainActor in
+                    AnalyticsService.shared.capture("recording_startup_failed", [
+                        "attempt": attempt,
+                        "max_attempts": maxAttempts,
+                        "error_domain": errorDomain,
+                        "error_code": errorCode,
+                        "error_type": isNoDisplay ? "no_display" : "retryable",
+                        "outcome": "will_retry",
+                        "retry_delay_seconds": delay
+                    ])
+                }
+
                 q.asyncAfter(deadline: .now() + delay) { [weak self] in self?.start() }
             } else {
-                Task { @MainActor in self.forceStopFlag() }
+                // Final failure - either non-retryable or exceeded max attempts
+                let failureReason = !retryable ? "non_retryable" : "max_attempts_exceeded"
+
+                Task { @MainActor in
+                    AnalyticsService.shared.capture("recording_startup_failed", [
+                        "attempt": attempt,
+                        "max_attempts": maxAttempts,
+                        "error_domain": errorDomain,
+                        "error_code": errorCode,
+                        "error_type": isNoDisplay ? "no_display" : (retryable ? "retryable" : "non_retryable"),
+                        "outcome": "gave_up",
+                        "failure_reason": failureReason
+                    ])
+                    self.forceStopFlag()
+                }
             }
         }
     }
@@ -431,7 +475,29 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
                                          ])
             inp.expectsMediaDataInRealTime = true
             guard w.canAdd(inp) else { throw RecorderError.badInput }
-            w.add(inp); writer = w; input = inp
+            w.add(inp)
+
+            // ARCHITECTURAL FIX: Start writing immediately after adding input
+            // This prevents the race condition where multiple frames try to call startWriting()
+            // The writer is now guaranteed to be in .writing state before any frames arrive
+            guard w.startWriting() else {
+                let error = w.error ?? RecorderError.badInput
+                dbg("❌ AVAssetWriter.startWriting() failed in beginSegment: \(error)")
+
+                // Add Sentry breadcrumb for initialization failures
+                let writerFailBreadcrumb = Breadcrumb(level: .error, category: "recording")
+                writerFailBreadcrumb.message = "AVAssetWriter startWriting failed during initialization"
+                writerFailBreadcrumb.data = [
+                    "writer_status": String(describing: w.status.rawValue),
+                    "error": w.error?.localizedDescription ?? "nil",
+                    "file": url.lastPathComponent
+                ]
+                SentryHelper.addBreadcrumb(writerFailBreadcrumb)
+
+                throw error
+            }
+
+            writer = w; input = inp
 
             // Sampled chunk_created event (main actor)
             Task { @MainActor in
@@ -507,24 +573,35 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
         // 4. normal shutdown path
         inp.markAsFinished()
         w.finishWriting { [weak self] in
+            // CRITICAL FIX: finishWriting completion runs on AVFoundation's internal queue
+            // We MUST dispatch all state mutations back to the recorder queue for thread safety
             guard let self = self else { return }
-            if w.status == .completed {
-                StorageManager.shared.markChunkCompleted(url: url)
-            } else {
-                StorageManager.shared.markChunkFailed(url: url)
-            }
-            self.reset()
 
-            guard restart else { return }
+            // Dispatch ALL state mutations to recorder queue
+            self.q.async { [weak self] in
+                guard let self = self else { return }
 
-            // Hop back to the main actor to read the flag safely.
-            Task { @MainActor in
-                guard AppState.shared.isRecording else { return }
-                self.q.async { [weak self] in
-                    guard let self else { return }
-                    // Double-check wantsRecording on recorder queue to catch stop() during finishWriting
-                    guard self.wantsRecording else { return }
-                    self.beginSegment()
+                // Mark chunk completion status
+                if w.status == .completed {
+                    StorageManager.shared.markChunkCompleted(url: url)
+                } else {
+                    StorageManager.shared.markChunkFailed(url: url)
+                }
+
+                // Reset recorder state (NOW SAFE - on recorder queue)
+                self.reset()
+
+                guard restart else { return }
+
+                // Hop back to the main actor to read the flag safely.
+                Task { @MainActor in
+                    guard AppState.shared.isRecording else { return }
+                    self.q.async { [weak self] in
+                        guard let self else { return }
+                        // Double-check wantsRecording on recorder queue to catch stop() during finishWriting
+                        guard self.wantsRecording else { return }
+                        self.beginSegment()
+                    }
                 }
             }
         }
@@ -547,7 +624,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
 
         if firstPTS == nil {
             firstPTS = sb.presentationTimeStamp
-            let started = w.startWriting()
+
+            // Start the session timeline with the first frame's timestamp
+            // Note: startWriting() was already called in beginSegment() - no race condition!
             w.startSession(atSourceTime: firstPTS!)
         }
 
@@ -583,7 +662,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
             }
             self.stop()
             Task { @MainActor in
-                AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "system_sleep"])
+                AnalyticsService.shared.withSampling(probability: 0.01) {
+                    AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "system_sleep"])
+                }
             }
         }
 
@@ -620,7 +701,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
             }
             self.stop()
             Task { @MainActor in
-                AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "lock"])
+                AnalyticsService.shared.withSampling(probability: 0.01) {
+                    AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "lock"])
+                }
             }
         }
 
@@ -656,7 +739,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
             }
             self.stop()
             Task { @MainActor in
-                AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "screensaver"])
+                AnalyticsService.shared.withSampling(probability: 0.01) {
+                    AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "screensaver"])
+                }
             }
         }
 
