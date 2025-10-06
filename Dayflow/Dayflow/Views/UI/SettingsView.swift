@@ -379,6 +379,7 @@ struct SettingsView: View {
                         Text(option.label)
                             .font(.custom("Nunito", size: 12))
                     }
+                    .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .background(Color.white)
