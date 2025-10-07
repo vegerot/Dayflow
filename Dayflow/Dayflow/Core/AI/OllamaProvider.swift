@@ -1154,12 +1154,16 @@ final class OllamaProvider: LLMProvider {
         let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
         let formatter = DateFormatter()
         formatter.dateFormat = "h:mm a"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
         return formatter.string(from: date)
     }
     
     private func calculateDurationInMinutes(from startTime: String, to endTime: String) -> Int {
         let formatter = DateFormatter()
         formatter.dateFormat = "h:mm a"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
         
         guard let start = formatter.date(from: startTime),
               let end = formatter.date(from: endTime) else {

@@ -371,8 +371,9 @@ final class LLMService: LLMServicing {
     private func createErrorCard(batchId: Int64, batchStartTime: Date, batchEndTime: Date, error: Error) -> TimelineCardShell {
         let formatter = DateFormatter()
         formatter.dateFormat = "h:mm a"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone.current
-        
+
         let startTimeStr = formatter.string(from: batchStartTime)
         let endTimeStr = formatter.string(from: batchEndTime)
         
