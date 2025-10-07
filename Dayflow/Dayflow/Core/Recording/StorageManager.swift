@@ -1185,9 +1185,22 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 let meta = TimelineMetadata(distractions: card.distractions, appSites: card.appSites)
                 let metadataString: String? = (try? encoder.encode(meta)).flatMap { String(data: $0, encoding: .utf8) }
 
-                // Use the 'from' date as the base date for parsing clock times
+                // Resolve clock-only timestamps by picking the nearest day to the window midpoint
                 let calendar = Calendar.current
-                let baseDate = from
+                let anchor = from.addingTimeInterval(to.timeIntervalSince(from) / 2.0)
+
+                let resolveClock: (Int, Int) -> Date = { hour, minute in
+                    guard let sameDay = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: anchor) else {
+                        return anchor
+                    }
+                    let previousDay = calendar.date(byAdding: .day, value: -1, to: sameDay) ?? sameDay
+                    let nextDay = calendar.date(byAdding: .day, value: 1, to: sameDay) ?? sameDay
+
+                    let candidates = [previousDay, sameDay, nextDay]
+                    return candidates.min { lhs, rhs in
+                        abs(lhs.timeIntervalSince(anchor)) < abs(rhs.timeIntervalSince(anchor))
+                    } ?? sameDay
+                }
 
                 guard let startTime = timeFormatter.date(from: card.startTimestamp),
                       let endTime = timeFormatter.date(from: card.endTimestamp) else {
@@ -1197,42 +1210,14 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 let startComponents = calendar.dateComponents([.hour, .minute], from: startTime)
                 guard let startHour = startComponents.hour, let startMinute = startComponents.minute else { continue }
 
-                var startDate = calendar.date(bySettingHour: startHour, minute: startMinute, second: 0, of: baseDate) ?? baseDate
-
-                // If the parsed time is between midnight and 4 AM, and it's earlier than baseDate,
-                // disambiguate whether it's same day (before batch) or next day (after midnight crossing)
-                if startHour < 4 && startDate < baseDate {
-                    let nextDayStartDate = calendar.date(byAdding: .day, value: 1, to: startDate) ?? startDate
-
-                    // Pick whichever is closer to batch start time
-                    let sameDayDistance = abs(startDate.timeIntervalSince(baseDate))
-                    let nextDayDistance = abs(nextDayStartDate.timeIntervalSince(baseDate))
-
-                    if nextDayDistance < sameDayDistance {
-                        // Next day is closer - legitimate midnight crossing
-                        startDate = nextDayStartDate
-                    }
-                    // Otherwise keep same day (LLM provided time before batch started)
-                }
+                var startDate = resolveClock(startHour, startMinute)
 
                 let startTs = Int(startDate.timeIntervalSince1970)
 
                 let endComponents = calendar.dateComponents([.hour, .minute], from: endTime)
                 guard let endHour = endComponents.hour, let endMinute = endComponents.minute else { continue }
 
-                var endDate = calendar.date(bySettingHour: endHour, minute: endMinute, second: 0, of: baseDate) ?? baseDate
-
-                // Disambiguate end time day using same logic as start time
-                if endHour < 4 && endDate < baseDate {
-                    let nextDayEndDate = calendar.date(byAdding: .day, value: 1, to: endDate) ?? endDate
-
-                    let sameDayDistance = abs(endDate.timeIntervalSince(baseDate))
-                    let nextDayDistance = abs(nextDayEndDate.timeIntervalSince(baseDate))
-
-                    if nextDayDistance < sameDayDistance {
-                        endDate = nextDayEndDate
-                    }
-                }
+                var endDate = resolveClock(endHour, endMinute)
 
                 // Handle midnight crossing: if end time is before start time, it must be the next day
                 if endDate < startDate {
