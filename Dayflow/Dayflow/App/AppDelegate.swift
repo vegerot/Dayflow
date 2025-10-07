@@ -42,9 +42,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 #endif
                 // Attach stack traces to all messages (helpful for debugging)
                 options.attachStacktrace = true
-                // Enable app hang detection (default 2 seconds)
+                // Enable app hang detection with a 5-second threshold to reduce noise
                 options.enableAppHangTracking = true
-                options.appHangTimeoutInterval = 2.0
+                options.appHangTimeoutInterval = 5.0
                 // Increase breadcrumb limit for better debugging context
                 options.maxBreadcrumbs = 200  // Default is 100
                 // Enable automatic session tracking
