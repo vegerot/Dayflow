@@ -24,6 +24,9 @@ actor VideoProcessingService {
     private let fileManager = FileManager.default
     private let temporaryDirectoryURL: URL
     private let persistentTimelapsesRootURL: URL
+    private let maxRenderDimension = 1080  // mirror capture target height while allowing wide exports
+
+    private struct TrackInfo: Hashable { let width: Int; let height: Int }
 
     init() {
         self.temporaryDirectoryURL = fileManager.temporaryDirectory
@@ -70,7 +73,7 @@ actor VideoProcessingService {
             .appendingPathComponent(originalFileName + "_timelapse.mp4")
     }
 
-    /// If multiple URLs, stitches them. If sizes/orientations differ, re-renders to a stable 16:9 canvas.
+    /// If multiple URLs, stitches them. If sizes/orientations differ, re-renders to a canvas sized for the largest segment.
     func prepareVideoForProcessing(urls: [URL]) async throws -> URL {
         guard !urls.isEmpty else { throw VideoProcessingError.invalidInputURL }
         let tempOutputURL = newTemporaryFileURL()
@@ -90,7 +93,6 @@ actor VideoProcessingService {
         }
 
         // Inspect tracks to decide homogeneous vs mixed pipeline
-        struct TrackInfo: Hashable { let width: Int; let height: Int }
         var infos = Set<TrackInfo>()
         for url in urls {
             let asset = AVURLAsset(url: url)
@@ -106,7 +108,11 @@ actor VideoProcessingService {
 
         // If mixed dimensions, render to canvas for stability
         if infos.count > 1 {
-            return try await stitchToCanvas(urls: urls, canvas: CGSize(width: 1920, height: 1080))
+            let canvasDims = targetCanvasDimensions(for: infos)
+            return try await stitchToCanvas(
+                urls: urls,
+                canvas: CGSize(width: CGFloat(canvasDims.width), height: CGFloat(canvasDims.height))
+            )
         }
 
         // Stitch multiple files (homogeneous path)
@@ -208,7 +214,7 @@ actor VideoProcessingService {
         videoComp.instructions = instructions
 
         let outputURL = newTemporaryFileURL()
-        guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPreset1920x1080) else {
+        guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
             throw VideoProcessingError.exportSessionCreationFailed
         }
         export.videoComposition = videoComp
@@ -269,8 +275,8 @@ actor VideoProcessingService {
         let naturalSize = try await assetTrack.load(.naturalSize)
         let preferredTransform = try await assetTrack.load(.preferredTransform)
         let actualSize = naturalSize.applying(preferredTransform)
-        let width = Int(abs(actualSize.width))
-        let height = Int(abs(actualSize.height))
+        let width = Int(abs(actualSize.width).rounded())
+        let height = Int(abs(actualSize.height).rounded())
         let nominalFrameRate = try await assetTrack.load(.nominalFrameRate)
         
         // Create composition with time mapping for speedup
@@ -308,14 +314,19 @@ actor VideoProcessingService {
             throw VideoProcessingError.assetWriterCreationFailed(nil)
         }
         
-        // Cap resolution at 1080p
-        let outputWidth = min(width, 1920)
-        let outputHeight = min(height, 1080)
-        
-        // Custom bitrate: 3 Mbps for 1080p timelapse (much lower than default ~8 Mbps)
-        let bitrate = 3_000_000
-        
-        print("🎬 Timelapse encoding: \(outputWidth)×\(outputHeight) @ \(outputFPS)fps, bitrate: \(bitrate/1_000_000)Mbps")
+        let dims = normalizedDimensions(width: width, height: height)
+        let outputWidth = dims.width
+        let outputHeight = dims.height
+
+        // Scale bitrate with pixel area to preserve quality on wide screens without huge files
+        let baseBitrate = 3_000_000
+        let minBitrate = 1_500_000
+        let maxBitrate = 10_000_000
+        let areaRatio = Double(outputWidth * outputHeight) / (1920.0 * 1080.0)
+        let scaledBitrate = Int((Double(baseBitrate) * max(areaRatio, 0.5)).rounded())
+        let bitrate = min(max(scaledBitrate, minBitrate), maxBitrate)
+
+        print("🎬 Timelapse encoding: \(outputWidth)×\(outputHeight) @ \(outputFPS)fps, bitrate: \(Double(bitrate) / 1_000_000)Mbps")
         
         let outputSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
@@ -351,7 +362,7 @@ actor VideoProcessingService {
         
         // Apply video composition for proper rendering
         let videoComposition = AVMutableVideoComposition()
-        videoComposition.renderSize = CGSize(width: outputWidth, height: outputHeight)
+        videoComposition.renderSize = CGSize(width: CGFloat(outputWidth), height: CGFloat(outputHeight))
         videoComposition.frameDuration = CMTime(value: 1, timescale: Int32(outputFPS))
         
         let instruction = AVMutableVideoCompositionInstruction()
@@ -400,6 +411,45 @@ actor VideoProcessingService {
         }
 
         TimelapseStorageManager.shared.purgeIfNeeded()
+    }
+
+    private func normalizedDimensions(width: Int, height: Int) -> (width: Int, height: Int) {
+        guard width > 0, height > 0 else { return (width: 2, height: 2) }
+
+        var targetWidth = width
+        var targetHeight = height
+
+        if width >= height {
+            if height > maxRenderDimension {
+                let scale = Double(maxRenderDimension) / Double(height)
+                targetHeight = maxRenderDimension
+                targetWidth = max(Int((Double(width) * scale).rounded()), 2)
+            }
+        } else {
+            if width > maxRenderDimension {
+                let scale = Double(maxRenderDimension) / Double(width)
+                targetWidth = maxRenderDimension
+                targetHeight = max(Int((Double(height) * scale).rounded()), 2)
+            }
+        }
+
+        targetWidth = makeEven(targetWidth)
+        targetHeight = makeEven(targetHeight)
+
+        return (targetWidth, targetHeight)
+    }
+
+    private func targetCanvasDimensions(for infos: Set<TrackInfo>) -> (width: Int, height: Int) {
+        guard let maxWidth = infos.map(\.width).max(),
+              let maxHeight = infos.map(\.height).max() else {
+            return normalizedDimensions(width: maxRenderDimension, height: maxRenderDimension)
+        }
+        return normalizedDimensions(width: maxWidth, height: maxHeight)
+    }
+
+    private func makeEven(_ value: Int) -> Int {
+        let even = value - (value % 2)
+        return max(even, 2)
     }
 
     func cleanupTemporaryFile(at url: URL) {
