@@ -59,7 +59,7 @@ struct CanvasTimelineDataView: View {
             }
             // Scroll once right after activities are first loaded and laid out
             .onChange(of: positionedActivities.count) { _ in
-                guard !didInitialScrollInView, Calendar.current.isDateInToday(selectedDate) else { return }
+                guard !didInitialScrollInView, timelineIsToday(selectedDate) else { return }
                 didInitialScrollInView = true
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -73,7 +73,7 @@ struct CanvasTimelineDataView: View {
             }
             // Ensure we scroll on first appearance when viewing Today
             .onAppear {
-                if Calendar.current.isDateInToday(selectedDate) {
+                if timelineIsToday(selectedDate) {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                         // Calculate which hour to scroll to for 80% positioning
                         let currentHour = Calendar.current.component(.hour, from: Date())
@@ -86,7 +86,7 @@ struct CanvasTimelineDataView: View {
             }
             // When the selected date changes back to Today (e.g., after idle), also scroll
             .onChange(of: selectedDate) { newDate in
-                if Calendar.current.isDateInToday(newDate) {
+                if timelineIsToday(newDate) {
                     didInitialScrollInView = false // allow the data-ready scroll to fire again
                     // Give the layout a moment to update before scrolling
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -215,7 +215,7 @@ struct CanvasTimelineDataView: View {
 
     @ViewBuilder
     private var currentTimeIndicator: some View {
-        if Calendar.current.isDateInToday(selectedDate) {
+        if timelineIsToday(selectedDate) {
             VStack(alignment: .leading, spacing: 5) {
                 // Horizontal line with circle on left edge
                 ZStack(alignment: .leading) {
@@ -281,12 +281,19 @@ struct CanvasTimelineDataView: View {
         loadTask?.cancel()
 
         loadTask = Task.detached(priority: .userInitiated) {
-            // Determine logical date (4 AM boundary)
-            var logicalDate = await self.selectedDate
             let calendar = Calendar.current
-            let hour = calendar.component(.hour, from: logicalDate)
-            if hour < 4 {
-                logicalDate = calendar.date(byAdding: .day, value: -1, to: logicalDate) ?? logicalDate
+
+            // Normalize to noon so time components do not leak into day jumps
+            var logicalDate = await self.selectedDate
+            logicalDate = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: logicalDate) ?? logicalDate
+
+            // Only shift to the previous bucket when viewing "today" before the 4 AM boundary
+            let now = Date()
+            if timelineIsToday(logicalDate, now: now) {
+                let nowHour = calendar.component(.hour, from: now)
+                if nowHour < 4 {
+                    logicalDate = calendar.date(byAdding: .day, value: -1, to: logicalDate) ?? logicalDate
+                }
             }
 
             let formatter = DateFormatter()
@@ -297,6 +304,7 @@ struct CanvasTimelineDataView: View {
             guard !Task.isCancelled else { return }
 
             let timelineCards = await self.storageManager.fetchTimelineCards(forDay: dayString)
+            print("timeline_cards[\(dayString)]: \(timelineCards)")
             let activities = await self.processTimelineCards(timelineCards, for: logicalDate)
 
             // Check for cancellation before expensive processing

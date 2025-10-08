@@ -10,12 +10,14 @@ struct AppRootView: View {
     @EnvironmentObject private var categoryStore: CategoryStore
     @State private var whatsNewNote: ReleaseNote? = nil
     @State private var activeWhatsNewVersion: String? = nil
+    private let isWhatsNewEnabled = false
 
     var body: some View {
         MainView()
             .environmentObject(AppState.shared)
             .environmentObject(categoryStore)
             .onAppear {
+                guard isWhatsNewEnabled else { return }
                 // Check if we should show What's New automatically
                 if whatsNewNote == nil {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -27,6 +29,7 @@ struct AppRootView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .showWhatsNew)) { _ in
+                guard isWhatsNewEnabled else { return }
                 // Manual trigger from menu - show latest release notes
                 if let latestNote = releaseNotes.first {
                     whatsNewNote = latestNote
@@ -56,6 +59,7 @@ struct AppRootView: View {
     }
 
     private func handleWhatsNewDismissed() {
+        guard isWhatsNewEnabled else { return }
         guard activeWhatsNewVersion != nil else { return }
         WhatsNewView.markAsSeen()
         activeWhatsNewVersion = nil

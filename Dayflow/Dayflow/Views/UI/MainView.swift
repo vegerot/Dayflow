@@ -15,7 +15,7 @@ struct MainView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var categoryStore: CategoryStore
     @State private var selectedIcon: SidebarIcon = .timeline
-    @State private var selectedDate = Date()
+    @State private var selectedDate = timelineDisplayDate(from: Date())
     @State private var showDatePicker = false
     @State private var selectedActivity: TimelineActivity? = nil
     @State private var scrollToNowTick: Int = 0
@@ -33,7 +33,7 @@ struct MainView: View {
     
     // Track if we've performed the initial scroll to current time
     @State private var didInitialScroll = false
-    @State private var previousDate = Date()
+    @State private var previousDate = timelineDisplayDate(from: Date())
     @State private var lastDateNavMethod: String? = nil
     // Minute tick to handle civil-day rollover (header updates + jump to today)
     @State private var dayChangeTimer: Timer? = nil
@@ -41,7 +41,14 @@ struct MainView: View {
         let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"; return fmt.string(from: Date())
     }()
     @State private var showCategoryEditor = false
-    
+
+    private static let maxDateTitleWidth: CGFloat = {
+        let referenceText = "Today, Sep 30"
+        let font = NSFont(name: "InstrumentSerif-Regular", size: 36) ?? NSFont.systemFont(ofSize: 36)
+        let width = referenceText.size(withAttributes: [.font: font]).width
+        return ceil(width) + 4 // small buffer so arrows never nudge
+    }()
+
     var body: some View {
         // Two-column layout: left logo + sidebar; right white panel with header, filters, timeline
         HStack(alignment: .top, spacing: 0) {
@@ -98,13 +105,14 @@ struct MainView: View {
                                         Text(formatDateForDisplay(selectedDate))
                                             .font(.custom("InstrumentSerif-Regular", size: 36))
                                             .foregroundColor(Color.black)
+                                            .frame(width: Self.maxDateTitleWidth, alignment: .leading)
 
                                         HStack(spacing: 3) {
                                             Button(action: {
                                                 let from = selectedDate
                                                 let to = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
                                                 previousDate = selectedDate
-                                                selectedDate = to
+                                                setSelectedDate(to)
                                                 lastDateNavMethod = "prev"
                                                 AnalyticsService.shared.capture("date_navigation", [
                                                     "method": "prev",
@@ -124,7 +132,7 @@ struct MainView: View {
                                                 if tomorrow <= Date() {
                                                     let from = selectedDate
                                                     previousDate = selectedDate
-                                                    selectedDate = tomorrow
+                                                    setSelectedDate(tomorrow)
                                                     lastDateNavMethod = "next"
                                                     AnalyticsService.shared.capture("date_navigation", [
                                                         "method": "next",
@@ -239,7 +247,16 @@ struct MainView: View {
         .background(Color.clear)
         .ignoresSafeArea()
         .sheet(isPresented: $showDatePicker) {
-            DatePickerSheet(selectedDate: $selectedDate, isPresented: $showDatePicker)
+            DatePickerSheet(
+                selectedDate: Binding(
+                    get: { selectedDate },
+                    set: {
+                        lastDateNavMethod = "picker"
+                        setSelectedDate($0)
+                    }
+                ),
+                isPresented: $showDatePicker
+            )
         }
         .onAppear {
             // screen viewed and initial timeline view
@@ -377,16 +394,24 @@ struct MainView: View {
     }
     
     private func formatDateForDisplay(_ date: Date) -> String {
-        let formatter = DateFormatter()
+        let now = Date()
         let calendar = Calendar.current
+        let formatter = DateFormatter()
 
-        if calendar.isDateInToday(date) {
+        let displayDate = timelineDisplayDate(from: date, now: now)
+        let timelineToday = timelineDisplayDate(from: now, now: now)
+
+        if calendar.isDate(displayDate, inSameDayAs: timelineToday) {
             formatter.dateFormat = "'Today,' MMM d"
         } else {
             formatter.dateFormat = "E, MMM d"
         }
 
-        return formatter.string(from: date)
+        return formatter.string(from: displayDate)
+    }
+
+    private func setSelectedDate(_ date: Date) {
+        selectedDate = normalizedTimelineDate(date)
     }
 
     private func dayString(_ date: Date) -> String {
@@ -575,7 +600,7 @@ struct DateNavigationControls: View {
                 let from = selectedDate
                 let to = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
                 previousDate = selectedDate
-                selectedDate = to
+                selectedDate = normalizedTimelineDate(to)
                 lastDateNavMethod = "prev"
                 AnalyticsService.shared.capture("date_navigation", [
                     "method": "prev",
@@ -601,7 +626,7 @@ struct DateNavigationControls: View {
                 if tomorrow <= Date() {
                     let from = selectedDate
                     previousDate = selectedDate
-                    selectedDate = tomorrow
+                    selectedDate = normalizedTimelineDate(tomorrow)
                     lastDateNavMethod = "next"
                     AnalyticsService.shared.capture("date_navigation", [
                         "method": "next",
@@ -619,16 +644,20 @@ struct DateNavigationControls: View {
     }
 
     private func formatDateForDisplay(_ date: Date) -> String {
-        let formatter = DateFormatter()
+        let now = Date()
         let calendar = Calendar.current
+        let formatter = DateFormatter()
 
-        if calendar.isDateInToday(date) {
+        let displayDate = timelineDisplayDate(from: date, now: now)
+        let timelineToday = timelineDisplayDate(from: now, now: now)
+
+        if calendar.isDate(displayDate, inSameDayAs: timelineToday) {
             formatter.dateFormat = "'Today,' MMM d"
         } else {
             formatter.dateFormat = "E, MMM d"
         }
 
-        return formatter.string(from: date)
+        return formatter.string(from: displayDate)
     }
 
     private func dayString(_ date: Date) -> String {
@@ -679,7 +708,7 @@ extension MainView {
             lastObservedCivilDay = currentCivilDay
 
             // Jump to current civil day and re-scroll near now
-            selectedDate = Date()
+            setSelectedDate(timelineDisplayDate(from: Date()))
             selectedActivity = nil
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 withAnimation(.easeInOut(duration: 0.35)) {
@@ -691,7 +720,7 @@ extension MainView {
 
     private func performIdleResetAndScroll() {
         // Switch to today
-        selectedDate = Date()
+        setSelectedDate(timelineDisplayDate(from: Date()))
         // Clear selection
         selectedActivity = nil
         // Nudge timeline to scroll to now after it reloads
@@ -712,7 +741,7 @@ extension MainView {
         // 3. Selected date is today
         guard selectedIcon != .settings,
               !showDatePicker,
-              Calendar.current.isDateInToday(selectedDate) else {
+              timelineIsToday(selectedDate) else {
             return
         }
         
@@ -1079,3 +1108,32 @@ struct MetricRow: View {
 }
 
 // Background view moved to separate file: MainUIBackgroundView.swift
+
+func normalizedTimelineDate(_ date: Date) -> Date {
+    let calendar = Calendar.current
+    if let normalized = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: date) {
+        return normalized
+    }
+    let startOfDay = calendar.startOfDay(for: date)
+    return calendar.date(byAdding: DateComponents(hour: 12), to: startOfDay) ?? date
+}
+
+func timelineDisplayDate(from date: Date, now: Date = Date()) -> Date {
+    let calendar = Calendar.current
+    var normalizedDate = normalizedTimelineDate(date)
+    let normalizedNow = normalizedTimelineDate(now)
+    let nowHour = calendar.component(.hour, from: now)
+
+    if nowHour < 4 && calendar.isDate(normalizedDate, inSameDayAs: normalizedNow) {
+        normalizedDate = calendar.date(byAdding: .day, value: -1, to: normalizedDate) ?? normalizedDate
+    }
+
+    return normalizedDate
+}
+
+func timelineIsToday(_ date: Date, now: Date = Date()) -> Bool {
+    let calendar = Calendar.current
+    let timelineDate = timelineDisplayDate(from: date, now: now)
+    let timelineToday = timelineDisplayDate(from: now, now: now)
+    return calendar.isDate(timelineDate, inSameDayAs: timelineToday)
+}

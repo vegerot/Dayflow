@@ -555,41 +555,6 @@ struct SettingsView: View {
                         .foregroundColor(.black.opacity(0.45))
                 }
             }
-
-            SettingsCard(title: "Support", subtitle: "We’re here to help") {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 12) {
-                        DayflowSurfaceButton(
-                            action: { NSWorkspace.shared.open(URL(string: "mailto:hello@dayflow.so")!) },
-                            content: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "envelope")
-                                    Text("Contact support")
-                                        .font(.custom("Nunito", size: 13))
-                                }
-                                .frame(minWidth: 150)
-                            },
-                            background: Color(red: 0.25, green: 0.17, blue: 0),
-                            foreground: .white,
-                            borderColor: .clear,
-                            cornerRadius: 8,
-                            horizontalPadding: 20,
-                            verticalPadding: 10,
-                            showOverlayStroke: true
-                        )
-
-                    }
-
-                    Link(destination: URL(string: "https://dayflow.so/docs")!) {
-                        HStack(spacing: 6) {
-                            Text("View documentation")
-                            Image(systemName: "arrow.up.right")
-                                .font(.system(size: 11, weight: .medium))
-                        }
-                        .font(.custom("Nunito", size: 12))
-                    }
-                }
-            }
         }
     }
 
