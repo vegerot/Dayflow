@@ -287,25 +287,19 @@ struct CanvasTimelineDataView: View {
             var logicalDate = await self.selectedDate
             logicalDate = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: logicalDate) ?? logicalDate
 
-            // Only shift to the previous bucket when viewing "today" before the 4 AM boundary
-            let now = Date()
-            if timelineIsToday(logicalDate, now: now) {
-                let nowHour = calendar.component(.hour, from: now)
-                if nowHour < 4 {
-                    logicalDate = calendar.date(byAdding: .day, value: -1, to: logicalDate) ?? logicalDate
-                }
-            }
+            // Derive the effective timeline day (handles the 4 AM boundary for "today")
+            let timelineDate = timelineDisplayDate(from: logicalDate, now: Date())
 
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyy-MM-dd"
-            let dayString = formatter.string(from: logicalDate)
+            let dayString = formatter.string(from: timelineDate)
 
             // Check for cancellation before expensive database read
             guard !Task.isCancelled else { return }
 
             let timelineCards = await self.storageManager.fetchTimelineCards(forDay: dayString)
             print("timeline_cards[\(dayString)]: \(timelineCards)")
-            let activities = await self.processTimelineCards(timelineCards, for: logicalDate)
+            let activities = await self.processTimelineCards(timelineCards, for: timelineDate)
 
             // Check for cancellation before expensive processing
             guard !Task.isCancelled else { return }
