@@ -4,6 +4,18 @@
     <title>Dayflow Updates</title>
     <language>en</language>
     <item>
+      <title>Version 1.1.7</title>
+      <pubDate>Fri, 10 Oct 2025 20:25:35 +0000</pubDate>
+      <enclosure url="https://github.com/JerryZLiu/Dayflow/releases/download/v1.1.7/Dayflow.dmg"
+                 sparkle:version="47"
+                 sparkle:shortVersionString="1.1.7"
+                 length="27523166"
+                 type="application/octet-stream"
+                 sparkle:edSignature="wuk6ZtK1rMH7hBDn2WJ7ACJ2x4uR0oi2s7Nf4mE7QCvAv1PHE6aZU+ccOoWTlmZIdlxPisnLTTlJp0+20PSyDQ=="/>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <releaseNotesLink>https://github.com/JerryZLiu/Dayflow/releases/tag/v1.1.7</releaseNotesLink>
+    </item>
+    <item>
       <title>Version 1.1.6</title>
       <pubDate>Thu, 09 Oct 2025 07:53:58 +0000</pubDate>
       <enclosure url="https://github.com/JerryZLiu/Dayflow/releases/download/v1.1.6/Dayflow.dmg"
