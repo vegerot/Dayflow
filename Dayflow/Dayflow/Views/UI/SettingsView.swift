@@ -28,7 +28,7 @@ struct SettingsView: View {
         var subtitle: String {
             switch self {
             case .storage: return "Recording status and disk usage"
-            case .providers: return "Manage LLM providers and health checks"
+            case .providers: return "Manage LLM providers and customize prompts"
             case .other: return "General preferences & support"
             }
         }
@@ -44,6 +44,24 @@ struct SettingsView: View {
     @State private var hasLoadedProvider = false
     @State private var selectedGeminiModel: GeminiModel = GeminiModelPreference.load().primary
     @State private var savedGeminiModel: GeminiModel = GeminiModelPreference.load().primary
+
+    // Gemini prompt customization
+    @State private var geminiPromptOverridesLoaded = false
+    @State private var isUpdatingGeminiPromptState = false
+    @State private var useCustomGeminiTitlePrompt = false
+    @State private var useCustomGeminiSummaryPrompt = false
+    @State private var useCustomGeminiDetailedPrompt = false
+    @State private var geminiTitlePromptText = GeminiPromptDefaults.titleBlock
+    @State private var geminiSummaryPromptText = GeminiPromptDefaults.summaryBlock
+    @State private var geminiDetailedPromptText = GeminiPromptDefaults.detailedSummaryBlock
+
+    // Ollama prompt customization
+    @State private var ollamaPromptOverridesLoaded = false
+    @State private var isUpdatingOllamaPromptState = false
+    @State private var useCustomOllamaTitlePrompt = false
+    @State private var useCustomOllamaSummaryPrompt = false
+    @State private var ollamaTitlePromptText = OllamaPromptDefaults.titleBlock
+    @State private var ollamaSummaryPromptText = OllamaPromptDefaults.summaryBlock
 
     // Local provider cached settings
     @State private var localBaseURL: String = UserDefaults.standard.string(forKey: "llmLocalBaseURL") ?? "http://localhost:11434"
@@ -83,6 +101,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     tabContent
                 }
+                .padding(.top, 24)
                 .padding(.trailing, 16)
                 .padding(.bottom, 24)
             }
@@ -98,6 +117,8 @@ struct SettingsView: View {
             refreshStorageIfNeeded()
             // Refresh cached local settings for provider test view
             reloadLocalProviderSettings()
+            loadGeminiPromptOverridesIfNeeded()
+            loadOllamaPromptOverridesIfNeeded()
             let recordingsLimit = StoragePreferences.recordingsLimitBytes
             recordingsLimitBytes = recordingsLimit
             recordingsLimitIndex = indexForLimit(recordingsLimit)
@@ -109,8 +130,13 @@ struct SettingsView: View {
         .onChange(of: analyticsEnabled) { enabled in
             AnalyticsService.shared.setOptIn(enabled)
         }
-        .onChange(of: currentProvider) { _ in
+        .onChange(of: currentProvider) { newProvider in
             reloadLocalProviderSettings()
+            if newProvider == "gemini" {
+                loadGeminiPromptOverridesIfNeeded(force: true)
+            } else if newProvider == "ollama" {
+                loadOllamaPromptOverridesIfNeeded(force: true)
+            }
         }
         .onChange(of: selectedTab) { newValue in
             if newValue == .storage {
@@ -153,6 +179,16 @@ struct SettingsView: View {
         }
         // The settings palette is tailored for light mode; keep it consistent even when the app runs in Dark Mode.
         .preferredColorScheme(.light)
+        .onChange(of: useCustomGeminiTitlePrompt) { _ in persistGeminiPromptOverridesIfReady() }
+        .onChange(of: useCustomGeminiSummaryPrompt) { _ in persistGeminiPromptOverridesIfReady() }
+        .onChange(of: useCustomGeminiDetailedPrompt) { _ in persistGeminiPromptOverridesIfReady() }
+        .onChange(of: geminiTitlePromptText) { _ in persistGeminiPromptOverridesIfReady() }
+        .onChange(of: geminiSummaryPromptText) { _ in persistGeminiPromptOverridesIfReady() }
+        .onChange(of: geminiDetailedPromptText) { _ in persistGeminiPromptOverridesIfReady() }
+        .onChange(of: useCustomOllamaTitlePrompt) { _ in persistOllamaPromptOverridesIfReady() }
+        .onChange(of: useCustomOllamaSummaryPrompt) { _ in persistOllamaPromptOverridesIfReady() }
+        .onChange(of: ollamaTitlePromptText) { _ in persistOllamaPromptOverridesIfReady() }
+        .onChange(of: ollamaSummaryPromptText) { _ in persistOllamaPromptOverridesIfReady() }
     }
 
     private var sidebar: some View {
@@ -483,6 +519,14 @@ struct SettingsView: View {
                         persistGeminiModelSelection(model, source: "settings")
                     }
                 }
+
+                SettingsCard(title: "Gemini prompt customization", subtitle: "Override Dayflow's defaults to tailor card generation") {
+                    geminiPromptCustomizationView
+                }
+            } else if currentProvider == "ollama" {
+                SettingsCard(title: "Local prompt customization", subtitle: "Adjust the prompts used for local timeline summaries") {
+                    ollamaPromptCustomizationView
+                }
             }
 
             SettingsCard(title: "Provider options", subtitle: "Switch providers at any time") {
@@ -496,6 +540,180 @@ struct SettingsView: View {
                     .padding(.horizontal, 4)
                 }
             }
+        }
+    }
+
+    private var geminiPromptCustomizationView: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            Text("Overrides apply only when their toggle is on. Unchecked sections fall back to Dayflow's defaults.")
+                .font(.custom("Nunito", size: 12))
+                .foregroundColor(.black.opacity(0.55))
+                .fixedSize(horizontal: false, vertical: true)
+
+            promptSection(
+                heading: "Card titles",
+                description: "Shape how card titles read and tweak the example list.",
+                isEnabled: $useCustomGeminiTitlePrompt,
+                text: $geminiTitlePromptText,
+                defaultText: GeminiPromptDefaults.titleBlock
+            )
+
+            promptSection(
+                heading: "Card summaries",
+                description: "Control tone and style for the summary field.",
+                isEnabled: $useCustomGeminiSummaryPrompt,
+                text: $geminiSummaryPromptText,
+                defaultText: GeminiPromptDefaults.summaryBlock
+            )
+
+            promptSection(
+                heading: "Detailed summaries",
+                description: "Define the minute-by-minute breakdown format and examples.",
+                isEnabled: $useCustomGeminiDetailedPrompt,
+                text: $geminiDetailedPromptText,
+                defaultText: GeminiPromptDefaults.detailedSummaryBlock
+            )
+
+            HStack {
+                Spacer()
+                DayflowSurfaceButton(
+                    action: resetGeminiPromptOverrides,
+                    content: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.counterclockwise")
+                            Text("Reset to Dayflow defaults")
+                                .font(.custom("Nunito", size: 13))
+                        }
+                        .padding(.horizontal, 2)
+                    },
+                    background: Color.white,
+                    foreground: Color(red: 0.25, green: 0.17, blue: 0),
+                    borderColor: Color(hex: "FFE0A5"),
+                    cornerRadius: 8,
+                    horizontalPadding: 18,
+                    verticalPadding: 9,
+                    showOverlayStroke: true
+                )
+            }
+        }
+    }
+
+    private var ollamaPromptCustomizationView: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            Text("Customize the local model prompts for summary and title generation.")
+                .font(.custom("Nunito", size: 12))
+                .foregroundColor(.black.opacity(0.55))
+                .fixedSize(horizontal: false, vertical: true)
+
+            promptSection(
+                heading: "Timeline summaries",
+                description: "Control how the local model writes its 2-3 sentence card summaries.",
+                isEnabled: $useCustomOllamaSummaryPrompt,
+                text: $ollamaSummaryPromptText,
+                defaultText: OllamaPromptDefaults.summaryBlock
+            )
+
+            promptSection(
+                heading: "Card titles",
+                description: "Adjust the tone and examples for local title generation.",
+                isEnabled: $useCustomOllamaTitlePrompt,
+                text: $ollamaTitlePromptText,
+                defaultText: OllamaPromptDefaults.titleBlock
+            )
+
+            HStack {
+                Spacer()
+                DayflowSurfaceButton(
+                    action: resetOllamaPromptOverrides,
+                    content: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.counterclockwise")
+                            Text("Reset to Dayflow defaults")
+                                .font(.custom("Nunito", size: 13))
+                        }
+                        .padding(.horizontal, 2)
+                    },
+                    background: Color.white,
+                    foreground: Color(red: 0.25, green: 0.17, blue: 0),
+                    borderColor: Color(hex: "FFE0A5"),
+                    cornerRadius: 8,
+                    horizontalPadding: 18,
+                    verticalPadding: 9,
+                    showOverlayStroke: true
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func promptSection(heading: String,
+                               description: String,
+                               isEnabled: Binding<Bool>,
+                               text: Binding<String>,
+                               defaultText: String) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Toggle(isOn: isEnabled) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(heading)
+                        .font(.custom("Nunito", size: 14))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.black.opacity(0.75))
+                    Text(description)
+                        .font(.custom("Nunito", size: 12))
+                        .foregroundColor(.black.opacity(0.55))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(SwitchToggleStyle(tint: Color(red: 0.25, green: 0.17, blue: 0)))
+
+            promptEditorBlock(title: "Prompt text", text: text, isEnabled: isEnabled.wrappedValue, defaultText: defaultText)
+        }
+        .padding(16)
+        .background(Color.white.opacity(0.95))
+        .cornerRadius(10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color(hex: "FFE0A5"), lineWidth: 0.8)
+        )
+    }
+
+    private func promptEditorBlock(title: String,
+                                   text: Binding<String>,
+                                   isEnabled: Bool,
+                                   defaultText: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.custom("Nunito", size: 12))
+                .fontWeight(.semibold)
+                .foregroundColor(.black.opacity(0.6))
+            ZStack(alignment: .topLeading) {
+                if text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(defaultText)
+                        .font(.custom("Nunito", size: 12))
+                        .foregroundColor(.black.opacity(0.4))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .allowsHitTesting(false)
+                }
+
+                TextEditor(text: text)
+                    .font(.custom("Nunito", size: 12))
+                    .foregroundColor(.black.opacity(isEnabled ? 0.85 : 0.45))
+                    .scrollContentBackground(.hidden)
+                    .disabled(!isEnabled)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .frame(minHeight: isEnabled ? 140 : 120)
+                    .background(Color.white)
+            }
+            .background(Color.white)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.black.opacity(0.12), lineWidth: 1)
+            )
+            .cornerRadius(8)
+            .opacity(isEnabled ? 1 : 0.6)
         }
     }
 
@@ -622,6 +840,112 @@ struct SettingsView: View {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    private func loadGeminiPromptOverridesIfNeeded(force: Bool = false) {
+        if geminiPromptOverridesLoaded && !force { return }
+        isUpdatingGeminiPromptState = true
+        let overrides = GeminiPromptPreferences.load()
+
+        let trimmedTitle = overrides.titleBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSummary = overrides.summaryBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDetailed = overrides.detailedBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        useCustomGeminiTitlePrompt = trimmedTitle?.isEmpty == false
+        useCustomGeminiSummaryPrompt = trimmedSummary?.isEmpty == false
+        useCustomGeminiDetailedPrompt = trimmedDetailed?.isEmpty == false
+
+        geminiTitlePromptText = trimmedTitle ?? GeminiPromptDefaults.titleBlock
+        geminiSummaryPromptText = trimmedSummary ?? GeminiPromptDefaults.summaryBlock
+        geminiDetailedPromptText = trimmedDetailed ?? GeminiPromptDefaults.detailedSummaryBlock
+
+        isUpdatingGeminiPromptState = false
+        geminiPromptOverridesLoaded = true
+    }
+
+    private func persistGeminiPromptOverridesIfReady() {
+        guard geminiPromptOverridesLoaded, !isUpdatingGeminiPromptState else { return }
+        persistGeminiPromptOverrides()
+    }
+
+    private func persistGeminiPromptOverrides() {
+        let overrides = GeminiPromptOverrides(
+            titleBlock: normalizedOverride(text: geminiTitlePromptText, enabled: useCustomGeminiTitlePrompt),
+            summaryBlock: normalizedOverride(text: geminiSummaryPromptText, enabled: useCustomGeminiSummaryPrompt),
+            detailedBlock: normalizedOverride(text: geminiDetailedPromptText, enabled: useCustomGeminiDetailedPrompt)
+        )
+
+        if overrides.isEmpty {
+            GeminiPromptPreferences.reset()
+        } else {
+            GeminiPromptPreferences.save(overrides)
+        }
+    }
+
+    private func resetGeminiPromptOverrides() {
+        isUpdatingGeminiPromptState = true
+        useCustomGeminiTitlePrompt = false
+        useCustomGeminiSummaryPrompt = false
+        useCustomGeminiDetailedPrompt = false
+        geminiTitlePromptText = GeminiPromptDefaults.titleBlock
+        geminiSummaryPromptText = GeminiPromptDefaults.summaryBlock
+        geminiDetailedPromptText = GeminiPromptDefaults.detailedSummaryBlock
+        GeminiPromptPreferences.reset()
+        isUpdatingGeminiPromptState = false
+        geminiPromptOverridesLoaded = true
+    }
+
+    private func loadOllamaPromptOverridesIfNeeded(force: Bool = false) {
+        if ollamaPromptOverridesLoaded && !force { return }
+        isUpdatingOllamaPromptState = true
+        let overrides = OllamaPromptPreferences.load()
+
+        let trimmedSummary = overrides.summaryBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedTitle = overrides.titleBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        useCustomOllamaSummaryPrompt = trimmedSummary?.isEmpty == false
+        useCustomOllamaTitlePrompt = trimmedTitle?.isEmpty == false
+
+        ollamaSummaryPromptText = trimmedSummary ?? OllamaPromptDefaults.summaryBlock
+        ollamaTitlePromptText = trimmedTitle ?? OllamaPromptDefaults.titleBlock
+
+        isUpdatingOllamaPromptState = false
+        ollamaPromptOverridesLoaded = true
+    }
+
+    private func persistOllamaPromptOverridesIfReady() {
+        guard ollamaPromptOverridesLoaded, !isUpdatingOllamaPromptState else { return }
+        persistOllamaPromptOverrides()
+    }
+
+    private func persistOllamaPromptOverrides() {
+        let overrides = OllamaPromptOverrides(
+            summaryBlock: normalizedOverride(text: ollamaSummaryPromptText, enabled: useCustomOllamaSummaryPrompt),
+            titleBlock: normalizedOverride(text: ollamaTitlePromptText, enabled: useCustomOllamaTitlePrompt)
+        )
+
+        if overrides.isEmpty {
+            OllamaPromptPreferences.reset()
+        } else {
+            OllamaPromptPreferences.save(overrides)
+        }
+    }
+
+    private func resetOllamaPromptOverrides() {
+        isUpdatingOllamaPromptState = true
+        useCustomOllamaSummaryPrompt = false
+        useCustomOllamaTitlePrompt = false
+        ollamaSummaryPromptText = OllamaPromptDefaults.summaryBlock
+        ollamaTitlePromptText = OllamaPromptDefaults.titleBlock
+        OllamaPromptPreferences.reset()
+        isUpdatingOllamaPromptState = false
+        ollamaPromptOverridesLoaded = true
+    }
+
+    private func normalizedOverride(text: String, enabled: Bool) -> String? {
+        guard enabled else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func directorySize(at url: URL) -> Int64 {
