@@ -218,6 +218,22 @@ struct MainView: View {
                                 )
                                 .opacity(contentOpacity)
                             }
+                            .clipShape(
+                                UnevenRoundedRectangle(
+                                    cornerRadii: .init(
+                                        topLeading: 0,
+                                        bottomLeading: 0, bottomTrailing: 8, topTrailing: 8
+                                    )
+                                )
+                            )
+                            .contentShape(
+                                UnevenRoundedRectangle(
+                                    cornerRadii: .init(
+                                        topLeading: 0,
+                                        bottomLeading: 0, bottomTrailing: 8, topTrailing: 8
+                                    )
+                                )
+                            )
                             .frame(minWidth: 195, idealWidth: 285, maxWidth: 315, maxHeight: .infinity)
                         }
                         .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
