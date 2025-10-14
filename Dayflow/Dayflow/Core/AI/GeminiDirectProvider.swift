@@ -639,140 +639,29 @@ final class GeminiDirectProvider: LLMProvider {
         encoder.outputFormatting = .prettyPrinted
         let existingCardsJSON = try encoder.encode(context.existingCards)
         let existingCardsString = String(data: existingCardsJSON, encoding: .utf8) ?? "[]"
-
-        let exampleCategory = context.categories.first?.name ?? "Work"
+        let promptSections = GeminiPromptSections(overrides: GeminiPromptPreferences.load())
 
         let basePrompt = """
         You are a digital anthropologist, observing a user's raw activity log. Your goal is to synthesize this log into a high-level, human-readable story of their session, presented as a series of timeline cards.
         THE GOLDEN RULE:
-        Your primary objective is to create long, meaningful cards that represent a cohesive session of activity, ideally 30-60 minutes+. However, thematic coherence is essential - a card must tell a coherent story. Avoid creating cards shorter than 15-20 minutes unless a major context switch forces it.
-        CRITICAL DATA INTEGRITY RULE:
-        When you decide to extend a card, its original startTime is IMMUTABLE. You MUST carry over the startTime from the previous_card you are extending. Failure to preserve the original startTime is a critical error.
-        CORE DIRECTIVES:
+            Create cards that narrate one cohesive session, aiming for 15–60 minutes. Keep every card ≥10 minutes, split before a block exceeds an hour unless it is clearly
+          one activity, and if a prospective card would be <10 minutes, merge it into the neighboring card that preserves the best story.
 
-        Extend by Default (unless idle): Your first instinct should be to extend the last card UNLESS the new observations show primarily idle time (>50% of the duration). When extending, you must perform these steps:
-        a. Preserve the original startTime of the card you are extending. NEVER MODIFY THE START TIMES OF CARDS
-        b. Update the endTime to reflect the latest observation.
-        c. Rewrite the summary and detailedSummary to tell the complete, unified story from the original start to the new end.
-        Group Thematically: Group activities that share a common purpose or topic. If extending would require fundamentally changing the card's title or theme, create a new card instead. Acknowledge the messy reality of multitasking within the summary.
-        Tell a Story: The title and summary of each card should tell a coherent story. How did the session start? Where did it pivot? What was the user's apparent goal or rabbit hole?
-        Title guidelines:
-        Write titles like you're texting a friend about what you did. Natural, conversational, direct, specific.
+            CONTINUITY RULE:
+            You may adjust boundaries for clarity, but never introduce new gaps or overlaps. Preserve any original gaps in the source timeline and keep adjacent covered
+          spans meeting cleanly.
 
-        Rules:
-        - Be specific and clear (not creative or vague)
-        - Keep it short - aim for 5-10 words
-        - Don't reference other cards or assume context
-        - Include main activity + distraction if relevant
-        - Include specific app/tool names, not generic activities
-        - Use specific verbs: "Debugged Python" not "Worked on project"
+            CORE DIRECTIVES:
+            - Theme Test Before Extending: Extend the current card only when the new observations continue the same dominant activity. Shifts shorter than 10 minutes should
+          be logged as distractions or merged into the adjacent segment that keeps the theme coherent; shifts ≥10 minutes become new cards.
+        
+        \(promptSections.title)
 
-        Good examples:
-        - "Debugged auth flow in React"
-        - "Excel budget analysis for Q4 report"
-        - "Zoom call with design team"
-
-        - "Booked flights on Expedia for Denver trip"
-        - "Watched Succession finale on HBO"
-        - "Grocery list and meal prep research"
-
-        - "Reddit rabbit hole about conspiracy theories"
-        - "Random YouTube shorts for 30 minutes"
-        - "Instagram reels and Twitter scrolling"
-
-        Bad examples:
-        - "Early morning digital drift" (too vague/poetic)
-        - "Fell down a rabbit hole after lunch" (too long, assumes context)
-        - "Extended Browsing Session" (too formal)
-        - "Random browsing and activities" (not specific)
-        - "Continuing from earlier" (references other cards)
-        - "Worked on DayFlow project" (too generic - what specifically?)
-        - "Browsed social media and shopped" (which platforms? for what?)
-        - "Refined UI and prompts" (which tools? what UI?)
-
-        Summary guidelines:
-        Write brief factual summaries optimized for quick scanning. First person perspective without "I".
-
-        Critical rules - NEVER:
-        - Use third person ("The session", "The work")
-        - Assume future actions, mental states, or unverifiable details
-        - Add filler phrases like "kicked off", "dove into", "started with", "began by"
-        - Write more than 2-3 short sentences
-        - Repeat the same phrases across different summaries
-
-        Style guidelines:
-        - State what happened directly - no lead-ins
-        - List activities and tools concisely
-        - Mention major interruptions or context switches briefly
-        - Keep technical terms simple
-
-        Content rules:
-        - Maximum 2-3 sentences
-        - Just the facts: what you did, which tools/projects, major blockers
-        - Include specific names (apps, tools, sites) not generic terms
-        - Note pattern interruptions without elaborating
-
-        Good examples:
-
-        "Refactored the user auth module in React, added OAuth support. Debugged CORS issues with the backend API for an hour. Posted question on Stack Overflow when the fix wasn't working."
-
-        "Designed new landing page mockups in Figma. Exported assets and started implementing in Next.js before getting pulled into a client meeting that ran long."
-
-        "Researched competitors' pricing models across SaaS platforms. Built comparison spreadsheet and wrote up recommendations. Got sidetracked reading an article about pricing psychology."
-
-        "Configured CI/CD pipeline in GitHub Actions. Tests kept failing on the build step, turned out to be a Node version mismatch. Fixed it and deployed to staging."
-
-        Bad examples:
-
-        "Kicked off the morning by diving into some design work before transitioning to development tasks. The session was quite productive overall."
-        (Too vague, unnecessary transitions, says nothing specific)
-
-        "Started with refactoring the authentication system before moving on to debugging some issues that came up. Ended up spending time researching solutions online."
-        (Wordy, lacks specifics, could be half the length)
-
-        "Began by reviewing the codebase and then dove deep into implementing new features. The work involved multiple context switches between different parts of the application."
-        (All filler, no actual information)
+        \(promptSections.summary)
 
         \(categoriesSection(from: context.categories))
-        
-        Detailed Summary guidelines:
-        The detailedSummary field must provide a minute-by-minute timeline of activities within the card's duration. This is a granular activity log showing every context switch and time spent.
 
-        Format rules:
-        - Use exact time ranges in "H:MM AM/PM - H:MM AM/PM" format
-        - One activity per line
-        - Keep descriptions short and specific (2-5 words typical)
-        - Include app/tool names
-        - Show ALL context switches, even brief ones
-        - Order chronologically
-        - No narrative text, just the timeline
-
-        Structure:
-        "[startTime] - [endTime] [specific activity in tool/app]"
-
-        Examples of good detailedSummary format:
-
-        "7:00 AM - 7:30 AM writing notion doc
-        7:30 AM - 7:35 AM responding to slack DMs
-        7:35 AM - 7:38 AM scrolling x.com
-        7:38 AM - 7:45 AM writing notion doc
-        7:45 AM - 8:05 AM coding in Cursor and iterm
-        8:05 AM - 8:08 AM checking gmail
-        8:08 AM - 8:25 AM debugging in VS Code
-        8:25 AM - 8:30 AM Stack Overflow research"
-
-        "2:15 PM - 2:18 PM opened Figma
-        2:18 PM - 2:45 PM designing landing page mockups
-        2:45 PM - 2:47 PM quick Twitter check
-        2:47 PM - 3:10 PM continued Figma designs
-        3:10 PM - 3:15 PM exporting assets
-        3:15 PM - 3:30 PM implementing in Next.js"
-
-        Bad examples (DO NOT DO):
-        - "Worked on various tasks throughout the session" (not granular)
-        - "Started with email, then moved to coding" (narrative, not timeline)
-        - "15 minutes on email, 30 minutes coding" (duration-based, not time-based)
-        - Missing specific times or tools
+        \(promptSections.detailedSummary)
 
         APP SITES (Website Logos)
         Identify the main app or website used for each card and include an appSites object.
@@ -803,7 +692,7 @@ final class GeminiDirectProvider: LLMProvider {
         Before making a decision, ask yourself these questions in order:
 
         What is the dominant theme of the current card?
-        Do the new observations continue or relate to this theme? If yes, extend the card by following the procedure in Core Directive #1.
+        Do the new observations continue or relate to this theme? If yes, extend the card.
         Is this a brief (<5 min) and unrelated pivot? If yes, add it as a distraction to the current card and continue extending.
         Is this a sustained shift in focus (>15 min) that represents a different activity category or goal? If yes, create a new card regardless of the current card's length.
 
