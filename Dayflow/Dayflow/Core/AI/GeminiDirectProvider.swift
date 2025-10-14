@@ -197,6 +197,69 @@ final class GeminiDirectProvider: LLMProvider {
             Self.lastRequestTime = now
         }
     }
+
+    // Gemini sometimes streams a well-formed JSON payload before aborting with HTTP 503.
+    // When this happens we want to salvage the first JSON object so the caller can proceed.
+    private func extractFirstJSONObject(from body: String) -> String? {
+        guard let start = body.firstIndex(where: { !$0.isWhitespace && !$0.isNewline }) else { return nil }
+        guard body[start] == "{" else { return nil }
+
+        var depth = 0
+        var inString = false
+        var isEscaped = false
+        var index = start
+
+        while index < body.endIndex {
+            let ch = body[index]
+
+            if inString {
+                if isEscaped {
+                    isEscaped = false
+                } else if ch == "\\" {
+                    isEscaped = true
+                } else if ch == "\"" {
+                    inString = false
+                }
+            } else {
+                switch ch {
+                case "\"":
+                    inString = true
+                case "{":
+                    depth += 1
+                case "}":
+                    depth -= 1
+                    if depth == 0 {
+                        return String(body[start...index])
+                    }
+                default:
+                    break
+                }
+            }
+
+            index = body.index(after: index)
+        }
+
+        return nil
+    }
+
+    private func recover503CandidateText(_ data: Data) -> String? {
+        guard let bodyString = String(data: data, encoding: .utf8) else { return nil }
+        guard let objectString = extractFirstJSONObject(from: bodyString) else { return nil }
+        guard let objectData = objectString.data(using: .utf8) else { return nil }
+
+        guard
+            let json = try? JSONSerialization.jsonObject(with: objectData) as? [String: Any],
+            let candidates = json["candidates"] as? [[String: Any]],
+            let firstCandidate = candidates.first,
+            let content = firstCandidate["content"] as? [String: Any],
+            let parts = content["parts"] as? [[String: Any]],
+            let text = parts.first?["text"] as? String
+        else {
+            return nil
+        }
+
+        return text
+    }
     
     func transcribeVideo(videoData: Data, mimeType: String, prompt: String, batchStartTime: Date, videoDuration: TimeInterval, batchId: Int64?) async throws -> (observations: [Observation], log: LLMCall) {
         let callStart = Date()
@@ -333,7 +396,7 @@ final class GeminiDirectProvider: LLMProvider {
         """
 
         // UNIFIED RETRY LOOP - Handles ALL errors comprehensively
-        let maxRetries = 3
+        let maxRetries = 6
         var attempt = 0
         var lastError: Error?
         var finalResponse = ""
@@ -671,6 +734,45 @@ final class GeminiDirectProvider: LLMProvider {
         (All filler, no actual information)
 
         \(categoriesSection(from: context.categories))
+        
+        Detailed Summary guidelines:
+        The detailedSummary field must provide a minute-by-minute timeline of activities within the card's duration. This is a granular activity log showing every context switch and time spent.
+
+        Format rules:
+        - Use exact time ranges in "H:MM AM/PM - H:MM AM/PM" format
+        - One activity per line
+        - Keep descriptions short and specific (2-5 words typical)
+        - Include app/tool names
+        - Show ALL context switches, even brief ones
+        - Order chronologically
+        - No narrative text, just the timeline
+
+        Structure:
+        "[startTime] - [endTime] [specific activity in tool/app]"
+
+        Examples of good detailedSummary format:
+
+        "7:00 AM - 7:30 AM writing notion doc
+        7:30 AM - 7:35 AM responding to slack DMs
+        7:35 AM - 7:38 AM scrolling x.com
+        7:38 AM - 7:45 AM writing notion doc
+        7:45 AM - 8:05 AM coding in Cursor and iterm
+        8:05 AM - 8:08 AM checking gmail
+        8:08 AM - 8:25 AM debugging in VS Code
+        8:25 AM - 8:30 AM Stack Overflow research"
+
+        "2:15 PM - 2:18 PM opened Figma
+        2:18 PM - 2:45 PM designing landing page mockups
+        2:45 PM - 2:47 PM quick Twitter check
+        2:47 PM - 3:10 PM continued Figma designs
+        3:10 PM - 3:15 PM exporting assets
+        3:15 PM - 3:30 PM implementing in Next.js"
+
+        Bad examples (DO NOT DO):
+        - "Worked on various tasks throughout the session" (not granular)
+        - "Started with email, then moved to coding" (narrative, not timeline)
+        - "15 minutes on email, 30 minutes coding" (duration-based, not time-based)
+        - Missing specific times or tools
 
         APP SITES (Website Logos)
         Identify the main app or website used for each card and include an appSites object.
@@ -717,29 +819,29 @@ final class GeminiDirectProvider: LLMProvider {
                   {
                     "startTime": "1:12 AM",
                     "endTime": "1:30 AM",
-                    "category": "Work",
-                    "subcategory": "Coding",
-                    "title": "Working on auth bug in Dayflow",
-                    "summary": "Fixed authentication bug in the login flow and added error handling",
-                    "detailedSummary": "Debugged issue where users were getting logged out unexpectedly. Traced problem to JWT token expiration handling. Added proper error boundaries and user-friendly error messages. Tested with multiple user accounts.",
+                    "category": "",
+                    "subcategory": "",
+                    "title": "",
+                    "summary": "",
+                    "detailedSummary": "",
                     "distractions": [
                       {
                         "startTime": "1:15 AM",
                         "endTime": "1:18 AM",
-                        "title": "Twitter",
-                        "summary": "Checked notifications and scrolled feed"
+                        "title": "",
+                        "summary": ""
                       }
                     ],
                     "appSites": {
-                      "primary": "figma.com",
-                      "secondary": "google.com/chrome"
+                      "primary": "",
+                      "secondary": "
                     }
                   }
                 ]
         """
 
         // UNIFIED RETRY LOOP - Handles ALL errors comprehensively
-        let maxRetries = 4
+        let maxRetries = 6
         var attempt = 0
         var lastError: Error?
         var actualPromptUsed = basePrompt
@@ -1206,8 +1308,24 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             )
             let httpInfo = LLMHTTPInfo(httpStatus: httpResponse.statusCode, responseHeaders: responseHeaders, responseBody: data)
 
-            // Check HTTP status first - any 400+ is a failure
+            // Check HTTP status first - any 400+ is a failure, except for a special 503 case where
+            // Gemini sometimes streams a valid payload before closing with an error.
             if httpResponse.statusCode >= 400 {
+                if httpResponse.statusCode == 503, let recovered = recover503CandidateText(data) {
+                    print("⚠️ HTTP 503 received, but valid candidate payload was recovered; treating as success.")
+                    logGeminiFailure(context: "transcribe.http503.salvaged", attempt: attempt, response: response, data: data, error: nil)
+                    LLMLogger.logSuccess(
+                        ctx: ctx,
+                        http: httpInfo,
+                        finishedAt: Date()
+                    )
+                    return (recovered, model.rawValue)
+                } else if httpResponse.statusCode == 503 {
+                    let preview = String(data: data, encoding: .utf8).map { truncate($0, max: 200) } ?? "<non-UTF8 body>"
+                    print("⚠️ HTTP 503 contained no recoverable payload. preview=\(preview)")
+                    logGeminiFailure(context: "transcribe.http503.unrecoverable", attempt: attempt, response: response, data: data, error: nil)
+                }
+
                 print("🔴 HTTP error status: \(httpResponse.statusCode)")
                 if let bodyText = String(data: data, encoding: .utf8) {
                     print("   Response Body: \(truncate(bodyText, max: 2000))")

@@ -407,7 +407,7 @@ final class OllamaProvider: LLMProvider {
         // Simple prompt focused on just describing what's happening
         let prompt = """
         Describe what you see on this computer screen in 1-2 sentences.
-        Focus on: what application is open, what the user is doing, and any relevant details visible.
+        Focus on: what application/site is open, what the user is doing, and any relevant details visible.
         Be specific and factual.
         
         GOOD EXAMPLES:

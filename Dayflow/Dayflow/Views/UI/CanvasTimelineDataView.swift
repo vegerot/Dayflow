@@ -298,7 +298,6 @@ struct CanvasTimelineDataView: View {
             guard !Task.isCancelled else { return }
 
             let timelineCards = await self.storageManager.fetchTimelineCards(forDay: dayString)
-            print("timeline_cards[\(dayString)]: \(timelineCards)")
             let activities = await self.processTimelineCards(timelineCards, for: timelineDate)
 
             // Check for cancellation before expensive processing

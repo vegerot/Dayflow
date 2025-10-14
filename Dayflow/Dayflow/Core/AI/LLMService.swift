@@ -445,6 +445,7 @@ final class LLMService: LLMServicing {
                 case 401: return "Unauthorized. Your Gemini API key may be invalid or expired."
                 case 403: return "Access forbidden. Check your Gemini API permissions."
                 case 429: return "Rate limited. Too many requests to Gemini. Please wait a few minutes."
+                case 503: return "Google's Gemini servers returned a 503 error. Google's AI services may be temporarily down. If you see many of these in a row, please wait at least a few hours before retrying. Check the [Google AI Studio status](https://aistudio.google.com/status) page for updates."
                 case 500...599: return "Gemini service error. The service may be temporarily down."
                 default:
                     // For other HTTP errors, provide context
@@ -491,6 +492,9 @@ final class LLMService: LLMServicing {
             
         case errorDescription.contains("api key") || errorDescription.contains("unauthorized") || errorDescription.contains("401"):
             return "There's an issue with your API key. Please check your settings."
+            
+        case errorDescription.contains("503"):
+            return "Google's Gemini servers returned a 503 error. Google's AI services may be temporarily down. If you see many of these in a row, please wait at least a few hours before retrying. Check the [Google AI Studio status](https://aistudio.google.com/status) page for updates."
             
         case errorDescription.contains("timeout"):
             return "The AI took too long to respond. This might be due to a long recording or slow connection."
