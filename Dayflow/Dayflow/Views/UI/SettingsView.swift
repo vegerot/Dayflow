@@ -151,6 +151,8 @@ struct SettingsView: View {
                 }
             )
         }
+        // The settings palette is tailored for light mode; keep it consistent even when the app runs in Dark Mode.
+        .preferredColorScheme(.light)
     }
 
     private var sidebar: some View {
@@ -646,7 +648,7 @@ struct SettingsView: View {
     private func storageFooterText() -> String {
         let recordingsText = recordingsLimitBytes == Int64.max ? "Unlimited" : usageFormatter.string(fromByteCount: recordingsLimitBytes)
         let timelapsesText = timelapsesLimitBytes == Int64.max ? "Unlimited" : usageFormatter.string(fromByteCount: timelapsesLimitBytes)
-        return "Recording cap: \(recordingsText) • Timelapse cap: \(timelapsesText). Lowering a cap immediately deletes the oldest files for that type."
+        return "Recording cap: \(recordingsText) • Timelapse cap: \(timelapsesText). Lowering a cap immediately deletes the oldest files for that type. Timeline card text stays preserved. Please avoid deleting files manually so you do not remove Dayflow's database."
     }
 
     private func handleLimitSelection(for category: StorageCategory, index: Int) {

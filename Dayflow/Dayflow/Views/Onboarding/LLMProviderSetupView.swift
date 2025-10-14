@@ -97,6 +97,7 @@ struct LLMProviderSetupView: View {
             setupState.configureSteps(for: providerType)
             animateAppearance()
         }
+        .preferredColorScheme(.light)
     }
     
     private var nextButtonText: String {
