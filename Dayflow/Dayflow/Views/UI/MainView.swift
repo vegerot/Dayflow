@@ -128,18 +128,17 @@ struct MainView: View {
                                             .buttonStyle(PlainButtonStyle())
 
                                             Button(action: {
+                                                guard canNavigateForward(from: selectedDate) else { return }
+                                                let from = selectedDate
                                                 let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
-                                                if tomorrow <= Date() {
-                                                    let from = selectedDate
-                                                    previousDate = selectedDate
-                                                    setSelectedDate(tomorrow)
-                                                    lastDateNavMethod = "next"
-                                                    AnalyticsService.shared.capture("date_navigation", [
-                                                        "method": "next",
-                                                        "from_day": dayString(from),
-                                                        "to_day": dayString(tomorrow)
-                                                    ])
-                                                }
+                                                previousDate = selectedDate
+                                                setSelectedDate(tomorrow)
+                                                lastDateNavMethod = "next"
+                                                AnalyticsService.shared.capture("date_navigation", [
+                                                    "method": "next",
+                                                    "from_day": dayString(from),
+                                                    "to_day": dayString(tomorrow)
+                                                ])
                                             }) {
                                                 Image("CalendarRightButton")
                                                     .resizable()
@@ -147,7 +146,7 @@ struct MainView: View {
                                                     .frame(width: 26, height: 26)
                                             }
                                             .buttonStyle(PlainButtonStyle())
-                                            .disabled(Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate > Date())
+                                            .disabled(!canNavigateForward(from: selectedDate))
                                         }
                                     }
                                     .offset(x: timelineOffset)
@@ -622,23 +621,25 @@ struct DateNavigationControls: View {
             .buttonStyle(PlainButtonStyle())
 
             DayflowCircleButton {
+                guard canNavigateForward(from: selectedDate) else { return }
+                let from = selectedDate
                 let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
-                if tomorrow <= Date() {
-                    let from = selectedDate
-                    previousDate = selectedDate
-                    selectedDate = normalizedTimelineDate(tomorrow)
-                    lastDateNavMethod = "next"
-                    AnalyticsService.shared.capture("date_navigation", [
-                        "method": "next",
-                        "from_day": dayString(from),
-                        "to_day": dayString(tomorrow)
-                    ])
-                }
+                previousDate = selectedDate
+                selectedDate = normalizedTimelineDate(tomorrow)
+                lastDateNavMethod = "next"
+                AnalyticsService.shared.capture("date_navigation", [
+                    "method": "next",
+                    "from_day": dayString(from),
+                    "to_day": dayString(tomorrow)
+                ])
             } content: {
-                let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
                 Image(systemName: "chevron.right")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(tomorrow > Date() ? Color.gray.opacity(0.3) : Color(red: 0.3, green: 0.3, blue: 0.3))
+                    .foregroundColor(
+                        canNavigateForward(from: selectedDate)
+                        ? Color(red: 0.3, green: 0.3, blue: 0.3)
+                        : Color.gray.opacity(0.3)
+                    )
             }
         }
     }
@@ -1108,6 +1109,13 @@ struct MetricRow: View {
 }
 
 // Background view moved to separate file: MainUIBackgroundView.swift
+
+func canNavigateForward(from date: Date, now: Date = Date()) -> Bool {
+    let calendar = Calendar.current
+    let tomorrow = calendar.date(byAdding: .day, value: 1, to: date) ?? date
+    let timelineToday = timelineDisplayDate(from: now, now: now)
+    return calendar.compare(tomorrow, to: timelineToday, toGranularity: .day) != .orderedDescending
+}
 
 func normalizedTimelineDate(_ date: Date) -> Date {
     let calendar = Calendar.current
