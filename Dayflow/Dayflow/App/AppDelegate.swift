@@ -20,6 +20,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var recorder : ScreenRecorder!
     private var analyticsSub: AnyCancellable?
     private var powerObserver: NSObjectProtocol?
+    private var deepLinkRouter: AppDeepLinkRouter?
+    private var pendingDeepLinkURLs: [URL] = []
+    private var pendingRecordingAnalyticsReason: String?
 
     func applicationDidFinishLaunching(_ note: Notification) {
         // Block termination by default; only specific flows enable it.
@@ -74,6 +77,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         UserDefaults.standard.set(build, forKey: "lastRunBuild")
         
         statusBar = StatusBarController()   // safe: AppKit is ready, main thread
+        deepLinkRouter = AppDeepLinkRouter(delegate: self)
 
         // Check if we've passed the screen recording permission step
         let onboardingStep = OnboardingStepMigration.migrateIfNeeded()
@@ -91,7 +95,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AppState.shared.enablePersistence()
 
             // Try to start recording, but handle permission failures gracefully
-            Task {
+            Task { [weak self] in
+                guard let self else { return }
                 do {
                     // Check if we have permission by trying to access content
                     _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
@@ -110,11 +115,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                     print("Screen recording permission not granted, skipping auto-start")
                 }
+                await self.flushPendingDeepLinks()
             }
         } else {
             // Still in early onboarding, don't enable persistence yet
             // Keep recording off and don't persist this state
             AppState.shared.isRecording = false
+            flushPendingDeepLinks()
         }
         
         // Register login item helper (Ventura+). Non-fatal if user disabled it.
@@ -135,8 +142,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Observe recording state
         analyticsSub = AppState.shared.$isRecording
             .removeDuplicates()
-            .sink { enabled in
-                AnalyticsService.shared.capture("recording_toggled", ["enabled": enabled, "reason": "user"]) 
+            .sink { [weak self] enabled in
+                guard let self else { return }
+                let reason = self.pendingRecordingAnalyticsReason ?? "user"
+                self.pendingRecordingAnalyticsReason = nil
+                AnalyticsService.shared.capture("recording_toggled", ["enabled": enabled, "reason": reason])
                 AnalyticsService.shared.setPersonProperties(["recording_enabled": enabled])
             }
 
@@ -147,6 +157,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ) { _ in
             AppDelegate.allowTermination = true
         }
+
     }
     
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -181,6 +192,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func application(_ application: NSApplication, open urls: [URL]) {
+        if deepLinkRouter == nil {
+            pendingDeepLinkURLs.append(contentsOf: urls)
+            return
+        }
+
+        for url in urls {
+            _ = deepLinkRouter?.handle(url)
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         if let observer = powerObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
@@ -205,5 +227,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AnalyticsService.shared.capture("onboarding_abandoned", ["last_step": stepName])
         }
         AnalyticsService.shared.capture("app_terminated")
+    }
+
+    private func flushPendingDeepLinks() {
+        guard let router = deepLinkRouter, !pendingDeepLinkURLs.isEmpty else { return }
+        let urls = pendingDeepLinkURLs
+        pendingDeepLinkURLs.removeAll()
+        for url in urls {
+            _ = router.handle(url)
+        }
+    }
+}
+
+extension AppDelegate: AppDeepLinkRouterDelegate {
+    func prepareForRecordingToggle(reason: String) {
+        pendingRecordingAnalyticsReason = reason
     }
 }

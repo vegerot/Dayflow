@@ -33,5 +33,16 @@
 		<string>Figtree-VariableFont_wght.ttf</string>
 		<string>Figtree-Italic-VariableFont_wght.ttf</string>
 	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>teleportlabs.com.Dayflow</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>dayflow</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

@@ -34,6 +34,7 @@
   <a href="#how-it-works">How it works</a> •
   <a href="#installation">Installation</a> •
   <a href="#data--privacy">Data & Privacy</a> •
+  <a href="#automation">Automation</a> •
   <a href="#debug--developer-tools">Debug & Developer Tools</a> •
   <a href="#auto-updates-sparkle">Auto‑updates</a> •
   <a href="#contributing">Contributing</a>
@@ -241,6 +242,22 @@ Apple’s docs: https://support.apple.com/guide/mac-help/control-access-screen-s
   - Start/stop capture from the main UI. Use **Debug** to verify batch contents.
 - **Data locations**
   - See **Data & Privacy** for exact paths and a purge tip.
+
+---
+
+## Automation
+
+Dayflow registers a `dayflow://` URL scheme so you can trigger common actions from Shortcuts, hotkey launchers, or scripts.
+
+**Supported URLs**
+- `dayflow://start-recording` — enable capture (no-op if already recording)
+- `dayflow://stop-recording` — pause capture (no-op if already paused)
+
+**Quick checks**
+- From Terminal: `open dayflow://start-recording` or `open dayflow://stop-recording`
+- In Shortcuts: add an **Open URLs** action with either link above
+
+Deeplink-triggered state changes are logged as `reason: "deeplink"` in analytics so you can distinguish automations from manual toggles.
 
 ---
 
