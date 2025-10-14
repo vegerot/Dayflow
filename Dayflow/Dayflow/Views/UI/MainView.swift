@@ -928,7 +928,7 @@ struct ActivityCard: View {
                     )
                     .foregroundColor(Color(red: 0.55, green: 0.55, blue: 0.55))
 
-                Text(activity.summary)
+                renderMarkdownText(activity.summary)
                     .font(
                         Font.custom("Nunito", size: 12)
                     )
@@ -947,7 +947,7 @@ struct ActivityCard: View {
                         )
                         .foregroundColor(Color(red: 0.55, green: 0.55, blue: 0.55))
 
-                    Text(activity.detailedSummary)
+                    renderMarkdownText(activity.detailedSummary)
                         .font(
                             Font.custom("Nunito", size: 12)
                         )
@@ -958,6 +958,16 @@ struct ActivityCard: View {
                 }
             }
         }
+    }
+
+    private func renderMarkdownText(_ content: String) -> Text {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        if let parsed = try? AttributedString(markdown: content, options: options) {
+            return Text(parsed)
+        }
+        return Text(content)
     }
 
     private func categoryBadge(for raw: String) -> (name: String, background: Color, textColor: Color)? {
