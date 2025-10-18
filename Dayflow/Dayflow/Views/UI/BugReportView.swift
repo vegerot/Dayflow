@@ -3,6 +3,8 @@ import AppKit
 
 struct BugReportView: View {
     private let emailAddress = "liu.z.jerry@gmail.com"
+    private let discordInviteURL = URL(string: "https://discord.gg/9YPAtctE6k")
+    private let callBookingURL = URL(string: "https://cal.com/jerry-liu/15min")
     @State private var didCopyEmail = false
     @State private var copyResetTask: DispatchWorkItem? = nil
     @State private var didCopyDebugLogs = false
@@ -10,81 +12,142 @@ struct BugReportView: View {
     @State private var debugCopyResetTask: DispatchWorkItem? = nil
 
     var body: some View {
-        VStack(spacing: 32) {
+        VStack(spacing: 36) {
             VStack(spacing: 16) {
                 Text("Thanks for using Dayflow")
                     .font(.custom("InstrumentSerif-Regular", size: 40))
                     .foregroundColor(.black.opacity(0.9))
 
-                Text("Dayflow is built and maintained by a one-man team. If you spot hiccups or have ideas, I would love to hear your feedback.")
+                Text("Email works great if you want to drop a quick note, Discord if you want to join the community, and if you’d prefer to chat, book a call - I’d love to dig into why Dayflow is or isn’t working well for you.")
                     .font(.custom("Nunito", size: 16))
                     .foregroundColor(.black.opacity(0.65))
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: 520)
             }
-        HStack(spacing: 16) {
-            DayflowSurfaceButton(
-                action: composeEmail,
-                content: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "envelope.fill")
-                            .font(.system(size: 18, weight: .semibold))
-                        Text("Email Jerry")
-                            .font(.custom("Nunito", size: 16).weight(.semibold))
-                    }
-                },
-                background: Color.white,
-                foreground: Color.black,
-                borderColor: Color.black.opacity(0.12),
-                cornerRadius: 18,
-                horizontalPadding: 28,
-                verticalPadding: 16,
-                showShadow: true
-            )
+            VStack(spacing: 24) {
+                VStack(spacing: 12) {
+                    Text("Reach out")
+                        .font(.custom("Nunito", size: 14).weight(.medium))
+                        .foregroundColor(.black.opacity(0.55))
+                        .textCase(.uppercase)
+                        .tracking(0.75)
 
-            DayflowSurfaceButton(
-                action: copyEmail,
-                content: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 16, weight: .semibold))
-                        Text(didCopyEmail ? "Copied!" : "Copy email")
-                            .font(.custom("Nunito", size: 15).weight(.semibold))
-                    }
-                },
-                background: Color.white,
-                foreground: Color.black,
-                borderColor: Color.black.opacity(0.12),
-                cornerRadius: 14,
-                horizontalPadding: 22,
-                verticalPadding: 14,
-                showShadow: true
-            )
-            .opacity(didCopyEmail ? 0.85 : 1.0)
+                    HStack(spacing: 16) {
+                        DayflowSurfaceButton(
+                            action: composeEmail,
+                            content: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "envelope.fill")
+                                        .font(.system(size: 18, weight: .semibold))
+                                    Text("Email Jerry")
+                                        .font(.custom("Nunito", size: 16).weight(.semibold))
+                                }
+                            },
+                            background: Color.white,
+                            foreground: Color.black,
+                            borderColor: Color.black.opacity(0.12),
+                            cornerRadius: 18,
+                            horizontalPadding: 28,
+                            verticalPadding: 16,
+                            showShadow: true
+                        )
 
-            DayflowSurfaceButton(
-                action: copyDebugLogs,
-                content: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "ladybug.fill")
-                            .font(.system(size: 16, weight: .semibold))
-                        Text(didCopyDebugLogs ? "Copied!" : (isCopyingDebugLogs ? "Preparing..." : "Copy debug logs"))
-                            .font(.custom("Nunito", size: 15).weight(.semibold))
+                        DayflowSurfaceButton(
+                            action: openDiscord,
+                            content: {
+                                HStack(spacing: 12) {
+                                    Image("DiscordGlyph")
+                                        .resizable()
+                                        .renderingMode(.original)
+                                        .aspectRatio(contentMode: .fit)
+                                        .frame(width: 22, height: 18)
+                                    Text("Join Discord")
+                                        .font(.custom("Nunito", size: 16).weight(.semibold))
+                                }
+                            },
+                            background: Color.white,
+                            foreground: Color.black,
+                            borderColor: Color.black.opacity(0.12),
+                            cornerRadius: 18,
+                            horizontalPadding: 28,
+                            verticalPadding: 16,
+                            showShadow: true
+                        )
+
+                        DayflowSurfaceButton(
+                            action: bookCall,
+                            content: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "calendar.badge.clock")
+                                        .font(.system(size: 18, weight: .semibold))
+                                    Text("Book a call")
+                                        .font(.custom("Nunito", size: 16).weight(.semibold))
+                                }
+                            },
+                            background: Color.white,
+                            foreground: Color.black,
+                            borderColor: Color.black.opacity(0.12),
+                            cornerRadius: 18,
+                            horizontalPadding: 28,
+                            verticalPadding: 16,
+                            showShadow: true
+                        )
                     }
-                },
-                background: Color.white,
-                foreground: Color.black,
-                borderColor: Color.black.opacity(0.12),
-                cornerRadius: 14,
-                horizontalPadding: 20,
-                verticalPadding: 14,
-                showShadow: true
-            )
-            .opacity(didCopyDebugLogs ? 0.85 : 1.0)
+                }
+
+                VStack(spacing: 12) {
+                    Text("Quick utilities")
+                        .font(.custom("Nunito", size: 14).weight(.medium))
+                        .foregroundColor(.black.opacity(0.55))
+                        .textCase(.uppercase)
+                        .tracking(0.75)
+
+                    HStack(spacing: 16) {
+                        DayflowSurfaceButton(
+                            action: copyEmail,
+                            content: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "doc.on.doc")
+                                        .font(.system(size: 16, weight: .semibold))
+                                    Text(didCopyEmail ? "Copied!" : "Copy email")
+                                        .font(.custom("Nunito", size: 15).weight(.semibold))
+                                }
+                            },
+                            background: Color.white,
+                            foreground: Color.black,
+                            borderColor: Color.black.opacity(0.12),
+                            cornerRadius: 14,
+                            horizontalPadding: 22,
+                            verticalPadding: 14,
+                            showShadow: true
+                        )
+                        .opacity(didCopyEmail ? 0.85 : 1.0)
+
+                        DayflowSurfaceButton(
+                            action: copyDebugLogs,
+                            content: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "ladybug.fill")
+                                        .font(.system(size: 16, weight: .semibold))
+                                    Text(didCopyDebugLogs ? "Copied!" : (isCopyingDebugLogs ? "Preparing..." : "Copy debug logs"))
+                                        .font(.custom("Nunito", size: 15).weight(.semibold))
+                                }
+                            },
+                            background: Color.white,
+                            foreground: Color.black,
+                            borderColor: Color.black.opacity(0.12),
+                            cornerRadius: 14,
+                            horizontalPadding: 20,
+                            verticalPadding: 14,
+                            showShadow: true
+                        )
+                        .opacity(didCopyDebugLogs ? 0.85 : 1.0)
+                    }
+                }
+            }
+            .padding(.horizontal, 8)
         }
-        .padding(.horizontal, 8)
-    }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.top, 100)
         .padding(.horizontal, 48)
@@ -123,6 +186,20 @@ struct BugReportView: View {
         }
         copyResetTask = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
+    }
+
+    private func openDiscord() {
+        AnalyticsService.shared.capture("bug_report_discord_tapped")
+
+        guard let url = discordInviteURL else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func bookCall() {
+        AnalyticsService.shared.capture("bug_report_call_tapped")
+
+        guard let url = callBookingURL else { return }
+        NSWorkspace.shared.open(url)
     }
 
     private func copyDebugLogs() {
