@@ -18,7 +18,7 @@ struct BugReportView: View {
                     .font(.custom("InstrumentSerif-Regular", size: 40))
                     .foregroundColor(.black.opacity(0.9))
 
-                Text("Email works great if you want to drop a quick note, Discord if you want to join the community, and if you’d prefer to chat, book a call - I’d love to dig into why Dayflow is or isn’t working well for you.")
+                Text("Email works great if you want to drop a quick note, Discord if you want to join the community, and if you’d prefer to chat, find some time on my calendar - I’d love to dig into why Dayflow is or isn’t working well for you.")
                     .font(.custom("Nunito", size: 16))
                     .foregroundColor(.black.opacity(0.65))
                     .multilineTextAlignment(.center)
@@ -81,7 +81,7 @@ struct BugReportView: View {
                                 HStack(spacing: 12) {
                                     Image(systemName: "calendar.badge.clock")
                                         .font(.system(size: 18, weight: .semibold))
-                                    Text("Book a call")
+                                    Text("Calendar")
                                         .font(.custom("Nunito", size: 16).weight(.semibold))
                                 }
                             },
