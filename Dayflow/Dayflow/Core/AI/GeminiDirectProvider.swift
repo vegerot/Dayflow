@@ -644,8 +644,7 @@ final class GeminiDirectProvider: LLMProvider {
         let basePrompt = """
         You are a digital anthropologist, observing a user's raw activity log. Your goal is to synthesize this log into a high-level, human-readable story of their session, presented as a series of timeline cards.
         THE GOLDEN RULE:
-            Create cards that narrate one cohesive session, aiming for 15–60 minutes. Keep every card ≥10 minutes, split before a block exceeds an hour unless it is clearly
-          one activity, and if a prospective card would be <10 minutes, merge it into the neighboring card that preserves the best story.
+            Create cards that narrate one cohesive session, aiming for 15–60 minutes. Keep every card ≥10 minutes, split up any cards that are >60 minutes, and if a prospective card would be <10 minutes, merge it into the neighboring card that preserves the best story.
 
             CONTINUITY RULE:
             You may adjust boundaries for clarity, but never introduce new gaps or overlaps. Preserve any original gaps in the source timeline and keep adjacent covered
