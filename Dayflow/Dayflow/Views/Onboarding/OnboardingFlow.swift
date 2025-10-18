@@ -356,25 +356,12 @@ struct OnboardingCategorySetupView: View {
 
     var body: some View {
         VStack(spacing: 32) {
-            // Centered title section
-            VStack(alignment: .center, spacing: 12) {
-                Text("Customize your categories")
-                    .font(.system(size: 36, weight: .bold))
-                    .foregroundColor(.white)
-                    .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
-            }
-            .frame(maxWidth: 800)
-
-            // Full-width ColorOrganizerRoot with see-through effect
-            ColorOrganizerRoot(backgroundStyle: .none, onDismiss: {
-                // Save button now advances to next step
+            ColorOrganizerRoot(presentationStyle: .embedded, onDismiss: {
                 onNext()
             })
-                .environmentObject(categoryStore)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 600)
-
-            Spacer(minLength: 40)
+            .environmentObject(categoryStore)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 600)
         }
         .padding(.horizontal, 40)
         .padding(.vertical, 60)
@@ -399,7 +386,7 @@ struct CompletionView: View {
                     .font(.custom("InstrumentSerif-Regular", size: 36))
                     .foregroundColor(.black.opacity(0.9))
                 
-                Text("Welcome to Dayflow! Let it run for about 30 minutes to gather enough data, then come back to explore your personalized timeline. I'm the only one building and maintaining Dayflow, so any bug reports or feedback you send through the app mean a lot to me.")
+                Text("Welcome to Dayflow! Let it run for about 30 minutes to gather enough data, then come back to explore your personalized timeline. If you have any issues, feature requests, or feedback please use the feedback tab. I would love to hear from you! ")
                     .font(.custom("Nunito", size: 15))
                     .foregroundColor(.black.opacity(0.6))
                     .multilineTextAlignment(.center)

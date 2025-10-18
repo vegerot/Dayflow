@@ -390,20 +390,12 @@ struct MainView: View {
         }
         .overlay {
             if showCategoryEditor {
-                ZStack {
-                    Color.black.opacity(0.3)
-                        .ignoresSafeArea()
-                        .onTapGesture {
-                            showCategoryEditor = false
-                        }
-
-                    ColorOrganizerRoot(
-                        backgroundStyle: .color(.clear),
-                        onDismiss: { showCategoryEditor = false }
-                    )
-                    .environmentObject(categoryStore)
-                    // Removed .contentShape(Rectangle()) and .onTapGesture to allow keyboard input
-                }
+                ColorOrganizerRoot(
+                    presentationStyle: .sheet,
+                    onDismiss: { showCategoryEditor = false }, completionButtonTitle: "Save", showsTitles: true
+                )
+                .environmentObject(categoryStore)
+                // Removed .contentShape(Rectangle()) and .onTapGesture to allow keyboard input
             }
         }
     }

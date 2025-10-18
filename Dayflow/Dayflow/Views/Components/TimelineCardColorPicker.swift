@@ -381,192 +381,238 @@ fileprivate struct ColorSwatch: View {
 }
 
 
-fileprivate struct CategoryView: View {
-    var category: TimelineCategory
-    var onColorDrop: (String) -> Void
-    var onDetailsChange: (String) -> Void
+fileprivate struct EditableCategoryCard: View {
+    let category: TimelineCategory
+    let isEditing: Bool
+    let draftName: String
+    let draftDetails: String
+    var onDraftNameChange: (String) -> Void
+    var onDraftDetailsChange: (String) -> Void
+    var onStartEdit: () -> Void
+    var onSave: () -> Void
     var onDelete: () -> Void
 
-    @State private var expanded = false
-    @State private var hovering = false
-    @State private var dragOver = false
-    @State private var localDetails: String = ""
-    @State private var showHint: Bool = false
-    @FocusState private var detailFieldIsFocused: Bool
-    private let detailsPlaceholder = "Add details to help teach the AI what belongs in this category. For example, \"Client meetings, Zoom calls, CRM updates.\""
+    @FocusState private var descriptionFieldFocused: Bool
+
+    private var nameBinding: Binding<String> {
+        Binding(
+            get: { draftName },
+            set: { onDraftNameChange($0) }
+        )
+    }
+
+    private var detailsBinding: Binding<String> {
+        Binding(
+            get: { draftDetails },
+            set: { onDraftDetailsChange($0) }
+        )
+    }
+
+    var body: some View {
+        Group {
+            if isEditing {
+                editingView
+                    .onAppear { descriptionFieldFocused = true }
+                    .onDisappear { descriptionFieldFocused = false }
+            } else {
+                displayView
+            }
+        }
+    }
+
+    private var editingView: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
+                TextField("", text: nameBinding)
+                    .font(Font.custom("Nunito", size: 14).weight(.bold))
+                    .textFieldStyle(.plain)
+                    .foregroundColor(.black)
+                    .submitLabel(.done)
+                    .onSubmit {
+                        descriptionFieldFocused = false
+                        onSave()
+                    }
+
+                Spacer(minLength: 12)
+
+                Button {
+                    descriptionFieldFocused = false
+                    onSave()
+                } label: {
+                    Image("CategoriesCheckmark")
+                        .resizable()
+                        .frame(width: 20, height: 20)
+                        .accessibilityLabel("Save category edits")
+                }
+                .buttonStyle(.plain)
+
+            }
+
+            ZStack(alignment: .topLeading) {
+                if draftDetails.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("Professional, school, or career-focused tasks (coding, design, meetings).")
+                        .font(Font.custom("Nunito", size: 12).weight(.medium))
+                        .foregroundColor(Color.black.opacity(0.35))
+                        .padding(.horizontal, 12)
+                        .padding(.top, 12)
+                }
+
+                TextEditor(text: detailsBinding)
+                    .font(Font.custom("Nunito", size: 12).weight(.medium))
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 10)
+                    .padding(.bottom, 12)
+                    .frame(minHeight: 55)
+                    .background(Color.white)
+                    .focused($descriptionFieldFocused)
+                    .scrollContentBackground(.hidden)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color(red: 0.89, green: 0.86, blue: 0.85), lineWidth: 0.5)
+            )
+        }
+        .padding(16)
+        .frame(alignment: .leading)
+        .background(Color.white)
+        .cornerRadius(8)
+        .shadow(color: Color(red: 0.86, green: 0.8, blue: 0.76), radius: 3, x: 0, y: 0)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .inset(by: 0.25)
+                .stroke(Color(red: 0.89, green: 0.86, blue: 0.85), lineWidth: 0.5)
+        )
+    }
+
+    private var displayView: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(category.name)
+                    .font(Font.custom("Nunito", size: 12).weight(.bold))
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity, alignment: .center)
+
+                Text(category.details.isEmpty ? "Add a description to help Dayflow understand your workflow." : category.details)
+                    .font(Font.custom("Nunito", size: 12).weight(.medium))
+                    .foregroundColor(Color(red: 0.35, green: 0.35, blue: 0.35))
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            if !category.isSystem {
+                Button {
+                    onStartEdit()
+                } label: {
+                    Image("CategoriesEdit")
+                        .resizable()
+                        .frame(width: 20, height: 20)
+                        .accessibilityLabel("Edit category")
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    onDelete()
+                } label: {
+                    Image("CategoriesDelete")
+                        .resizable()
+                        .frame(width: 20, height: 20)
+                        .accessibilityLabel("Delete category")
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .background(Color.white)
+        .cornerRadius(4)
+        .shadow(color: Color.black.opacity(0.06), radius: 2, x: 0, y: 0)
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .inset(by: 0.25)
+                .stroke(Color(red: 0.89, green: 0.89, blue: 0.89), lineWidth: 0.5)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if !category.isSystem {
+                onStartEdit()
+            }
+        }
+    }
+}
+
+fileprivate struct ColorAssignmentCard: View {
+    let category: TimelineCategory
+    var onColorDrop: (String) -> Void
+
+    @State private var isTargeted = false
+
+    private func colorSwatch(_ hex: String) -> some View {
+        let color = Color(hex: hex.isEmpty ? "#E5E7EB" : hex)
+        return Rectangle()
+            .foregroundColor(.clear)
+            .frame(width: 18, height: 18)
+            .background(color)
+            .cornerRadius(6)
+            .shadow(color: Color.black.opacity(0.18), radius: 3, x: 0, y: 1)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .inset(by: 0.75)
+                    .stroke(.white, lineWidth: 1.5)
+            )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                HStack(spacing: 8) {
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(Color(hex: category.colorHex))
-                        .frame(width: 20, height: 20)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .stroke(Color.white, lineWidth: 2)
-                        )
-                        .shadow(color: Color.black.opacity(0.15), radius: 2, y: 1)
+            HStack(alignment: .center, spacing: 14) {
+                colorSwatch(category.colorHex)
+
+                VStack(alignment: .leading, spacing: 4) {
                     Text(category.name)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(Font.custom("Nunito", size: 12).weight(.bold))
                         .foregroundColor(.black)
-                }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    expanded.toggle()
+
+                    if !category.details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(category.details)
+                            .font(Font.custom("Nunito", size: 12).weight(.medium))
+                            .foregroundColor(Color(red: 0.35, green: 0.35, blue: 0.35))
+                            .lineLimit(2)
+                    }
                 }
 
                 Spacer()
-
-                if !category.isSystem {
-                    HStack(spacing: 8) {
-                        if expanded {
-                            Text("▲")
-                                .font(.system(size: 10))
-                                .foregroundColor(Color.gray.opacity(0.7))
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    expanded.toggle()
-                                }
-                        } else if !localDetails.isEmpty {
-                            Text("▼")
-                                .font(.system(size: 10))
-                                .foregroundColor(Color.gray.opacity(0.7))
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    expanded.toggle()
-                                }
-                        }
-
-                        Button {
-                            onDelete()
-                        } label: {
-                            Text("×")
-                                .font(.system(size: 16))
-                                .foregroundColor(.red.opacity(hovering ? 1.0 : 0.6))
-                        }
-                        .buttonStyle(.plain)
-                        .opacity(hovering ? 1.0 : 0.7)
-                        .animation(.easeInOut(duration: 0.15), value: hovering)
-                    }
-                }
-            }
-
-            if !expanded && !localDetails.isEmpty {
-                Text(localDetails)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .font(.system(size: 12))
-                    .foregroundColor(Color.gray.opacity(0.7))
-                    .padding(.top, 2)
-            }
-
-            if expanded {
-                ZStack(alignment: .topLeading) {
-                    if localDetails.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text(detailsPlaceholder)
-                            .font(.system(size: 12))
-                            .foregroundColor(Color.black.opacity(0.45))
-                            .padding(.horizontal, 12)
-                            .padding(.top, 10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.white)
-                            .allowsHitTesting(false)
-                    }
-
-                    TextEditor(text: $localDetails)
-                        .font(.system(size: 13))
-                        .foregroundColor(.black)
-                        .scrollContentBackground(.hidden)
-                        .focused($detailFieldIsFocused)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .frame(minHeight: 80)
-                        .scrollIndicators(.hidden)
-                        .background(ScrollViewHider())
-                }
-                .background(Color.white)
-                .overlay(
-                    Rectangle()
-                        .stroke(Color.black.opacity(0.12), lineWidth: 1)
-                )
             }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, alignment: .center)
         .background(Color.white)
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(dragOver ? Color(red: 0.29, green: 0.33, blue: 0.41) : Color(red: 0.89, green: 0.91, blue: 0.94), lineWidth: dragOver ? 2 : 1)
+                .stroke(isTargeted ? Color(red: 0.6, green: 0.5, blue: 0.4) : Color(red: 0.89, green: 0.89, blue: 0.89), lineWidth: isTargeted ? 1.5 : 0.8)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .shadow(color: Color.black.opacity(0.1), radius: dragOver ? 12 : 3, y: dragOver ? 4 : 1)
+        .cornerRadius(8)
+        .shadow(color: Color.black.opacity(0.06), radius: 2, x: 0, y: 1)
         .contentShape(Rectangle())
-        .onTapGesture {
-            if !expanded {
-                expanded = true
-            }
-        }
-        .onHover { hovering in self.hovering = hovering }
-        .onAppear {
-            localDetails = category.details
-            showHint = category.isNew
-            if category.isNew {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 5) { showHint = false }
-            }
-        }
-        .onChange(of: expanded) { isExpanded in
-            if isExpanded {
-                detailFieldIsFocused = true
-            } else {
-                detailFieldIsFocused = false
-                onDetailsChange(localDetails)
-            }
-        }
-        .onChange(of: category.details) { newValue in
-            localDetails = newValue
-        }
-        .onChange(of: localDetails) { newValue in
-            if expanded {
-                onDetailsChange(newValue)
-            }
-        }
-        .overlay(alignment: .topLeading) {
-            if showHint, category.colorHex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text("← Drop a color here")
-                    .font(.system(size: 11))
-                    .foregroundColor(.white)
-                    .padding(.vertical, 6)
-                    .padding(.horizontal, 10)
-                    .background(Color.black.opacity(0.8))
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
-                    .offset(x: -140, y: -20)
-                    .allowsHitTesting(false)
-            }
-        }
-        .onDrop(of: [UTType.plainText], isTargeted: $dragOver) { providers in
-            guard category.isSystem == false else { return false }
-            guard let prov = providers.first else { return false }
-            // Accept the drop immediately; resolve payload asynchronously
-            prov.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { item, _ in
-                let str: String? = {
+        .onDrop(of: [UTType.plainText], isTargeted: $isTargeted) { providers in
+            guard let provider = providers.first else { return false }
+            provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { item, _ in
+                let value: String? = {
                     if let data = item as? Data { return String(data: data, encoding: .utf8) }
-                    if let s = item as? String { return s }
+                    if let string = item as? String { return string }
                     if let ns = item as? NSString { return ns as String }
                     return nil
                 }()
-                if let hex = str {
+                if let hex = value {
                     DispatchQueue.main.async {
                         onColorDrop(hex)
                     }
                 }
             }
             return true
-        }
-        .zIndex((hovering || dragOver || expanded) ? 50 : 0)
-        .onDisappear {
-            detailFieldIsFocused = false
-            onDetailsChange(localDetails)
         }
     }
 }
@@ -600,291 +646,46 @@ private struct ScrollViewHider: NSViewRepresentable {
     }
 }
 
-enum ColorOrganizerBackgroundStyle {
-    case none
-    case gradient
-    case color(Color)
-}
-
 struct ColorOrganizerRoot: View {
-    var backgroundStyle: ColorOrganizerBackgroundStyle = .gradient
+    enum PresentationStyle {
+        case embedded
+        case sheet
+    }
+
+    var presentationStyle: PresentationStyle = .embedded
     var onDismiss: (() -> Void)?
+    var completionButtonTitle: String?
+    var showsTitles: Bool = true
     @EnvironmentObject private var categoryStore: CategoryStore
+
+    private enum CategorySetupStage {
+        case details
+        case colors
+    }
+
+    @State private var stage: CategorySetupStage = .details
+    @State private var editingCategoryID: UUID?
+    @State private var draftName: String = ""
+    @State private var draftDetails: String = ""
     @State private var numPoints: Int = 3
     @State private var normalizedRadius: Double = 0.7
     @State private var currentAngle: Double = -Double.pi / 2
-    @State private var newCategoryName: String = ""
-    @State private var isDragging: Bool = false
+    @State private var isDraggingColor: Bool = false
     @State private var showFirstTimeHints: Bool = !UserDefaults.standard.bool(forKey: CategoryStore.StoreKeys.hasUsedApp)
+    @State private var pendingScrollTarget: UUID? = nil
+    @State private var isAddButtonHovered: Bool = false
 
-    // Spectrum colors (8) around the circle starting from current picker angle
+    private var categories: [TimelineCategory] {
+        categoryStore.editableCategories
+    }
+
     private var spectrumColors: [String] {
         (0..<8).map { i in
             let angleOffset = Double(i) * (.pi * 2) / 8.0
-            let a = currentAngle + angleOffset
-            let h = a * 180.0 / .pi
+            let angle = currentAngle + angleOffset
+            let hue = angle * 180.0 / .pi
             let lightness = 15 + 75 * normalizedRadius
-            return hslToHex(h, 100, lightness)
-        }
-    }
-
-    // Precomputed background gradient to help the type-checker
-    private var backgroundGradient: LinearGradient {
-        let start = Color(hex: "#667EEA")
-        let end = Color(hex: "#764BA2")
-        return LinearGradient(gradient: Gradient(colors: [start, end]), startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-
-    private var hasExactlyDefaultCategories: Bool {
-        let editableCategories = categoryStore.editableCategories
-        let defaultNames = Set(["Work", "Personal", "Distraction"])
-        let currentNames = Set(editableCategories.map { $0.name })
-        return editableCategories.count == 3 && currentNames == defaultNames
-    }
-
-    private var leftPanel: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            // Picker container (translucent with dot mask)
-            ZStack {
-                Color.clear
-                    .frame(width: 290, height: 224 + 12 + 28)
-
-                VStack(spacing: 8) {
-                    ZStack {
-                        DotPattern(width: 10, height: 10)
-                            .frame(width: 224, height: 224)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .zIndex(10)
-
-                        ColorPickerView(
-                            size: 224,
-                            padding: 20,
-                            bulletRadius: 24,
-                            spreadFactor: 0.4,
-                            minSpread: .pi / 1.5,
-                            maxSpread: .pi / 3,
-                            minLight: 15,
-                            maxLight: 90,
-                            showColorWheel: false,
-                            numPoints: numPoints,
-                            onColorChange: { _ in },
-                            onRadiusChange: { normalizedRadius = $0 },
-                            onAngleChange: { currentAngle = $0 }
-                        )
-                        .zIndex(20)
-                    }
-
-                    // +/- buttons
-                    HStack(spacing: 8) {
-                        shapedIconButton(label: "−") { numPoints = max(1, numPoints - 1) }
-                        shapedIconButton(label: "+") { numPoints = min(5, numPoints + 1) }
-                    }
-                    .frame(height: 28)
-                }
-                .padding(12)
-            }
-
-            // Spectrum swatches (centered)
-            VStack(alignment: .center, spacing: 12) {
-                Text(isDragging ? "Drop on a category →" : "Drag a color onto a category")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(Color(red: 0.3, green: 0.3, blue: 0.3))
-
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
-                    ForEach(Array(spectrumColors.enumerated()), id: \.offset) { i, hex in
-                        ColorSwatch(
-                            hex: hex,
-                            showHint: showFirstTimeHints && i == 0,
-                            onDragStart: { isDragging = true }
-                        )
-                    }
-                }
-                .onDrop(of: [UTType.plainText], isTargeted: nil) { _ in
-                    isDragging = false
-                    return false
-                }
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity)
-        }
-        .frame(minWidth: 320, maxWidth: 400)
-    }
-
-    private var rightPanel: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Configure Categories")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(.black)
-
-            let visibleCategories = categoryStore.editableCategories
-            let isShowingDefaultCategoriesOnly = hasExactlyDefaultCategories
-
-            if visibleCategories.isEmpty && newCategoryName.isEmpty {
-                VStack(spacing: 4) {
-                    Text("No categories yet")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(Color(red: 0.1, green: 0.1, blue: 0.1))
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Text("Create one below and drag colors to assign them")
-                        .font(.system(size: 13))
-                        .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .padding(.horizontal, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.black.opacity(0.02))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.black.opacity(0.08), lineWidth: 1)
-                        )
-                )
-            } else if isShowingDefaultCategoriesOnly {
-                VStack(spacing: 4) {
-                    Text("You can always adjust these later in the Timeline view, but here are some to get you started.")
-                        .font(.system(size: 14))
-                        .foregroundColor(Color(red: 0.1, green: 0.1, blue: 0.1))
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .padding(.horizontal, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.black.opacity(0.02))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.black.opacity(0.08), lineWidth: 1)
-                        )
-                )
-            }
-
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 8) {
-                    ForEach(visibleCategories) { cat in
-                        CategoryView(
-                            category: cat,
-                            onColorDrop: { hex in
-                                categoryStore.assignColor(hex, to: cat.id)
-                                isDragging = false
-                            },
-                            onDetailsChange: { text in
-                                categoryStore.updateDetails(text, for: cat.id)
-                            },
-                            onDelete: {
-                                categoryStore.removeCategory(id: cat.id)
-                            }
-                        )
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 2)
-            }
-            .background(ScrollViewHider())
-            .frame(maxWidth: .infinity)
-            .frame(maxHeight: 400) // Fixed max height prevents layout jank
-
-            let maxCategories = 10
-            let canAddMore = visibleCategories.count < maxCategories
-
-            HStack(alignment: .center, spacing: 8) {
-                TextField(canAddMore ? "Add category..." : "Max categories reached", text: $newCategoryName, onCommit: {
-                    if canAddMore && !newCategoryName.isEmpty {
-                        categoryStore.addCategory(name: newCategoryName)
-                        showFirstTimeHints = false
-                        newCategoryName = ""
-                    }
-                })
-                .textFieldStyle(.plain)
-                .font(.system(size: 14))
-                .foregroundColor(canAddMore ? .black : .gray)
-                .disabled(!canAddMore)
-                .padding(.horizontal, 12)
-                .frame(height: 40)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(canAddMore ? Color.white : Color.gray.opacity(0.1))
-                        .stroke(Color.black.opacity(canAddMore && !newCategoryName.isEmpty ? 0.25 : 0.12), lineWidth: 1)
-                        .animation(.easeOut(duration: 0.2), value: newCategoryName.isEmpty)
-                )
-
-                Button {
-                    if canAddMore && !newCategoryName.isEmpty {
-                        categoryStore.addCategory(name: newCategoryName)
-                        showFirstTimeHints = false
-                        newCategoryName = ""
-                    }
-                } label: {
-                    Text("Add")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.white)
-                        .padding(.vertical, 12)
-                        .padding(.horizontal, 16)
-                        .background(canAddMore && !newCategoryName.isEmpty ? Color(red: 0.25, green: 0.17, blue: 0) : Color.gray)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                .disabled(!canAddMore || newCategoryName.isEmpty)
-            }
-            .frame(minWidth: 280)
-            .frame(maxWidth: .infinity)
-        }
-        .padding(24)
-        .frame(minWidth: 280) // Removed maxWidth constraint to allow full expansion
-    }
-
-    private var contentCard: some View {
-        HStack(alignment: .top, spacing: 60) {
-            leftPanel
-
-            VStack(spacing: 0) {
-                rightPanel
-
-                HStack {
-                    Spacer()
-                    SetupContinueButton(title: "Save", isEnabled: !categoryStore.editableCategories.isEmpty) {
-                        categoryStore.persist()
-                        onDismiss?()
-                    }
-                }
-                .padding(.top, 24)
-            }
-        }
-        .padding(.horizontal, 80)
-        .padding(.vertical, 40)
-        .background(
-            Group {
-                if case .none = backgroundStyle {
-                    // Onboarding: No background, completely transparent
-                    Color.clear
-                } else {
-                    // Main app: White background for visibility over timeline
-                    RoundedRectangle(cornerRadius: 20)
-                        .fill(Color.white.opacity(0.95))
-                        .shadow(color: Color.black.opacity(0.15), radius: 20, x: 0, y: 8)
-                }
-            }
-        )
-        .padding(.horizontal, 60)
-    }
-
-    @ViewBuilder
-    private var backgroundView: some View {
-        switch backgroundStyle {
-        case .gradient:
-            backgroundGradient
-                .ignoresSafeArea()
-        case .color(let color):
-            color
-                .ignoresSafeArea()
-        case .none:
-            EmptyView()
+            return hslToHex(hue, 100, lightness)
         }
     }
 
@@ -893,32 +694,542 @@ struct ColorOrganizerRoot: View {
             backgroundView
             contentCard
         }
-        .onAppear {
-            showFirstTimeHints = !UserDefaults.standard.bool(forKey: CategoryStore.StoreKeys.hasUsedApp)
+        .onDisappear {
+            commitPendingEditsIfNeeded()
         }
     }
 
-    // Styled +/- button matching your design
+    private var contentCard: some View {
+        GeometryReader { proxy in
+            let isCompact = proxy.size.width < 960
+            let innerHorizontalPadding: CGFloat = isCompact ? 28 : 64
+            let outerHorizontalPadding: CGFloat = isCompact ? 16 : 40
+            let stackSpacing: CGFloat = isCompact ? 32 : 48
+            let columnSpacing: CGFloat = isCompact ? 24 : 56
+            let verticalSpacing = showsTitles ? stackSpacing / 2 : 24
+
+            VStack(spacing: verticalSpacing) {
+                if stage == .details && showsTitles {
+                    Text("Customize your categories")
+                        .font(Font.custom("Instrument Serif", size: 44))
+                        .foregroundColor(.black)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
+
+                if stage == .details {
+                    HStack(alignment: .top, spacing: columnSpacing) {
+                        instructionsPanel(isCompact: isCompact, showTitles: showsTitles)
+                            .frame(minWidth: 200, maxWidth: isCompact ? 240 : 280, alignment: .leading)
+                            .layoutPriority(1)
+
+                        categoryEditorPanel(isCompact: isCompact)
+                            .layoutPriority(0)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    HStack(alignment: .top, spacing: columnSpacing) {
+                        colorPickerPanel(isCompact: isCompact, showTitles: showsTitles)
+                            .frame(minWidth: 220, maxWidth: isCompact ? 260 : 320, alignment: .leading)
+                            .layoutPriority(1)
+
+                        colorAssignmentPanel(isCompact: isCompact)
+                            .layoutPriority(0)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(.horizontal, innerHorizontalPadding)
+            .padding(.vertical, isCompact ? 32 : 40)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(
+                Group {
+                    if presentationStyle == .sheet {
+                        RoundedRectangle(cornerRadius: 20)
+                            .fill(Color.white)
+                            .shadow(color: Color.black.opacity(0.15), radius: 20, x: 0, y: 8)
+                    }
+                }
+            )
+            .padding(.horizontal, outerHorizontalPadding)
+            .padding(.vertical, presentationStyle == .sheet ? 24 : 0)
+        }
+    }
+
+    private func instructionsPanel(isCompact: Bool, showTitles: Bool) -> some View {
+        VStack(alignment: .leading, spacing: showTitles ? 20 : 16) {
+            if showTitles {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Part 1 of 2")
+                        .font(Font.custom("Nunito", size: 14).weight(.bold))
+                        .foregroundColor(Color(red: 0.98, green: 0.43, blue: 0))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Text("Edit title and description")
+                        .font(Font.custom("Instrument Serif", size: 30))
+                        .foregroundColor(.black)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 16) {
+                instructionRow(
+                    icon: "CategoriesOrganize",
+                    text: "Dayflow organizes your activities by the category titles and descriptions you provide."
+                )
+                .frame(maxWidth: isCompact ? .infinity : 280, alignment: .leading)
+
+                instructionRow(
+                    icon: "CategoriesTextSelect",
+                    text: "Try to provide as much details in the descriptions as you can to help Dayflow understand your workflow and habits."
+                )
+                .frame(maxWidth: isCompact ? .infinity : 280, alignment: .leading)
+            }
+
+            Text("This step is optional. You can customize the categories or create new ones anytime while using Dayflow.")
+                .font(Font.custom("Nunito", size: 12).weight(.medium))
+                .foregroundColor(Color(red: 0.48, green: 0.48, blue: 0.48))
+                .frame(maxWidth: isCompact ? .infinity : 280, alignment: .leading)
+        }
+    }
+
+    private func instructionRow(icon: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(icon)
+                .resizable()
+                .frame(width: 28, height: 28)
+
+            Text(text)
+                .font(Font.custom("Nunito", size: 14).weight(.medium))
+                .foregroundColor(.black)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func colorPickerPanel(isCompact: Bool, showTitles: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 24) {
+            if showTitles {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Part 2 of 2")
+                        .font(Font.custom("Nunito", size: 14).weight(.bold))
+                        .foregroundColor(Color(red: 0.98, green: 0.43, blue: 0))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Text("Edit colors")
+                        .font(Font.custom("Instrument Serif", size: 30))
+                        .foregroundColor(.black)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+
+            VStack(spacing: 12) {
+                ZStack {
+                    DotPattern(width: 10, height: 10)
+                        .frame(width: 224, height: 224)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 4)
+
+                    ColorPickerView(
+                        size: 224,
+                        padding: 20,
+                        bulletRadius: 24,
+                        spreadFactor: 0.4,
+                        minSpread: .pi / 1.5,
+                        maxSpread: .pi / 3,
+                        minLight: 15,
+                        maxLight: 90,
+                        showColorWheel: false,
+                        numPoints: numPoints,
+                        onColorChange: { _ in },
+                        onRadiusChange: { normalizedRadius = $0 },
+                        onAngleChange: { currentAngle = $0 }
+                    )
+                }
+                .frame(width: 224, height: 224)
+
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text(isDraggingColor ? "Drop on a category →" : "Drag a color onto a category")
+                    .font(Font.custom("Nunito", size: 13).weight(.medium))
+                    .foregroundColor(Color(red: 0.3, green: 0.3, blue: 0.3))
+
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+                    ForEach(Array(spectrumColors.enumerated()), id: \.offset) { index, hex in
+                        ColorSwatch(
+                            hex: hex,
+                            showHint: showFirstTimeHints && index == 0,
+                            onDragStart: {
+                                isDraggingColor = true
+                                showFirstTimeHints = false
+                            }
+                        )
+                    }
+                }
+                .onDrop(of: [UTType.plainText], isTargeted: nil) { _ in
+                    isDraggingColor = false
+                    return false
+                }
+            }
+        }
+    }
+
+    private var canAddMoreCategories: Bool {
+        categories.count < 10
+    }
+
+    private var addCategoryButton: some View {
+        Button {
+            createNewCategory()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(Color(red: 0.49, green: 0.33, blue: 0.16))
+
+                Text("Create a new category")
+                    .font(Font.custom("Nunito", size: 14).weight(.bold))
+                    .foregroundColor(Color(red: 0.49, green: 0.33, blue: 0.16))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(
+                LinearGradient(
+                    gradient: Gradient(stops: [
+                        .init(color: Color(red: 1, green: 0.94, blue: 0.79), location: 0),
+                        .init(color: Color(red: 1, green: 0.72, blue: 0.43), location: 1)
+                    ]),
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .cornerRadius(6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .inset(by: 0.5)
+                    .stroke(Color(red: 0.95, green: 0.71, blue: 0.56), lineWidth: 1)
+            )
+            .opacity(canAddMoreCategories ? 1 : 0.45)
+        }
+        .buttonStyle(.plain)
+        .disabled(!canAddMoreCategories)
+        .scaleEffect(isAddButtonHovered ? 1.02 : 1.0)
+        .animation(.easeOut(duration: 0.18), value: isAddButtonHovered)
+        .shadow(color: Color.black.opacity(isAddButtonHovered ? 0.18 : 0.1), radius: isAddButtonHovered ? 6 : 3, x: 0, y: isAddButtonHovered ? 3 : 1)
+        .onHover { hovering in
+            if canAddMoreCategories {
+                isAddButtonHovered = hovering
+            } else {
+                isAddButtonHovered = false
+            }
+        }
+        .pointingHandCursor(enabled: canAddMoreCategories)
+    }
+
+    private func colorAssignmentPanel(isCompact: Bool) -> some View {
+        let containerHeight: CGFloat = (isCompact ? 404 : 494) * 0.75
+
+        return VStack(alignment: .leading, spacing: 16) {
+            ZStack(alignment: .top) {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.white.opacity(0.2))
+                    .frame(maxWidth: .infinity, minHeight: containerHeight, maxHeight: containerHeight)
+
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color(red: 0.94, green: 0.91, blue: 0.87), lineWidth: 1)
+                    .frame(maxWidth: .infinity, minHeight: containerHeight, maxHeight: containerHeight)
+
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 8) {
+                        ForEach(categories) { category in
+                            ColorAssignmentCard(
+                                category: category,
+                                onColorDrop: { hex in
+                                    categoryStore.assignColor(hex, to: category.id)
+                                    isDraggingColor = false
+                                }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .padding(.bottom, 24)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(maxWidth: isCompact ? .infinity : 708)
+            .frame(height: containerHeight, alignment: .topLeading)
+
+            Text("This step is optional. You can change the colors anytime while using Dayflow.")
+                .font(Font.custom("Nunito", size: 12).weight(.medium))
+                .foregroundColor(Color(red: 0.48, green: 0.48, blue: 0.48))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 16) {
+                SetupSecondaryButton(title: "Back") {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        isDraggingColor = false
+                        stage = .details
+                    }
+                }
+
+                SetupContinueButton(title: completionButtonTitle ?? "Next", isEnabled: !categories.isEmpty) {
+                    categoryStore.persist()
+                    onDismiss?()
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .frame(minWidth: 260, maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func categoryEditorPanel(isCompact: Bool) -> some View {
+        let containerHeight: CGFloat = (isCompact ? 404 : 494) * 0.75
+
+        return ScrollViewReader { proxy in
+            VStack(alignment: .leading, spacing: 24) {
+                ZStack(alignment: .top) {
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color.white.opacity(0.2))
+                        .frame(maxWidth: .infinity, minHeight: containerHeight, maxHeight: containerHeight)
+
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color(red: 0.94, green: 0.91, blue: 0.87), lineWidth: 1)
+                        .frame(maxWidth: .infinity, minHeight: containerHeight, maxHeight: containerHeight)
+
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 8) {
+                            if categories.isEmpty {
+                                emptyState
+                            } else {
+                                ForEach(categories) { category in
+                                    EditableCategoryCard(
+                                        category: category,
+                                        isEditing: editingCategoryID == category.id,
+                                        draftName: editingCategoryID == category.id ? draftName : category.name,
+                                        draftDetails: editingCategoryID == category.id ? draftDetails : category.details,
+                                        onDraftNameChange: { newValue in
+                                            if editingCategoryID == category.id {
+                                                draftName = newValue
+                                            }
+                                        },
+                                        onDraftDetailsChange: { newValue in
+                                            if editingCategoryID == category.id {
+                                                draftDetails = newValue
+                                            }
+                                        },
+                                        onStartEdit: { startEditing(category) },
+                                        onSave: { saveEdits(for: category) },
+                                        onDelete: { deleteCategory(category) }
+                                    )
+                                    .id(category.id)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.top, 10)
+                        .padding(.bottom, 16)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .frame(maxWidth: isCompact ? .infinity : 708)
+                .frame(height: containerHeight, alignment: .topLeading)
+                .onChange(of: pendingScrollTarget) { target in
+                    guard let target else { return }
+                    withAnimation(.easeOut(duration: 0.35)) {
+                        proxy.scrollTo(target, anchor: .bottom)
+                    }
+                    DispatchQueue.main.async { pendingScrollTarget = nil }
+                }
+
+                HStack {
+                    addCategoryButton
+                    Spacer()
+                    SetupContinueButton(title: "Next", isEnabled: !categories.isEmpty) {
+                        commitPendingEditsIfNeeded()
+                        categoryStore.persist()
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            stage = .colors
+                        }
+                    }
+                }
+            }
+            .frame(minWidth: 260, maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var emptyState: some View {
+        Text("Add a category to get started.")
+            .font(Font.custom("Nunito", size: 13).weight(.medium))
+            .foregroundColor(Color(red: 0.35, green: 0.35, blue: 0.35))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color(red: 0.89, green: 0.89, blue: 0.89), lineWidth: 0.5)
+            )
+    }
+
+    @ViewBuilder
+    private var backgroundView: some View {
+        switch presentationStyle {
+        case .embedded:
+            Color.clear
+        case .sheet:
+            Color.black.opacity(0.16)
+                .ignoresSafeArea()
+        }
+    }
+
     private func shapedIconButton(label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 24, weight: .regular, design: .default))
-                .foregroundColor(Color(hex: "#6B7280"))
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
+                .font(Font.custom("Instrument Serif", size: 20))
+                .foregroundColor(Color(red: 0.33, green: 0.33, blue: 0.33))
+                .frame(width: 36, height: 36)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.white.opacity(0.8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color(red: 0.93, green: 0.9, blue: 0.86), lineWidth: 1)
+                        )
+                )
         }
         .buttonStyle(.plain)
-        .background(
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Color.clear)
-        )
-        .onHover { hover in
-            // hover highlight
+        .shadow(color: Color.black.opacity(0.08), radius: 2, x: 0, y: 1)
+    }
+
+    private struct SetupSecondaryButton: View {
+        let title: String
+        let isEnabled: Bool
+        let action: () -> Void
+
+        @State private var isPressed = false
+        @State private var isHovered = false
+
+        init(title: String, isEnabled: Bool = true, action: @escaping () -> Void) {
+            self.title = title
+            self.isEnabled = isEnabled
+            self.action = action
+        }
+
+        var body: some View {
+            Button(action: isEnabled ? action : {}) {
+                Text(title)
+                    .font(Font.custom("Nunito", size: 16).weight(.semibold))
+                    .foregroundColor(Color(red: 0.26, green: 0.26, blue: 0.26))
+                    .padding(.horizontal, 59)
+                    .padding(.vertical, 18)
+                    .frame(width: 160, alignment: .center)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.white.opacity(0.85))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color(red: 0.88, green: 0.88, blue: 0.88), lineWidth: 1)
+                            )
+                    )
+                    .opacity(isEnabled ? 1.0 : 0.4)
+            }
+            .buttonStyle(.plain)
+            .scaleEffect(isPressed ? 0.96 : (isHovered && isEnabled ? 1.02 : 1.0))
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isPressed)
+            .animation(.easeOut(duration: 0.2), value: isHovered)
+            .onHover { hovering in
+                if isEnabled {
+                    isHovered = hovering
+                }
+            }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        if isEnabled {
+                            isPressed = true
+                        }
+                    }
+                    .onEnded { _ in
+                        isPressed = false
+                    }
+            )
+            .disabled(!isEnabled)
+            .pointingHandCursor(enabled: isEnabled)
         }
     }
 
-}
+    private func createNewCategory() {
+        guard canAddMoreCategories else { return }
 
+        withAnimation(.easeInOut(duration: 0.25)) {
+            if stage != .details {
+                stage = .details
+            }
+
+            showFirstTimeHints = false
+
+            let baseName = "New category"
+            var candidate = baseName
+            var suffix = 2
+            let existingNames = Set(categories.map { $0.name.lowercased() })
+            while existingNames.contains(candidate.lowercased()) {
+                candidate = "\(baseName) \(suffix)"
+                suffix += 1
+            }
+
+            categoryStore.addCategory(name: candidate)
+            let editable = categoryStore.editableCategories
+            if let newlyCreated = editable.last {
+                editingCategoryID = newlyCreated.id
+                draftName = newlyCreated.name
+                draftDetails = newlyCreated.details
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    pendingScrollTarget = newlyCreated.id
+                }
+            }
+        }
+    }
+
+    private func startEditing(_ category: TimelineCategory) {
+        if editingCategoryID != nil && editingCategoryID != category.id {
+            commitPendingEditsIfNeeded()
+        }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            editingCategoryID = category.id
+            draftName = category.name
+            draftDetails = category.details
+        }
+    }
+
+    private func saveEdits(for category: TimelineCategory) {
+        let trimmedName = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedName.isEmpty && trimmedName != category.name {
+            categoryStore.renameCategory(id: category.id, to: trimmedName)
+        }
+        categoryStore.updateDetails(draftDetails, for: category.id)
+        endEditing()
+    }
+
+    private func deleteCategory(_ category: TimelineCategory) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            if editingCategoryID == category.id {
+                endEditing()
+            }
+            categoryStore.removeCategory(id: category.id)
+        }
+    }
+
+    private func commitPendingEditsIfNeeded() {
+        guard let editingID = editingCategoryID,
+              let category = categories.first(where: { $0.id == editingID }) else { return }
+        saveEdits(for: category)
+    }
+
+    private func endEditing() {
+        editingCategoryID = nil
+        draftName = ""
+        draftDetails = ""
+    }
+}
 
 // App entry point intentionally omitted; DayflowApp provides the main entry.
 
