@@ -287,7 +287,8 @@ struct TimelineCardWithTimestamps {
 final class StorageManager: StorageManaging, @unchecked Sendable {
     static let shared = StorageManager()
 
-    private let db: DatabaseQueue
+    private let dbURL: URL
+    private let db: DatabasePool
     private let fileMgr = FileManager.default
     private let root: URL
     var recordingsRoot: URL { root }
@@ -300,21 +301,38 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     private let dbWriteQueue = DispatchQueue(label: "com.dayflow.storage.writes", qos: .utility)
 
     private init() {
-        root = fileMgr.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Dayflow/recordings", isDirectory: true)
+        UserDefaultsMigrator.migrateIfNeeded()
+        StoragePathMigrator.migrateIfNeeded()
 
-        // Ensure directory exists
-        try? fileMgr.createDirectory(at: root, withIntermediateDirectories: true)
+        let appSupport = fileMgr.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let baseDir = appSupport.appendingPathComponent("Dayflow", isDirectory: true)
+        let recordingsDir = baseDir.appendingPathComponent("recordings", isDirectory: true)
+
+        // Ensure directories exist before opening database
+        try? fileMgr.createDirectory(at: baseDir, withIntermediateDirectories: true)
+        try? fileMgr.createDirectory(at: recordingsDir, withIntermediateDirectories: true)
+
+        root = recordingsDir
+        dbURL = baseDir.appendingPathComponent("chunks.sqlite")
+
+        StorageManager.migrateDatabaseLocationIfNeeded(
+            fileManager: fileMgr,
+            legacyRecordingsDir: recordingsDir,
+            newDatabaseURL: dbURL
+        )
 
         // Configure database with WAL mode for better performance and safety
         var config = Configuration()
+        config.maximumReaderCount = 5
         config.prepareDatabase { db in
-            try db.execute(sql: "PRAGMA journal_mode = WAL")
-            try db.execute(sql: "PRAGMA synchronous = NORMAL")
+            if !db.configuration.readonly {
+                try db.execute(sql: "PRAGMA journal_mode = WAL")
+                try db.execute(sql: "PRAGMA synchronous = NORMAL")
+            }
             try db.execute(sql: "PRAGMA busy_timeout = 5000")
         }
 
-        db = try! DatabaseQueue(path: root.appendingPathComponent("chunks.sqlite").path, configuration: config)
+        db = try! DatabasePool(path: dbURL.path, configuration: config)
 
         // TEMPORARY DEBUG: SQL statement tracing (via configuration)
         #if DEBUG
@@ -328,6 +346,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         #endif
 
         migrate()
+        migrateLegacyChunkPathsIfNeeded()
 
         // Run initial purge, then schedule hourly
         purgeIfNeeded()
@@ -337,55 +356,119 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
     // TEMPORARY DEBUG: Timing helpers for database operations
     private func timedWrite<T>(_ label: String, _ block: (Database) throws -> T) throws -> T {
-        let start = CFAbsoluteTimeGetCurrent()
+        let callStart = CFAbsoluteTimeGetCurrent()
+        var execStart: CFAbsoluteTime = 0
+        var execEnd: CFAbsoluteTime = 0
 
-        // Add breadcrumb before write operation
         let writeBreadcrumb = Breadcrumb(level: .debug, category: "database")
         writeBreadcrumb.message = "DB write: \(label)"
         writeBreadcrumb.type = "debug"
         SentryHelper.addBreadcrumb(writeBreadcrumb)
 
-        let result = try db.write(block)
-        let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+        do {
+            let result = try db.write { db in
+                execStart = CFAbsoluteTimeGetCurrent()
+                defer { execEnd = CFAbsoluteTimeGetCurrent() }
+                return try block(db)
+            }
 
-        if debugSlowQueries && elapsed > slowThresholdMs {
-            print("⚠️ SLOW WRITE [\(label)]: \(Int(elapsed))ms")
+            let waitMs = max(0, (execStart - callStart) * 1000)
+            let execMs = max(0, (execEnd - execStart) * 1000)
 
-            // Add warning breadcrumb for slow operations
-            let slowWriteBreadcrumb = Breadcrumb(level: .warning, category: "database")
-            slowWriteBreadcrumb.message = "SLOW DB write: \(label)"
-            slowWriteBreadcrumb.data = ["duration_ms": Int(elapsed)]
+            if debugSlowQueries && (execMs > slowThresholdMs || waitMs > slowThresholdMs) {
+                print("⚠️ SLOW WRITE [\(label)]: wait=\(Int(waitMs))ms exec=\(Int(execMs))ms")
+
+                let slowWriteBreadcrumb = Breadcrumb(level: .warning, category: "database")
+                slowWriteBreadcrumb.message = "SLOW DB write: \(label)"
+                slowWriteBreadcrumb.data = [
+                    "duration_ms": Int((waitMs + execMs).rounded()),
+                    "wait_ms": Int(waitMs.rounded()),
+                    "exec_ms": Int(execMs.rounded())
+                ]
+                slowWriteBreadcrumb.type = "error"
+                SentryHelper.addBreadcrumb(slowWriteBreadcrumb)
+            }
+
+            return result
+        } catch {
+            if execStart == 0 {
+                execStart = CFAbsoluteTimeGetCurrent()
+            }
+            if execEnd == 0 {
+                execEnd = CFAbsoluteTimeGetCurrent()
+            }
+            let waitMs = max(0, (execStart - callStart) * 1000)
+            let execMs = max(0, (execEnd - execStart) * 1000)
+
+            let slowWriteBreadcrumb = Breadcrumb(level: .error, category: "database")
+            slowWriteBreadcrumb.message = "FAILED DB write: \(label)"
+            slowWriteBreadcrumb.data = [
+                "wait_ms": Int(waitMs.rounded()),
+                "exec_ms": Int(execMs.rounded()),
+                "error": "\(error)"
+            ]
             slowWriteBreadcrumb.type = "error"
             SentryHelper.addBreadcrumb(slowWriteBreadcrumb)
+            throw error
         }
-
-        return result
     }
 
     private func timedRead<T>(_ label: String, _ block: (Database) throws -> T) throws -> T {
-        let start = CFAbsoluteTimeGetCurrent()
+        let callStart = CFAbsoluteTimeGetCurrent()
+        var execStart: CFAbsoluteTime = 0
+        var execEnd: CFAbsoluteTime = 0
 
-        // Add breadcrumb before read operation
         let readBreadcrumb = Breadcrumb(level: .debug, category: "database")
         readBreadcrumb.message = "DB read: \(label)"
         readBreadcrumb.type = "debug"
         SentryHelper.addBreadcrumb(readBreadcrumb)
 
-        let result = try db.read(block)
-        let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+        do {
+            let result = try db.read { db in
+                execStart = CFAbsoluteTimeGetCurrent()
+                defer { execEnd = CFAbsoluteTimeGetCurrent() }
+                return try block(db)
+            }
 
-        if debugSlowQueries && elapsed > slowThresholdMs {
-            print("⚠️ SLOW READ [\(label)]: \(Int(elapsed))ms")
+            let waitMs = max(0, (execStart - callStart) * 1000)
+            let execMs = max(0, (execEnd - execStart) * 1000)
 
-            // Add warning breadcrumb for slow operations
-            let slowReadBreadcrumb = Breadcrumb(level: .warning, category: "database")
-            slowReadBreadcrumb.message = "SLOW DB read: \(label)"
-            slowReadBreadcrumb.data = ["duration_ms": Int(elapsed)]
+            if debugSlowQueries && (execMs > slowThresholdMs || waitMs > slowThresholdMs) {
+                print("⚠️ SLOW READ [\(label)]: wait=\(Int(waitMs))ms exec=\(Int(execMs))ms")
+
+                let slowReadBreadcrumb = Breadcrumb(level: .warning, category: "database")
+                slowReadBreadcrumb.message = "SLOW DB read: \(label)"
+                slowReadBreadcrumb.data = [
+                    "duration_ms": Int((waitMs + execMs).rounded()),
+                    "wait_ms": Int(waitMs.rounded()),
+                    "exec_ms": Int(execMs.rounded())
+                ]
+                slowReadBreadcrumb.type = "error"
+                SentryHelper.addBreadcrumb(slowReadBreadcrumb)
+            }
+
+            return result
+        } catch {
+            if execStart == 0 {
+                execStart = CFAbsoluteTimeGetCurrent()
+            }
+            if execEnd == 0 {
+                execEnd = CFAbsoluteTimeGetCurrent()
+            }
+            let waitMs = max(0, (execStart - callStart) * 1000)
+            let execMs = max(0, (execEnd - execStart) * 1000)
+
+            let slowReadBreadcrumb = Breadcrumb(level: .error, category: "database")
+            slowReadBreadcrumb.message = "FAILED DB read: \(label)"
+            slowReadBreadcrumb.data = [
+                "wait_ms": Int(waitMs.rounded()),
+                "exec_ms": Int(execMs.rounded()),
+                "error": "\(error)"
+            ]
             slowReadBreadcrumb.type = "error"
             SentryHelper.addBreadcrumb(slowReadBreadcrumb)
+            throw error
         }
-
-        return result
     }
 
     private func migrate() {
@@ -1748,6 +1831,99 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 }
             } catch {
                 print("❌ Purge error: \(error)")
+            }
+        }
+    }
+}
+
+
+private extension StorageManager {
+    func migrateLegacyChunkPathsIfNeeded() {
+        guard let bundleID = Bundle.main.bundleIdentifier else { return }
+        guard let appSupport = fileMgr.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
+
+        let legacyBase = fileMgr.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Containers/\(bundleID)/Data/Library/Application Support/Dayflow", isDirectory: true)
+        let newBase = appSupport.appendingPathComponent("Dayflow", isDirectory: true)
+
+        guard legacyBase.path != newBase.path else { return }
+
+        func normalizedPrefix(_ path: String) -> String {
+            path.hasSuffix("/") ? path : path + "/"
+        }
+
+        let legacyRecordings = normalizedPrefix(legacyBase.appendingPathComponent("recordings", isDirectory: true).path)
+        let newRecordings = normalizedPrefix(root.path)
+
+        let legacyTimelapses = normalizedPrefix(legacyBase.appendingPathComponent("timelapses", isDirectory: true).path)
+        let newTimelapses = normalizedPrefix(newBase.appendingPathComponent("timelapses", isDirectory: true).path)
+
+        let replacements: [(label: String, table: String, column: String, legacyPrefix: String, newPrefix: String)] = [
+            ("chunk file paths", "chunks", "file_url", legacyRecordings, newRecordings),
+            ("timelapse video paths", "timeline_cards", "video_summary_url", legacyTimelapses, newTimelapses)
+        ]
+
+        do {
+            try timedWrite("migrateLegacyFileURLs") { db in
+                for replacement in replacements {
+                    guard replacement.legacyPrefix != replacement.newPrefix else { continue }
+
+                    let pattern = replacement.legacyPrefix + "%"
+                    let count = try Int.fetchOne(
+                        db,
+                        sql: "SELECT COUNT(*) FROM \(replacement.table) WHERE \(replacement.column) LIKE ?",
+                        arguments: [pattern]
+                    ) ?? 0
+
+                    guard count > 0 else { continue }
+
+                    try db.execute(
+                        sql: """
+                            UPDATE \(replacement.table)
+                            SET \(replacement.column) = REPLACE(\(replacement.column), ?, ?)
+                            WHERE \(replacement.column) LIKE ?
+                        """,
+                        arguments: [replacement.legacyPrefix, replacement.newPrefix, pattern]
+                    )
+
+                    let updated = db.changesCount
+                    print("ℹ️ StorageManager: migrated \(updated) \(replacement.label) to \(replacement.newPrefix)")
+                }
+            }
+        } catch {
+            print("⚠️ StorageManager: failed to migrate legacy file URLs: \(error)")
+        }
+    }
+
+    static func migrateDatabaseLocationIfNeeded(
+        fileManager: FileManager,
+        legacyRecordingsDir: URL,
+        newDatabaseURL: URL
+    ) {
+        let destinationDir = newDatabaseURL.deletingLastPathComponent()
+        let filenames = ["chunks.sqlite", "chunks.sqlite-wal", "chunks.sqlite-shm"]
+
+        guard filenames.contains(where: { fileManager.fileExists(atPath: legacyRecordingsDir.appendingPathComponent($0).path) }) else {
+            return
+        }
+
+        if !fileManager.fileExists(atPath: destinationDir.path) {
+            try? fileManager.createDirectory(at: destinationDir, withIntermediateDirectories: true)
+        }
+
+        for name in filenames {
+            let legacyURL = legacyRecordingsDir.appendingPathComponent(name)
+            guard fileManager.fileExists(atPath: legacyURL.path) else { continue }
+
+            let destinationURL = destinationDir.appendingPathComponent(name)
+            do {
+                if fileManager.fileExists(atPath: destinationURL.path) {
+                    try fileManager.removeItem(at: destinationURL)
+                }
+                try fileManager.moveItem(at: legacyURL, to: destinationURL)
+                print("ℹ️ StorageManager: migrated \(name) to \(destinationURL.path)")
+            } catch {
+                print("⚠️ StorageManager: failed to migrate \(name): \(error)")
             }
         }
     }
