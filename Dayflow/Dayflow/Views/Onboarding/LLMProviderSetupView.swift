@@ -6,11 +6,186 @@
 //
 
 import SwiftUI
+import Foundation
+
+private let cliSearchPaths: [String] = {
+    let home = NSHomeDirectory()
+    return [
+        "/usr/local/bin",
+        "/opt/homebrew/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+        "\(home)/.npm-global/bin",
+        "\(home)/.local/bin",
+        "\(home)/.cargo/bin",
+        "\(home)/.bun/bin",
+        "\(home)/.pyenv/bin",
+        "\(home)/.pyenv/shims",
+        "\(home)/.npm-global/lib/node_modules/@openai/codex/vendor/aarch64-apple-darwin/path",
+        "\(home)/.codeium/windsurf/bin",
+        "\(home)/.lmstudio/bin"
+    ]
+}()
+
+struct CLIResult {
+    let stdout: String
+    let stderr: String
+    let exitCode: Int32
+}
+
+@discardableResult
+func runCLI(
+    _ command: String,
+    args: [String] = [],
+    env: [String: String]? = nil,
+    cwd: URL? = nil
+) throws -> CLIResult {
+    let process = Process()
+    let expandedCommand = (command as NSString).expandingTildeInPath
+    if expandedCommand.hasPrefix("/") {
+        guard FileManager.default.isExecutableFile(atPath: expandedCommand) else {
+            throw NSError(domain: "StreamingCLI", code: -1, userInfo: [NSLocalizedDescriptionKey: "Executable not found: \(expandedCommand)"])
+        }
+        process.executableURL = URL(fileURLWithPath: expandedCommand)
+        process.arguments = args
+    } else {
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [expandedCommand] + args
+    }
+    process.currentDirectoryURL = cwd
+    
+    var environment = ProcessInfo.processInfo.environment
+    if let overrides = env {
+        environment.merge(overrides, uniquingKeysWith: { _, new in new })
+    }
+    
+    var pathComponents: [String] = environment["PATH"]
+        .map { $0.split(separator: ":").map { String($0) } } ?? []
+    for rawPath in cliSearchPaths {
+        let expanded = (rawPath as NSString).expandingTildeInPath
+        if !pathComponents.contains(expanded) {
+            pathComponents.append(expanded)
+        }
+    }
+    environment["PATH"] = pathComponents.joined(separator: ":")
+    environment["HOME"] = environment["HOME"] ?? NSHomeDirectory()
+    process.environment = environment
+    
+    let stdoutPipe = Pipe()
+    let stderrPipe = Pipe()
+    process.standardOutput = stdoutPipe
+    process.standardError = stderrPipe
+    
+    try process.run()
+    process.waitUntilExit()
+    
+    let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    
+    return CLIResult(stdout: stdout, stderr: stderr, exitCode: process.terminationStatus)
+}
+
+final class StreamingCLI {
+    private var process: Process?
+    private let stdoutPipe = Pipe()
+    private let stderrPipe = Pipe()
+    
+    func cancel() {
+        process?.terminate()
+    }
+    
+    func run(
+        command: String,
+        args: [String],
+        env: [String: String]? = nil,
+        cwd: URL? = nil,
+        onStdout: @escaping (String) -> Void,
+        onStderr: @escaping (String) -> Void,
+        onFinish: @escaping (Int32) -> Void
+    ) {
+        let proc = Process()
+        process = proc
+        
+        let expandedCommand = (command as NSString).expandingTildeInPath
+        if expandedCommand.hasPrefix("/") {
+            guard FileManager.default.isExecutableFile(atPath: expandedCommand) else {
+                DispatchQueue.main.async {
+                    onStderr("Executable not found or not executable: \(expandedCommand)\n")
+                    onFinish(-1)
+                }
+                return
+            }
+            proc.executableURL = URL(fileURLWithPath: expandedCommand)
+            proc.arguments = args
+        } else {
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            proc.arguments = [expandedCommand] + args
+        }
+        proc.currentDirectoryURL = cwd
+        
+        var environment = ProcessInfo.processInfo.environment
+        if let overrides = env {
+            environment.merge(overrides, uniquingKeysWith: { _, new in new })
+        }
+        var pathComponents: [String] = environment["PATH"]
+            .map { $0.split(separator: ":").map { String($0) } } ?? []
+        for rawPath in cliSearchPaths {
+            let expanded = (rawPath as NSString).expandingTildeInPath
+            if !pathComponents.contains(expanded) {
+                pathComponents.append(expanded)
+            }
+        }
+        environment["PATH"] = pathComponents.joined(separator: ":")
+        environment["HOME"] = environment["HOME"] ?? NSHomeDirectory()
+        proc.environment = environment
+        
+        proc.standardOutput = stdoutPipe
+        proc.standardError = stderrPipe
+        
+        stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else { return }
+            DispatchQueue.main.async {
+                onStdout(chunk)
+            }
+        }
+        
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else { return }
+            DispatchQueue.main.async {
+                onStderr(chunk)
+            }
+        }
+        
+        do {
+            try proc.run()
+            proc.terminationHandler = { process in
+                self.stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                self.stderrPipe.fileHandleForReading.readabilityHandler = nil
+                DispatchQueue.main.async {
+                    onFinish(process.terminationStatus)
+                }
+            }
+        } catch {
+            DispatchQueue.main.async {
+                onStderr("Failed to start \(command): \(error.localizedDescription)")
+                onFinish(-1)
+            }
+        }
+    }
+}
 
 struct LLMProviderSetupView: View {
     let providerType: String // "ollama" or "gemini"
     let onBack: () -> Void
     let onComplete: () -> Void
+    
+    private var activeProviderType: String {
+        providerType == "chatgpt_claude" ? "gemini" : providerType
+    }
     
     // Layout constants
     private let sidebarWidth: CGFloat = 250
@@ -52,7 +227,7 @@ struct LLMProviderSetupView: View {
                 
                 // Title in the content area
                 HStack {
-                    Text(providerType == "ollama" ? "Use local AI" : "Bring your own API keys")
+                    Text(activeProviderType == "ollama" ? "Use local AI" : "Bring your own API keys")
                         .font(.custom("Nunito", size: 32))
                         .fontWeight(.semibold)
                         .foregroundColor(.black.opacity(0.9))
@@ -94,7 +269,7 @@ struct LLMProviderSetupView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            setupState.configureSteps(for: providerType)
+            setupState.configureSteps(for: activeProviderType)
             animateAppearance()
         }
         .preferredColorScheme(.light)
@@ -466,6 +641,34 @@ struct LLMProviderSetupView: View {
                 }
             }
             
+        case .cliDetection:
+            ChatCLIDetectionStepView(
+                codexStatus: setupState.codexCLIStatus,
+                codexReport: setupState.codexCLIReport,
+                claudeStatus: setupState.claudeCLIStatus,
+                claudeReport: setupState.claudeCLIReport,
+                isChecking: setupState.isCheckingCLIStatus,
+                onRetry: { setupState.refreshCLIStatuses() },
+                onInstall: { tool in openChatCLIInstallPage(for: tool) },
+                debugCommand: $setupState.debugCommandInput,
+                debugOutput: setupState.debugCommandOutput,
+                isRunningDebug: setupState.isRunningDebugCommand,
+                onRunDebug: { setupState.runDebugCommand() },
+                cliPrompt: $setupState.cliPrompt,
+                codexOutput: setupState.codexStreamOutput,
+                claudeOutput: setupState.claudeStreamOutput,
+                isRunningCodex: setupState.isRunningCodexStream,
+                isRunningClaude: setupState.isRunningClaudeStream,
+                onRunCodex: { setupState.runCodexStream() },
+                onCancelCodex: { setupState.cancelCodexStream() },
+                onRunClaude: { setupState.runClaudeStream() },
+                onCancelClaude: { setupState.cancelClaudeStream() },
+                nextButton: { nextButton }
+            )
+            .onAppear {
+                setupState.ensureCLICheckStarted()
+            }
+            
         case .apiKeyInstructions:
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -558,7 +761,7 @@ struct LLMProviderSetupView: View {
     
     private func handleContinue() {
         // Persist local config immediately after a successful local test when user advances
-        if providerType == "ollama" {
+        if activeProviderType == "ollama" {
             if case .information(let title, _) = setupState.currentStep.contentType,
                (title == "Testing" || title == "Test Connection"),
                setupState.testSuccessful {
@@ -577,18 +780,18 @@ struct LLMProviderSetupView: View {
     
     private func saveConfiguration() {
         // Save API key to keychain for Gemini
-        if providerType == "gemini" && !setupState.apiKey.isEmpty {
+        if activeProviderType == "gemini" && !setupState.apiKey.isEmpty {
             KeychainManager.shared.store(setupState.apiKey, for: "gemini")
             GeminiModelPreference(primary: setupState.geminiModel).save()
         }
         
         // Save local endpoint for local engine selection
-        if providerType == "ollama" {
+        if activeProviderType == "ollama" {
             persistLocalSettings()
         }
         
         // Mark setup as complete
-        UserDefaults.standard.set(true, forKey: "\(providerType)SetupComplete")
+        UserDefaults.standard.set(true, forKey: "\(activeProviderType)SetupComplete")
     }
 
     // Persist provider choice + local settings without marking setup complete
@@ -632,6 +835,11 @@ struct LLMProviderSetupView: View {
         }
     }
     
+    private func openChatCLIInstallPage(for tool: CLITool) {
+        guard let url = tool.installURL else { return }
+        NSWorkspace.shared.open(url)
+    }
+    
     private func animateAppearance() {
         withAnimation(.easeOut(duration: 0.4)) {
             sidebarOpacity = 1
@@ -656,8 +864,25 @@ class ProviderSetupState: ObservableObject {
     @Published var localEngine: LocalEngine = .ollama
     @Published var localBaseURL: String = "http://localhost:11434"
     @Published var localModelId: String = "qwen2.5vl:3b"
+    // CLI detection
+    @Published var codexCLIStatus: CLIDetectionState = .unknown
+    @Published var claudeCLIStatus: CLIDetectionState = .unknown
+    @Published var isCheckingCLIStatus: Bool = false
+    @Published var codexCLIReport: CLIDetectionReport?
+    @Published var claudeCLIReport: CLIDetectionReport?
+    @Published var debugCommandInput: String = "which codex"
+    @Published var debugCommandOutput: String = ""
+    @Published var isRunningDebugCommand: Bool = false
+    @Published var cliPrompt: String = "Say hello"
+    @Published var codexStreamOutput: String = ""
+    @Published var claudeStreamOutput: String = ""
+    @Published var isRunningCodexStream: Bool = false
+    @Published var isRunningClaudeStream: Bool = false
 
     private var lastSavedGeminiModel: GeminiModel
+    private var hasStartedCLICheck = false
+    private let codexStreamer = StreamingCLI()
+    private let claudeStreamer = StreamingCLI()
 
     init() {
         let preference = GeminiModelPreference.load()
@@ -676,6 +901,8 @@ class ProviderSetupState: ObservableObject {
         switch currentStep.contentType {
         case .apiKeyInput:
             return !apiKey.isEmpty && apiKey.count > 20
+        case .cliDetection:
+            return hasAnyCLIInstalled
         case .terminalCommand(_), .modelDownload(_), .localChoice, .localModelInstall, .information(_, _), .apiKeyInstructions:
             return true
         }
@@ -686,7 +913,8 @@ class ProviderSetupState: ObservableObject {
     }
     
     func configureSteps(for provider: String) {
-        if provider == "ollama" {
+        switch provider {
+        case "ollama":
             steps = [
                 SetupStep(
                     id: "intro",
@@ -701,16 +929,51 @@ class ProviderSetupState: ObservableObject {
                 SetupStep(id: "test", title: "Test connection", contentType: .information("Test Connection", "Click the button below to verify your local server responds to a simple chat completion.")),
                 SetupStep(id: "complete", title: "Complete", contentType: .information("All set!", "Local AI is configured and ready to use with Dayflow."))
             ]
-        } else { // gemini
+        case "chatgpt_claude":
             steps = [
-                SetupStep(id: "getkey", title: "Get API key", 
-                         contentType: .apiKeyInstructions),
-                SetupStep(id: "enterkey", title: "Enter API key", 
-                         contentType: .apiKeyInput),
-                SetupStep(id: "verify", title: "Test connection", 
-                         contentType: .information("Test Connection", "Click the button below to verify your API key works with Gemini")),
-                SetupStep(id: "complete", title: "Complete", 
-                         contentType: .information("All set!", "Gemini is now configured and ready to use with Dayflow."))
+                SetupStep(
+                    id: "intro",
+                    title: "Before you begin",
+                    contentType: .information(
+                        "Install ChatGPT or Claude",
+                        "Dayflow can drive either ChatGPT (through the Codex CLI) or Claude Code. You'll need at least one installed and signed in on this Mac. We'll check automatically in the next step."
+                    )
+                ),
+                SetupStep(
+                    id: "detect",
+                    title: "Check installations",
+                    contentType: .cliDetection
+                ),
+                SetupStep(
+                    id: "complete",
+                    title: "Complete",
+                    contentType: .information(
+                        "All set!",
+                        "ChatGPT and Claude tooling is ready. You can fine-tune which assistant to use anytime from Settings → AI Provider."
+                    )
+                )
+            ]
+            codexCLIStatus = .unknown
+            claudeCLIStatus = .unknown
+            codexCLIReport = nil
+            claudeCLIReport = nil
+            isCheckingCLIStatus = false
+            hasStartedCLICheck = false
+            cancelCodexStream()
+            cancelClaudeStream()
+            codexStreamOutput = ""
+            claudeStreamOutput = ""
+            cliPrompt = "Say hello"
+        default: // gemini
+            steps = [
+                SetupStep(id: "getkey", title: "Get API key",
+                          contentType: .apiKeyInstructions),
+                SetupStep(id: "enterkey", title: "Enter API key",
+                          contentType: .apiKeyInput),
+                SetupStep(id: "verify", title: "Test connection",
+                          contentType: .information("Test Connection", "Click the button below to verify your API key works with Gemini")),
+                SetupStep(id: "complete", title: "Complete",
+                          contentType: .information("All set!", "Gemini is now configured and ready to use with Dayflow."))
             ]
         }
     }
@@ -770,6 +1033,159 @@ class ProviderSetupState: ObservableObject {
         hasTestedConnection = false
         testSuccessful = false
     }
+    
+    private var hasAnyCLIInstalled: Bool {
+        codexCLIStatus.isInstalled || claudeCLIStatus.isInstalled
+    }
+    
+    func ensureCLICheckStarted() {
+        guard !hasStartedCLICheck else { return }
+        hasStartedCLICheck = true
+        refreshCLIStatuses()
+    }
+    
+    func refreshCLIStatuses() {
+        if isCheckingCLIStatus { return }
+        isCheckingCLIStatus = true
+        codexCLIStatus = .checking
+        claudeCLIStatus = .checking
+        codexCLIReport = nil
+        claudeCLIReport = nil
+        
+        Task.detached { [weak self] in
+            guard let self else { return }
+            async let codex = CLIDetector.detect(tool: .codex)
+            async let claude = CLIDetector.detect(tool: .claude)
+            let (codexResult, claudeResult) = await (codex, claude)
+            
+            await MainActor.run {
+                self.codexCLIReport = codexResult
+                self.claudeCLIReport = claudeResult
+                self.codexCLIStatus = codexResult.state
+                self.claudeCLIStatus = claudeResult.state
+                self.isCheckingCLIStatus = false
+            }
+        }
+    }
+    
+    @MainActor
+    func runDebugCommand() {
+        guard !debugCommandInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            debugCommandOutput = "Enter a command to run."
+            return
+        }
+        if isRunningDebugCommand { return }
+        isRunningDebugCommand = true
+        debugCommandOutput = "Running..."
+        
+        let command = debugCommandInput
+        Task.detached { [weak self] in
+            let result = CLIDetector.runDebugCommand(command)
+            await MainActor.run {
+                guard let self else { return }
+                var output = ""
+                output += "Exit code: \(result.exitCode)\n"
+                if !result.stdout.isEmpty {
+                    output += "\nstdout:\n\(result.stdout)"
+                }
+                if !result.stderr.isEmpty {
+                    output += "\nstderr:\n\(result.stderr)"
+                }
+                if result.stdout.isEmpty && result.stderr.isEmpty {
+                    output += "\n(no output)"
+                }
+                self.debugCommandOutput = output
+                self.isRunningDebugCommand = false
+            }
+        }
+    }
+    
+    private func cliEnvironment(overrides: [String: String]? = nil) -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        var components = env["PATH"].map { $0.split(separator: ":").map { String($0) } } ?? []
+        for raw in CLIDetector.searchPaths {
+            let expanded = (raw as NSString).expandingTildeInPath
+            if !components.contains(expanded) {
+                components.append(expanded)
+            }
+        }
+        env["PATH"] = components.joined(separator: ":")
+        env["HOME"] = env["HOME"] ?? NSHomeDirectory()
+        if let overrides = overrides {
+            env.merge(overrides, uniquingKeysWith: { _, new in new })
+        }
+        return env
+    }
+    
+    func runCodexStream() {
+        guard !isRunningCodexStream else { return }
+        guard let path = CLIDetector.resolveExecutablePath(for: .codex) else {
+            codexStreamOutput = "Codex CLI not found."
+            return
+        }
+        let prompt = cliPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Say hello" : cliPrompt
+        codexStreamOutput = "Running \(path) with prompt: \(prompt)\n\n"
+        isRunningCodexStream = true
+        codexStreamer.run(
+            command: path,
+            args: ["exec", "--json", prompt],
+            env: cliEnvironment(),
+            onStdout: { [weak self] chunk in
+                self?.codexStreamOutput.append(chunk)
+            },
+            onStderr: { [weak self] chunk in
+                self?.codexStreamOutput.append("\n[stderr] \(chunk)")
+            },
+            onFinish: { [weak self] code in
+                guard let self else { return }
+                self.codexStreamOutput.append("\n\nExited \(code)\n")
+                self.isRunningCodexStream = false
+            }
+        )
+    }
+    
+    func cancelCodexStream() {
+        codexStreamer.cancel()
+        if isRunningCodexStream {
+            codexStreamOutput.append("\n\nCancelled.\n")
+        }
+        isRunningCodexStream = false
+    }
+    
+    func runClaudeStream() {
+        guard !isRunningClaudeStream else { return }
+        guard let path = CLIDetector.resolveExecutablePath(for: .claude) else {
+            claudeStreamOutput = "Claude CLI not found."
+            return
+        }
+        let prompt = cliPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Say hello" : cliPrompt
+        claudeStreamOutput = "Running \(path) with prompt: \(prompt)\n\n"
+        isRunningClaudeStream = true
+        claudeStreamer.run(
+            command: path,
+            args: ["--print", "--output-format", "json", prompt],
+            env: cliEnvironment(),
+            onStdout: { [weak self] chunk in
+                self?.claudeStreamOutput.append(chunk)
+            },
+            onStderr: { [weak self] chunk in
+                self?.claudeStreamOutput.append("\n[stderr] \(chunk)")
+            },
+            onFinish: { [weak self] code in
+                guard let self else { return }
+                self.claudeStreamOutput.append("\n\nExited \(code)\n")
+                self.isRunningClaudeStream = false
+            }
+        )
+    }
+    
+    func cancelClaudeStream() {
+        claudeStreamer.cancel()
+        if isRunningClaudeStream {
+            claudeStreamOutput.append("\n\nCancelled.\n")
+        }
+        isRunningClaudeStream = false
+    }
 }
 
 struct SetupStep: Identifiable {
@@ -791,6 +1207,7 @@ enum StepContentType {
     case information(String, String)
     case localChoice
     case localModelInstall
+    case cliDetection
     
     var isApiKeyInput: Bool {
         if case .apiKeyInput = self {
@@ -962,5 +1379,619 @@ struct LocalLLMTestView: View {
                 }
             }
         }.resume()
+    }
+}
+
+enum CLITool: String, CaseIterable {
+    case codex
+    case claude
+    
+    var displayName: String {
+        switch self {
+        case .codex: return "ChatGPT (Codex CLI)"
+        case .claude: return "Claude Code"
+        }
+    }
+    
+    var shortName: String {
+        switch self {
+        case .codex: return "ChatGPT"
+        case .claude: return "Claude"
+        }
+    }
+    
+    var subtitle: String {
+        switch self {
+        case .codex:
+            return "OpenAI's ChatGPT desktop tooling with codex CLI"
+        case .claude:
+            return "Anthropic's Claude Code command-line helper"
+        }
+    }
+    
+    var executableName: String {
+        switch self {
+        case .codex: return "codex"
+        case .claude: return "claude"
+        }
+    }
+    
+    var versionCommand: String {
+        "\(executableName) --version"
+    }
+    
+    var installURL: URL? {
+        switch self {
+        case .codex:
+            return URL(string: "https://github.com/a16z-infra/codex#installation")
+        case .claude:
+            return URL(string: "https://docs.anthropic.com/en/docs/claude-code/setup")
+        }
+    }
+    
+    var iconName: String {
+        switch self {
+        case .codex: return "terminal"
+        case .claude: return "bolt.horizontal.circle"
+        }
+    }
+}
+
+enum CLIDetectionState: Equatable {
+    case unknown
+    case checking
+    case installed(version: String)
+    case notFound
+    case failed(message: String)
+    
+    var isInstalled: Bool {
+        if case .installed = self { return true }
+        return false
+    }
+    
+    var statusLabel: String {
+        switch self {
+        case .unknown:
+            return "Not checked"
+        case .checking:
+            return "Checking…"
+        case .installed:
+            return "Installed"
+        case .notFound:
+            return "Not installed"
+        case .failed:
+            return "Error"
+        }
+    }
+    
+    var detailMessage: String? {
+        switch self {
+        case .installed(let version):
+            return version.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .failed(let message):
+            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        default:
+            return nil
+        }
+    }
+}
+
+struct CLIDetectionReport {
+    let state: CLIDetectionState
+    let resolvedPath: String?
+    let stdout: String?
+    let stderr: String?
+}
+
+struct CLIDetector {
+    static var searchPaths: [String] { cliSearchPaths }
+    
+    static func detect(tool: CLITool) async -> CLIDetectionReport {
+        guard let executablePath = resolveExecutablePath(for: tool) else {
+            return CLIDetectionReport(state: .notFound, resolvedPath: nil, stdout: nil, stderr: nil)
+        }
+        do {
+            let result = try runCLI(executablePath, args: ["--version"])
+            if result.exitCode == 0 {
+                let trimmed = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                let firstLine = trimmed.components(separatedBy: .newlines).first ?? trimmed
+                let summary = firstLine.isEmpty ? "\(tool.shortName) detected" : firstLine
+                return CLIDetectionReport(state: .installed(version: summary), resolvedPath: executablePath, stdout: result.stdout, stderr: result.stderr)
+            }
+            if result.exitCode == 127 || result.stderr.contains("not found") {
+                return CLIDetectionReport(state: .notFound, resolvedPath: executablePath, stdout: result.stdout, stderr: result.stderr)
+            }
+            let message = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            if message.isEmpty {
+                return CLIDetectionReport(state: .failed(message: "Exit code \(result.exitCode)"), resolvedPath: executablePath, stdout: result.stdout, stderr: result.stderr)
+            }
+            return CLIDetectionReport(state: .failed(message: message), resolvedPath: executablePath, stdout: result.stdout, stderr: result.stderr)
+        } catch {
+            return CLIDetectionReport(state: .failed(message: error.localizedDescription), resolvedPath: executablePath, stdout: nil, stderr: nil)
+        }
+    }
+    
+    static func resolveExecutablePath(for tool: CLITool) -> String? {
+        resolveExecutablePath(named: tool.executableName)
+    }
+    
+    private static func resolveExecutablePath(named name: String) -> String? {
+        let fileManager = FileManager.default
+        var searchDirectories: [String] = []
+        if let envPath = ProcessInfo.processInfo.environment["PATH"] {
+            searchDirectories.append(contentsOf: envPath.split(separator: ":").map { String($0) })
+        }
+        searchDirectories.append(contentsOf: cliSearchPaths)
+        var seen = Set<String>()
+        for directory in searchDirectories {
+            let expanded = (directory as NSString).expandingTildeInPath
+            if !seen.insert(expanded).inserted {
+                continue
+            }
+            let candidate = (expanded as NSString).appendingPathComponent(name)
+            if fileManager.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        return nil
+    }
+    
+    static func runDebugCommand(_ command: String) -> CLIResult {
+        do {
+            return try runCLI("bash", args: ["-lc", command])
+        } catch {
+            return CLIResult(stdout: "", stderr: error.localizedDescription, exitCode: -1)
+        }
+    }
+}
+
+struct ChatCLIDetectionStepView<NextButton: View>: View {
+    let codexStatus: CLIDetectionState
+    let codexReport: CLIDetectionReport?
+    let claudeStatus: CLIDetectionState
+    let claudeReport: CLIDetectionReport?
+    let isChecking: Bool
+    let onRetry: () -> Void
+    let onInstall: (CLITool) -> Void
+    @Binding var debugCommand: String
+    let debugOutput: String
+    let isRunningDebug: Bool
+    let onRunDebug: () -> Void
+    @Binding var cliPrompt: String
+    let codexOutput: String
+    let claudeOutput: String
+    let isRunningCodex: Bool
+    let isRunningClaude: Bool
+    let onRunCodex: () -> Void
+    let onCancelCodex: () -> Void
+    let onRunClaude: () -> Void
+    let onCancelClaude: () -> Void
+    @ViewBuilder let nextButton: () -> NextButton
+    
+    @State private var showCodexDebug = false
+    @State private var showClaudeDebug = false
+    
+    private let accentColor = Color(red: 0.25, green: 0.17, blue: 0)
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Check ChatGPT or Claude")
+                    .font(.custom("Nunito", size: 24))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.black.opacity(0.9))
+                Text("Dayflow can talk to ChatGPT (via the Codex CLI) or Claude Code. You only need one installed and signed in on this Mac.")
+                    .font(.custom("Nunito", size: 14))
+                    .foregroundColor(.black.opacity(0.6))
+            }
+            
+            VStack(alignment: .leading, spacing: 14) {
+                ChatCLIToolStatusRow(
+                    tool: .codex,
+                    status: codexStatus,
+                    report: codexReport,
+                    showDebug: $showCodexDebug,
+                    onInstall: { onInstall(.codex) }
+                )
+                ChatCLIToolStatusRow(
+                    tool: .claude,
+                    status: claudeStatus,
+                    report: claudeReport,
+                    showDebug: $showClaudeDebug,
+                    onInstall: { onInstall(.claude) }
+                )
+            }
+            
+            Text("Tip: Once both are installed, you can choose which assistant Dayflow uses from Settings → AI Provider.")
+                .font(.custom("Nunito", size: 12))
+                .foregroundColor(.black.opacity(0.5))
+            
+            DebugCommandConsole(
+                command: $debugCommand,
+                output: debugOutput,
+                isRunning: isRunningDebug,
+                runAction: {
+                    onRunDebug()
+                }
+            )
+            
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Try a sample prompt")
+                    .font(.custom("Nunito", size: 13))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.black.opacity(0.7))
+                TextField("Ask ChatGPT or Claude…", text: $cliPrompt)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.custom("Nunito", size: 13))
+                HStack(spacing: 12) {
+                    DayflowSurfaceButton(
+                        action: {
+                            if isRunningCodex {
+                                onCancelCodex()
+                            } else if codexStatus.isInstalled || codexReport?.resolvedPath != nil {
+                                onRunCodex()
+                            }
+                        },
+                        content: {
+                            HStack(spacing: 6) {
+                                Image(systemName: isRunningCodex ? "stop.fill" : "play.fill").font(.system(size: 12, weight: .semibold))
+                                Text(isRunningCodex ? "Stop Codex" : "Run Codex")
+                                    .font(.custom("Nunito", size: 13))
+                                    .fontWeight(.semibold)
+                            }
+                        },
+                        background: Color(red: 0.25, green: 0.17, blue: 0),
+                        foreground: .white,
+                        borderColor: .clear,
+                        cornerRadius: 8,
+                        horizontalPadding: 16,
+                        verticalPadding: 10,
+                        showOverlayStroke: true
+                    )
+                    .disabled(!(codexStatus.isInstalled || codexReport?.resolvedPath != nil) && !isRunningCodex)
+                    
+                    DayflowSurfaceButton(
+                        action: {
+                            if isRunningClaude {
+                                onCancelClaude()
+                            } else if claudeStatus.isInstalled || claudeReport?.resolvedPath != nil {
+                                onRunClaude()
+                            }
+                        },
+                        content: {
+                            HStack(spacing: 6) {
+                                Image(systemName: isRunningClaude ? "stop.fill" : "play.fill").font(.system(size: 12, weight: .semibold))
+                                Text(isRunningClaude ? "Stop Claude" : "Run Claude")
+                                    .font(.custom("Nunito", size: 13))
+                                    .fontWeight(.semibold)
+                            }
+                        },
+                        background: Color(red: 0.25, green: 0.17, blue: 0),
+                        foreground: .white,
+                        borderColor: .clear,
+                        cornerRadius: 8,
+                        horizontalPadding: 16,
+                        verticalPadding: 10,
+                        showOverlayStroke: true
+                    )
+                    .disabled(!(claudeStatus.isInstalled || claudeReport?.resolvedPath != nil) && !isRunningClaude)
+                }
+                if !codexOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    DebugField(label: "Codex output", value: codexOutput)
+                }
+                if !claudeOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    DebugField(label: "Claude output", value: claudeOutput)
+                }
+            }
+            .padding(16)
+            .background(Color.white.opacity(0.55))
+            .cornerRadius(16)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color.black.opacity(0.05), lineWidth: 1)
+            )
+            
+            HStack {
+                DayflowSurfaceButton(
+                    action: {
+                        if !isChecking {
+                            onRetry()
+                        }
+                    },
+                    content: {
+                        HStack(spacing: 8) {
+                            if isChecking {
+                                ProgressView().scaleEffect(0.7)
+                            } else {
+                                Image(systemName: "arrow.clockwise").font(.system(size: 13, weight: .semibold))
+                            }
+                            Text(isChecking ? "Checking…" : "Re-check")
+                                .font(.custom("Nunito", size: 14))
+                                .fontWeight(.semibold)
+                        }
+                    },
+                    background: accentColor,
+                    foreground: .white,
+                    borderColor: .clear,
+                    cornerRadius: 8,
+                    horizontalPadding: 20,
+                    verticalPadding: 10,
+                    showOverlayStroke: true
+                )
+                .disabled(isChecking)
+                
+                Spacer()
+                
+                nextButton()
+                    .opacity(canContinue ? 1.0 : 0.5)
+                    .allowsHitTesting(canContinue)
+            }
+        }
+    }
+    
+    private var canContinue: Bool {
+        codexStatus.isInstalled || claudeStatus.isInstalled
+    }
+}
+
+struct ChatCLIToolStatusRow: View {
+    let tool: CLITool
+    let status: CLIDetectionState
+    let report: CLIDetectionReport?
+    @Binding var showDebug: Bool
+    let onInstall: () -> Void
+    
+    private let accentColor = Color(red: 0.25, green: 0.17, blue: 0)
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 14) {
+                Image(systemName: tool.iconName)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.black.opacity(0.75))
+                    .frame(width: 34, height: 34)
+                    .background(Color.white.opacity(0.7))
+                    .cornerRadius(8)
+                    .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 2)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(tool.displayName)
+                        .font(.custom("Nunito", size: 16))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.black.opacity(0.9))
+                    Text(tool.subtitle)
+                        .font(.custom("Nunito", size: 12))
+                        .foregroundColor(.black.opacity(0.55))
+                }
+                
+                Spacer()
+                
+                statusView
+            }
+            
+            if let detail = status.detailMessage, !detail.isEmpty {
+                Text(detail)
+                    .font(.custom("Nunito", size: 12))
+                    .foregroundColor(.black.opacity(0.6))
+                    .padding(.leading, 48)
+            }
+            
+            if let report {
+                Button(action: { withAnimation { showDebug.toggle() } }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: showDebug ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(showDebug ? "Hide debug info" : "Show debug info")
+                            .font(.custom("Nunito", size: 12))
+                            .fontWeight(.semibold)
+                    }
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 48)
+                .pointingHandCursor()
+                
+                if showDebug {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if let path = report.resolvedPath {
+                            DebugField(label: "Resolved path", value: path)
+                        }
+                        if let stdout = report.stdout, !stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            DebugField(label: "stdout", value: stdout)
+                        }
+                        if let stderr = report.stderr, !stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            DebugField(label: "stderr", value: stderr)
+                        }
+                        if (report.stdout?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) && (report.stderr?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
+                            DebugField(label: "Note", value: "No output captured from --version")
+                        }
+                    }
+                    .padding(.leading, 48)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+            
+            if shouldShowInstallButton {
+                DayflowSurfaceButton(
+                    action: onInstall,
+                    content: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.down.circle.fill").font(.system(size: 13, weight: .semibold))
+                            Text(installLabel)
+                                .font(.custom("Nunito", size: 13))
+                                .fontWeight(.semibold)
+                        }
+                    },
+                    background: .white.opacity(0.85),
+                    foreground: accentColor,
+                    borderColor: accentColor.opacity(0.35),
+                    cornerRadius: 8,
+                    horizontalPadding: 16,
+                    verticalPadding: 8,
+                    showOverlayStroke: true
+                )
+                .padding(.leading, 48)
+            }
+        }
+        .padding(16)
+        .background(Color.white.opacity(0.6))
+        .cornerRadius(14)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+        )
+    }
+    
+    @ViewBuilder
+    private var statusView: some View {
+        switch status {
+        case .checking, .unknown:
+            HStack(spacing: 6) {
+                ProgressView().scaleEffect(0.55)
+                Text(status.statusLabel)
+                    .font(.custom("Nunito", size: 12))
+                    .foregroundColor(accentColor)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(accentColor.opacity(0.12))
+            .cornerRadius(999)
+        case .installed:
+            Text(status.statusLabel)
+                .font(.custom("Nunito", size: 12))
+                .fontWeight(.semibold)
+                .foregroundColor(Color(red: 0.13, green: 0.7, blue: 0.23))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color(red: 0.13, green: 0.7, blue: 0.23).opacity(0.17))
+                .cornerRadius(999)
+        case .notFound:
+            Text(status.statusLabel)
+                .font(.custom("Nunito", size: 12))
+                .fontWeight(.semibold)
+                .foregroundColor(Color(hex: "E91515"))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color(hex: "FFD1D1"))
+                .cornerRadius(999)
+        case .failed:
+            Text(status.statusLabel)
+                .font(.custom("Nunito", size: 12))
+                .fontWeight(.semibold)
+                .foregroundColor(Color(red: 0.91, green: 0.34, blue: 0.16))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color(red: 0.91, green: 0.34, blue: 0.16).opacity(0.18))
+                .cornerRadius(999)
+        }
+    }
+    
+    private var shouldShowInstallButton: Bool {
+        switch status {
+        case .notFound, .failed:
+            return tool.installURL != nil
+        default:
+            return false
+        }
+    }
+    
+    private var installLabel: String {
+        switch status {
+        case .failed:
+            return "Open setup guide"
+        default:
+            return "Install \(tool.shortName)"
+        }
+    }
+}
+
+struct DebugField: View {
+    let label: String
+    let value: String
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.custom("Nunito", size: 11))
+                .fontWeight(.semibold)
+                .foregroundColor(.black.opacity(0.55))
+            ScrollView(.vertical, showsIndicators: true) {
+                Text(value)
+                    .font(.system(.footnote, design: .monospaced))
+                    .foregroundColor(.black.opacity(0.75))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+                    .background(Color.white.opacity(0.85))
+                    .cornerRadius(6)
+            }
+            .frame(maxHeight: 100)
+        }
+    }
+}
+
+struct DebugCommandConsole: View {
+    @Binding var command: String
+    let output: String
+    let isRunning: Bool
+    let runAction: () -> Void
+    
+    private let accentColor = Color(red: 0.25, green: 0.17, blue: 0)
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Run a command as Dayflow")
+                .font(.custom("Nunito", size: 13))
+                .fontWeight(.semibold)
+                .foregroundColor(.black.opacity(0.7))
+            Text("Helpful for checking PATH differences. We run using the same environment as the detection step.")
+                .font(.custom("Nunito", size: 12))
+                .foregroundColor(.black.opacity(0.55))
+            HStack(spacing: 10) {
+                TextField("Command", text: $command)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.body, design: .monospaced))
+                DayflowSurfaceButton(
+                    action: runAction,
+                    content: {
+                        HStack(spacing: 6) {
+                            if isRunning {
+                                ProgressView().scaleEffect(0.7)
+                            } else {
+                                Image(systemName: "play.fill").font(.system(size: 12, weight: .semibold))
+                            }
+                            Text(isRunning ? "Running..." : "Run")
+                                .font(.custom("Nunito", size: 13))
+                                .fontWeight(.semibold)
+                        }
+                    },
+                    background: accentColor,
+                    foreground: .white,
+                    borderColor: .clear,
+                    cornerRadius: 8,
+                    horizontalPadding: 14,
+                    verticalPadding: 10,
+                    showOverlayStroke: true
+                )
+                .disabled(isRunning)
+            }
+            ScrollView {
+                Text(output.isEmpty ? "Output will appear here" : output)
+                    .font(.system(.footnote, design: .monospaced))
+                    .foregroundColor(.black.opacity(output.isEmpty ? 0.4 : 0.75))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                    .background(Color.white.opacity(0.85))
+                    .cornerRadius(8)
+            }
+            .frame(maxHeight: 160)
+        }
+        .padding(16)
+        .background(Color.white.opacity(0.55))
+        .cornerRadius(16)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+        )
     }
 }

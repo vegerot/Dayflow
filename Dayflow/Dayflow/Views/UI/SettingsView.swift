@@ -1064,6 +1064,18 @@ struct SettingsView: View {
                 currentProvider = "dayflow"
             case .ollamaLocal:
                 currentProvider = "ollama"
+            case .chatGPTClaude:
+                // ChatGPT/Claude integration is currently disabled;
+                // fall back to Gemini so the app keeps functioning.
+                currentProvider = "gemini"
+                let fallback = LLMProviderType.geminiDirect
+                if let encoded = try? JSONEncoder().encode(fallback) {
+                    UserDefaults.standard.set(encoded, forKey: "llmProviderType")
+                }
+                UserDefaults.standard.set("gemini", forKey: "selectedLLMProvider")
+                let preference = GeminiModelPreference.load()
+                selectedGeminiModel = preference.primary
+                savedGeminiModel = preference.primary
             }
         }
         hasLoadedProvider = true

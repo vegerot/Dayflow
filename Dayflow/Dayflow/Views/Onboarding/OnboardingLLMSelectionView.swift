@@ -52,6 +52,9 @@ struct OnboardingLLMSelectionView: View {
                     .frame(height: headerHeight)
                     .opacity(titleOpacity)
                     .onAppear {
+                        if selectedProvider == "chatgpt_claude" {
+                            selectedProvider = "gemini"
+                        }
                         guard !hasAppeared else { return }
                         hasAppeared = true
                         withAnimation(.easeOut(duration: 0.6)) { titleOpacity = 1 }
@@ -219,6 +222,7 @@ struct OnboardingLLMSelectionView: View {
             providerType = .geminiDirect
         }
         
+        UserDefaults.standard.set(selectedProvider, forKey: "selectedLLMProvider")
         if let encoded = try? JSONEncoder().encode(providerType) {
             UserDefaults.standard.set(encoded, forKey: "llmProviderType")
         }
