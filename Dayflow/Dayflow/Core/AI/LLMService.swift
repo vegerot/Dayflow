@@ -36,6 +36,31 @@ final class LLMService: LLMServicing {
         do {
             let decoded = try JSONDecoder().decode(LLMProviderType.self, from: savedData)
             print("✅ [LLMService] Successfully decoded provider type: \(decoded)")
+            
+            if case .chatGPTClaude = decoded {
+                print("⚠️ [LLMService] Deprecated ChatGPT/Claude provider detected. Migrating selection to a supported provider.")
+                
+                let fallbackType: LLMProviderType = {
+                    if let dayflowToken = KeychainManager.shared.retrieve(for: "dayflow"), !dayflowToken.isEmpty {
+                        print("   ↳ Found Dayflow backend credentials. Migrating to Dayflow backend provider.")
+                        return .dayflowBackend()
+                    }
+                    
+                    print("   ↳ No Dayflow token detected. Migrating to Gemini Direct provider.")
+                    return .geminiDirect
+                }()
+                
+                do {
+                    let encodedFallback = try JSONEncoder().encode(fallbackType)
+                    UserDefaults.standard.set(encodedFallback, forKey: "llmProviderType")
+                    print("✅ [LLMService] Persisted migrated provider selection: \(fallbackType)")
+                } catch {
+                    print("❌ [LLMService] Failed to persist migrated provider selection: \(error)")
+                }
+                
+                return fallbackType
+            }
+            
             return decoded
         } catch {
             print("❌ [LLMService] Failed to decode provider type: \(error)")
@@ -52,14 +77,7 @@ final class LLMService: LLMServicing {
 
         switch type {
         case .geminiDirect:
-            if let apiKey = KeychainManager.shared.retrieve(for: "gemini"), !apiKey.isEmpty {
-                let preference = GeminiModelPreference.load()
-                return GeminiDirectProvider(apiKey: apiKey, preference: preference)
-            } else {
-                print("❌ [LLMService] Failed to retrieve Gemini API key from Keychain")
-                return nil
-            }
-
+            return makeGeminiProvider()
         case .dayflowBackend(let endpoint):
             if let token = KeychainManager.shared.retrieve(for: "dayflow"), !token.isEmpty {
                 return DayflowBackendProvider(token: token, endpoint: endpoint)
@@ -70,6 +88,19 @@ final class LLMService: LLMServicing {
 
         case .ollamaLocal(let endpoint):
             return OllamaProvider(endpoint: endpoint)
+        case .chatGPTClaude:
+            print("⚠️ [LLMService] Received deprecated ChatGPT/Claude provider after migration. Falling back to Gemini Direct.")
+            return makeGeminiProvider()
+        }
+    }
+    
+    private func makeGeminiProvider() -> LLMProvider? {
+        if let apiKey = KeychainManager.shared.retrieve(for: "gemini"), !apiKey.isEmpty {
+            let preference = GeminiModelPreference.load()
+            return GeminiDirectProvider(apiKey: apiKey, preference: preference)
+        } else {
+            print("❌ [LLMService] Failed to retrieve Gemini API key from Keychain")
+            return nil
         }
     }
 
@@ -78,6 +109,7 @@ final class LLMService: LLMServicing {
         case .geminiDirect: return "gemini"
         case .dayflowBackend: return "dayflow"
         case .ollamaLocal: return "ollama"
+        case .chatGPTClaude: return "chat_cli"
         }
     }
     
