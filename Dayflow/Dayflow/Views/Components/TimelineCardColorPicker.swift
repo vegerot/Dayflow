@@ -384,36 +384,29 @@ fileprivate struct ColorSwatch: View {
 fileprivate struct EditableCategoryCard: View {
     let category: TimelineCategory
     let isEditing: Bool
-    let draftName: String
-    let draftDetails: String
-    var onDraftNameChange: (String) -> Void
-    var onDraftDetailsChange: (String) -> Void
+    @Binding var draftName: String
+    @Binding var draftDetails: String
     var onStartEdit: () -> Void
     var onSave: () -> Void
     var onDelete: () -> Void
 
     @FocusState private var descriptionFieldFocused: Bool
-
-    private var nameBinding: Binding<String> {
-        Binding(
-            get: { draftName },
-            set: { onDraftNameChange($0) }
-        )
-    }
-
-    private var detailsBinding: Binding<String> {
-        Binding(
-            get: { draftDetails },
-            set: { onDraftDetailsChange($0) }
-        )
-    }
+    @State private var didAutoFocusDescription: Bool = false
 
     var body: some View {
         Group {
             if isEditing {
                 editingView
-                    .onAppear { descriptionFieldFocused = true }
-                    .onDisappear { descriptionFieldFocused = false }
+                    .onAppear {
+                        if didAutoFocusDescription == false {
+                            didAutoFocusDescription = true
+                            descriptionFieldFocused = true
+                        }
+                    }
+                    .onDisappear {
+                        descriptionFieldFocused = false
+                        didAutoFocusDescription = false
+                    }
             } else {
                 displayView
             }
@@ -423,7 +416,7 @@ fileprivate struct EditableCategoryCard: View {
     private var editingView: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 12) {
-                TextField("", text: nameBinding)
+                TextField("", text: $draftName)
                     .font(Font.custom("Nunito", size: 14).weight(.bold))
                     .textFieldStyle(.plain)
                     .foregroundColor(.black)
@@ -457,7 +450,7 @@ fileprivate struct EditableCategoryCard: View {
                         .padding(.top, 12)
                 }
 
-                TextEditor(text: detailsBinding)
+                TextEditor(text: $draftDetails)
                     .font(Font.custom("Nunito", size: 12).weight(.medium))
                     .foregroundColor(.black)
                     .padding(.horizontal, 10)
@@ -849,7 +842,7 @@ struct ColorOrganizerRoot: View {
             }
 
             VStack(alignment: .leading, spacing: 12) {
-                Text(isDraggingColor ? "Drop on a category →" : "Drag a color onto a category")
+                Text(isDraggingColor ? "Drop on a category →" : "Click and drag on the canvas above to change the color palette. Then drag a color onto a category.")
                     .font(Font.custom("Nunito", size: 13).weight(.medium))
                     .foregroundColor(Color(red: 0.3, green: 0.3, blue: 0.3))
 
@@ -1005,18 +998,8 @@ struct ColorOrganizerRoot: View {
                                     EditableCategoryCard(
                                         category: category,
                                         isEditing: editingCategoryID == category.id,
-                                        draftName: editingCategoryID == category.id ? draftName : category.name,
-                                        draftDetails: editingCategoryID == category.id ? draftDetails : category.details,
-                                        onDraftNameChange: { newValue in
-                                            if editingCategoryID == category.id {
-                                                draftName = newValue
-                                            }
-                                        },
-                                        onDraftDetailsChange: { newValue in
-                                            if editingCategoryID == category.id {
-                                                draftDetails = newValue
-                                            }
-                                        },
+                                        draftName: editingCategoryID == category.id ? $draftName : .constant(category.name),
+                                        draftDetails: editingCategoryID == category.id ? $draftDetails : .constant(category.details),
                                         onStartEdit: { startEditing(category) },
                                         onSave: { saveEdits(for: category) },
                                         onDelete: { deleteCategory(category) }
