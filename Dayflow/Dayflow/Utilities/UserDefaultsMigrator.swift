@@ -2,9 +2,12 @@ import Foundation
 
 enum UserDefaultsMigrator {
     private static let sentinelKey = "didMigrateFromSandboxDefaults"
+    private static let skippedKeyPrefixes = ["NS", "Apple", "AV", "SU"]
 
-    static func migrateIfNeeded() {
-        let defaults = UserDefaults.standard
+    static func migrateIfNeeded(
+        defaults: UserDefaults = .standard,
+        fileManager: FileManager = .default
+    ) {
         if defaults.bool(forKey: sentinelKey) {
             return
         }
@@ -14,53 +17,37 @@ enum UserDefaultsMigrator {
             return
         }
 
-        let fileManager = FileManager.default
-        let containerPlist = fileManager.homeDirectoryForCurrentUser
+        let containerPlistURL = fileManager.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Containers/\(bundleId)/Data/Library/Preferences/\(bundleId).plist")
-        let targetPlist = fileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Preferences/\(bundleId).plist")
 
-        guard fileManager.fileExists(atPath: containerPlist.path) else {
+        guard fileManager.fileExists(atPath: containerPlistURL.path) else {
             defaults.set(true, forKey: sentinelKey)
             return
         }
 
-        do {
-            if fileManager.fileExists(atPath: targetPlist.path) {
-                let backup = targetPlist.appendingPathExtension("preMigration")
-                do {
-                    try? fileManager.removeItem(at: backup)
-                    try fileManager.moveItem(at: targetPlist, to: backup)
-                } catch {
-                    print("⚠️ UserDefaultsMigrator: failed to back up existing defaults: \(error)")
-                }
-            }
-
-            if fileManager.fileExists(atPath: targetPlist.path) {
-                try fileManager.removeItem(at: targetPlist)
-            }
-
-            try fileManager.copyItem(at: containerPlist, to: targetPlist)
-            if let migratedDefaults = NSDictionary(contentsOf: targetPlist) as? [String: Any] {
-                var mergedDefaults = defaults.persistentDomain(forName: bundleId) ?? [:]
-                var didMerge = false
-
-                for (key, value) in migratedDefaults where mergedDefaults[key] == nil {
-                    mergedDefaults[key] = value
-                    didMerge = true
-                }
-
-                if didMerge {
-                    // Hydrate missing keys so callers see the migrated values without clobbering newer writes.
-                    defaults.setPersistentDomain(mergedDefaults, forName: bundleId)
-                }
-            } else {
-                print("⚠️ UserDefaultsMigrator: failed to hydrate migrated defaults from \(targetPlist.path)")
-            }
+        guard let legacyDomain = NSDictionary(contentsOf: containerPlistURL) as? [String: Any], legacyDomain.isEmpty == false else {
             defaults.set(true, forKey: sentinelKey)
-            print("UserDefaultsMigrator: copied sandbox defaults to \(targetPlist.path)")
-        } catch {
-            print("⚠️ UserDefaultsMigrator: failed to migrate defaults: \(error)")
+            return
         }
+
+        let filteredLegacy = legacyDomain.filter { key, _ in
+            guard key != sentinelKey else { return false }
+            return skippedKeyPrefixes.contains { prefix in key.hasPrefix(prefix) } == false
+        }
+
+        if filteredLegacy.isEmpty {
+            defaults.set(true, forKey: sentinelKey)
+            return
+        }
+
+        var mergedDomain = defaults.persistentDomain(forName: bundleId) ?? [:]
+        for (key, value) in filteredLegacy {
+            mergedDomain[key] = value
+        }
+
+        defaults.setPersistentDomain(mergedDomain, forName: bundleId)
+        defaults.set(true, forKey: sentinelKey)
+
+        print("UserDefaultsMigrator: migrated \(filteredLegacy.count) keys from sandbox defaults")
     }
 }

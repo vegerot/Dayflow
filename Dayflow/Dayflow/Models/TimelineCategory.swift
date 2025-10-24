@@ -172,11 +172,8 @@ final class CategoryStore: ObservableObject {
 
     private func load() {
         let decoded = CategoryPersistence.loadPersistedCategories()
-        if decoded.isEmpty {
-            categories = CategoryPersistence.defaultCategories
-        } else {
-            categories = CategoryPersistence.ensureIdleCategoryPresent(in: decoded)
-        }
+        let effective = decoded.isEmpty ? CategoryPersistence.defaultCategories : decoded
+        categories = CategoryPersistence.ensureIdleCategoryPresent(in: effective)
     }
 
     private func save() {

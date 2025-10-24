@@ -24,6 +24,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingDeepLinkURLs: [URL] = []
     private var pendingRecordingAnalyticsReason: String?
 
+    override init() {
+        UserDefaultsMigrator.migrateIfNeeded()
+        super.init()
+    }
+
     func applicationDidFinishLaunching(_ note: Notification) {
         // Block termination by default; only specific flows enable it.
         AppDelegate.allowTermination = false
