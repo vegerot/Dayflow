@@ -514,52 +514,40 @@ struct TabFilterBar: View {
     let idleCategory: TimelineCategory?
     let onManageCategories: () -> Void
 
+    @State private var chipRowWidth: CGFloat = 0
+
+    private let editButtonSize: CGFloat = 26
+    private let chipButtonSpacing: CGFloat = 8
+
     var body: some View {
-        ZStack(alignment: .trailing) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 5) {
-                    ForEach(categories) { category in
-                        CategoryChip(category: category, isIdle: false)
-                    }
+        GeometryReader { geometry in
+            let availableWidth = geometry.size.width
+            let inlineWidth = chipRowWidth + chipButtonSpacing + editButtonSize
+            let fitsInline = chipRowWidth == 0 ? true : inlineWidth <= availableWidth
 
-                    if let idleCategory {
-                        CategoryChip(category: idleCategory, isIdle: true)
+            Group {
+                if fitsInline {
+                    HStack(spacing: chipButtonSpacing) {
+                        measuredChipRow
+                        editButton
                     }
+                } else {
+                    ZStack(alignment: .trailing) {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            measuredChipRow
+                                .padding(.trailing, editButtonSize + chipButtonSpacing)
+                        }
+                        .frame(height: 26)
 
-                    // Spacer for edit button (8px natural spacing)
-                    Color.clear.frame(width: 8)
+                        overflowGradient
+                        editButton
+                    }
                 }
-                .padding(.leading, 1)
-                .padding(.trailing, 34) // 26 (button width) + 8 (spacing)
             }
-            .frame(height: 26)
-
-            // Gradient fade for overflow
-            HStack(spacing: 0) {
-                Spacer()
-                LinearGradient(
-                    gradient: Gradient(colors: [Color.clear, Color(hex: "FFF8F1") ?? Color.white]),
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-                .frame(width: 40)
-                .allowsHitTesting(false)
-
-                Color(hex: "FFF8F1")
-                    .frame(width: 26)
-                    .allowsHitTesting(false)
-            }
-
-            // Edit button always visible on right
-            Button(action: onManageCategories) {
-                Image("CategoryEditButton")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 26, height: 26)
-            }
-            .buttonStyle(PlainButtonStyle())
+            .frame(width: geometry.size.width, height: 26, alignment: .leading)
         }
         .frame(height: 26)
+        .onPreferenceChange(ChipRowWidthPreferenceKey.self) { chipRowWidth = $0 }
     }
 
     struct CategoryChip: View {
@@ -591,6 +579,58 @@ struct TabFilterBar: View {
                     .inset(by: 0.25)
                     .stroke(Color(red: 0.88, green: 0.88, blue: 0.88), lineWidth: 0.5)
             )
+        }
+    }
+
+    private var measuredChipRow: some View {
+        HStack(spacing: 5) {
+            ForEach(categories) { category in
+                CategoryChip(category: category, isIdle: false)
+            }
+
+            if let idleCategory {
+                CategoryChip(category: idleCategory, isIdle: true)
+            }
+        }
+        .padding(.leading, 1)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: ChipRowWidthPreferenceKey.self, value: proxy.size.width)
+            }
+        )
+    }
+
+    private var editButton: some View {
+        Button(action: onManageCategories) {
+            Image("CategoryEditButton")
+                .resizable()
+                .scaledToFit()
+                .frame(width: editButtonSize, height: editButtonSize)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private var overflowGradient: some View {
+        HStack(spacing: 0) {
+            Spacer()
+            LinearGradient(
+                gradient: Gradient(colors: [Color.clear, Color(hex: "FFF8F1") ?? Color.white]),
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: 40)
+            .allowsHitTesting(false)
+
+            (Color(hex: "FFF8F1") ?? Color.white)
+                .frame(width: editButtonSize)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private struct ChipRowWidthPreferenceKey: PreferenceKey {
+        static var defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value = nextValue()
         }
     }
 }
@@ -778,6 +818,7 @@ struct ActivityCard: View {
     var maxHeight: CGFloat? = nil
     var scrollSummary: Bool = false
     var hasAnyActivities: Bool = true
+    var onCategorySwap: (() -> Void)? = nil
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var categoryStore: CategoryStore
 
@@ -796,7 +837,7 @@ struct ActivityCard: View {
             VStack(alignment: .leading, spacing: 16) {
                 // Header
                 HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: 6) {
                         Text(activity.title)
                             .font(
                                 Font.custom("Nunito", size: 16)
@@ -804,11 +845,58 @@ struct ActivityCard: View {
                             )
                             .foregroundColor(.black)
 
-                        Text("\(timeFormatter.string(from: activity.startTime)) to \(timeFormatter.string(from: activity.endTime))")
-                            .font(
-                                Font.custom("Nunito", size: 12)
-                            )
-                            .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
+                        HStack(alignment: .center, spacing: 6) {
+                            Text("\(timeFormatter.string(from: activity.startTime)) - \(timeFormatter.string(from: activity.endTime))")
+                                .font(
+                                    Font.custom("Nunito", size: 12)
+                                )
+                                .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
+                                .lineLimit(1)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 4)
+                                .background(Color(red: 0.96, green: 0.94, blue: 0.91).opacity(0.9))
+                                .cornerRadius(6)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .inset(by: 0.38)
+                                        .stroke(Color(red: 0.9, green: 0.9, blue: 0.9), lineWidth: 0.75)
+                                )
+
+                            Spacer(minLength: 6)
+
+                            HStack(spacing: 6) {
+                                if let badge = categoryBadge(for: activity.category) {
+                                    HStack(spacing: 6) {
+                                        Circle()
+                                            .fill(badge.indicator)
+                                            .frame(width: 8, height: 8)
+
+                                        Text(badge.name)
+                                            .font(Font.custom("Nunito", size: 12))
+                                            .foregroundColor(Color(red: 0.2, green: 0.2, blue: 0.2))
+                                            .lineLimit(1)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Color.white.opacity(0.76))
+                                    .cornerRadius(6)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .inset(by: 0.25)
+                                            .stroke(Color(red: 0.88, green: 0.88, blue: 0.88), lineWidth: 0.5)
+                                    )
+                                }
+
+                                Button(action: { onCategorySwap?() }) {
+                                    Image("CategorySwapButton")
+                                        .resizable()
+                                        .renderingMode(.original)
+                                        .frame(width: 24, height: 24)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                                .accessibilityLabel(Text("Change category"))
+                            }
+                        }
                     }
 
                     Spacer()
@@ -978,7 +1066,7 @@ struct ActivityCard: View {
         return Text(content)
     }
 
-    private func categoryBadge(for raw: String) -> (name: String, background: Color, textColor: Color)? {
+    private func categoryBadge(for raw: String) -> (name: String, indicator: Color)? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let normalized = trimmed.lowercased()
@@ -987,24 +1075,7 @@ struct ActivityCard: View {
         guard let category = matched ?? categories.first else { return nil }
 
         let nsColor = NSColor(hex: category.colorHex) ?? NSColor(hex: "#4F80EB") ?? .systemBlue
-        var r: CGFloat = 0
-        var g: CGFloat = 0
-        var b: CGFloat = 0
-        var a: CGFloat = 0
-        nsColor.usingColorSpace(.sRGB)?.getRed(&r, green: &g, blue: &b, alpha: &a)
-        let brightness = (0.299 * r) + (0.587 * g) + (0.114 * b)
-
-        let background: Color
-        let textColor: Color
-        if category.isIdle {
-            background = Color.white.opacity(0.8)
-            textColor = Color(nsColor: nsColor).opacity(0.9)
-        } else {
-            background = Color(nsColor: nsColor).opacity(0.85)
-            textColor = brightness > 0.6 ? Color.black.opacity(0.8) : .white
-        }
-
-        return (name: category.name, background: background, textColor: textColor)
+        return (name: category.name, indicator: Color(nsColor: nsColor))
     }
 
     // MARK: - Retry Functionality
