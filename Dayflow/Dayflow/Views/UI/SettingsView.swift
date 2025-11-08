@@ -64,12 +64,26 @@ struct SettingsView: View {
     @State private var ollamaSummaryPromptText = OllamaPromptDefaults.summaryBlock
 
     // Local provider cached settings
-    @State private var localBaseURL: String = UserDefaults.standard.string(forKey: "llmLocalBaseURL") ?? "http://localhost:11434"
-    @State private var localModelId: String = UserDefaults.standard.string(forKey: "llmLocalModelId") ?? "qwen2.5vl:3b"
     @State private var localEngine: LocalEngine = {
         let raw = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
         return LocalEngine(rawValue: raw) ?? .ollama
     }()
+    @State private var localBaseURL: String = {
+        UserDefaults.standard.string(forKey: "llmLocalBaseURL") ?? LocalEngine.ollama.defaultBaseURL
+    }()
+    @State private var localModelId: String = {
+        let defaults = UserDefaults.standard
+        let stored = defaults.string(forKey: "llmLocalModelId") ?? ""
+        let engineRaw = defaults.string(forKey: "llmLocalEngine") ?? "ollama"
+        let engine = LocalEngine(rawValue: engineRaw) ?? .ollama
+        if stored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return LocalModelPreferences.defaultModelId(for: engine)
+        }
+        return stored
+    }()
+    @State private var showLocalModelUpgradeBanner = false
+    @State private var isShowingLocalModelUpgradeSheet = false
+    @State private var upgradeStatusMessage: String?
 
     // Storage metrics
     @State private var isRefreshingStorage = false
@@ -117,6 +131,8 @@ struct SettingsView: View {
             refreshStorageIfNeeded()
             // Refresh cached local settings for provider test view
             reloadLocalProviderSettings()
+            LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
+            refreshUpgradeBannerState()
             loadGeminiPromptOverridesIfNeeded()
             loadOllamaPromptOverridesIfNeeded()
             let recordingsLimit = StoragePreferences.recordingsLimitBytes
@@ -137,11 +153,20 @@ struct SettingsView: View {
             } else if newProvider == "ollama" {
                 loadOllamaPromptOverridesIfNeeded(force: true)
             }
+            refreshUpgradeBannerState()
         }
         .onChange(of: selectedTab) { newValue in
             if newValue == .storage {
                 refreshStorageIfNeeded()
             }
+        }
+        .onChange(of: localEngine) { _ in
+            LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
+            refreshUpgradeBannerState()
+        }
+        .onChange(of: localModelId) { _ in
+            LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
+            refreshUpgradeBannerState()
         }
         .sheet(item: Binding(
             get: { setupModalProvider.map { ProviderSetupWrapper(id: $0) } },
@@ -156,6 +181,20 @@ struct SettingsView: View {
                 }
             )
             .frame(minWidth: 900, minHeight: 650)
+        }
+        .sheet(isPresented: $isShowingLocalModelUpgradeSheet) {
+            LocalModelUpgradeSheet(
+                preset: .qwen3VL4B,
+                initialEngine: localEngine,
+                initialBaseURL: localBaseURL,
+                initialModelId: localModelId,
+                onCancel: { isShowingLocalModelUpgradeSheet = false },
+                onUpgradeSuccess: { engine, baseURL, modelId in
+                    handleUpgradeSuccess(engine: engine, baseURL: baseURL, modelId: modelId)
+                    isShowingLocalModelUpgradeSheet = false
+                }
+            )
+            .frame(minWidth: 720, minHeight: 560)
         }
         .alert(isPresented: $showLimitConfirmation) {
             guard let pending = pendingLimit,
@@ -459,6 +498,28 @@ struct SettingsView: View {
 
     private var providersContent: some View {
         VStack(alignment: .leading, spacing: 28) {
+            if currentProvider == "ollama", showLocalModelUpgradeBanner {
+                LocalModelUpgradeBanner(
+                    preset: .qwen3VL4B,
+                    onKeepLegacy: {
+                        LocalModelPreferences.markUpgradeDismissed(true)
+                        showLocalModelUpgradeBanner = false
+                    },
+                    onUpgrade: {
+                        LocalModelPreferences.markUpgradeDismissed(false)
+                        isShowingLocalModelUpgradeSheet = true
+                    }
+                )
+                .transition(.opacity)
+            }
+
+            if let status = upgradeStatusMessage {
+                Text(status)
+                    .font(.custom("Nunito", size: 13))
+                    .foregroundColor(Color(red: 0.06, green: 0.45, blue: 0.2))
+                    .padding(.horizontal, 4)
+            }
+
             SettingsCard(title: "Current configuration", subtitle: "Active provider and runtime details") {
                 VStack(alignment: .leading, spacing: 14) {
                     providerSummary
@@ -480,6 +541,29 @@ struct SettingsView: View {
                         verticalPadding: 10,
                         showOverlayStroke: true
                     )
+                    if currentProvider == "ollama" {
+                        DayflowSurfaceButton(
+                            action: { isShowingLocalModelUpgradeSheet = true },
+                            content: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "arrow.up.circle.fill")
+                                        .font(.system(size: 14))
+                                    Text("Upgrade local model")
+                                        .font(.custom("Nunito", size: 13))
+                                        .fontWeight(.semibold)
+                                }
+                                .frame(minWidth: 160)
+                            },
+                            background: Color.white,
+                            foreground: .black,
+                            borderColor: Color.black.opacity(0.15),
+                            cornerRadius: 8,
+                            horizontalPadding: 16,
+                            verticalPadding: 9,
+                            showOverlayStroke: false
+                        )
+                        .padding(.top, 6)
+                    }
                 }
             }
 
@@ -501,6 +585,8 @@ struct SettingsView: View {
                             onTestComplete: { _ in
                                 UserDefaults.standard.set(localBaseURL, forKey: "llmLocalBaseURL")
                                 UserDefaults.standard.set(localModelId, forKey: "llmLocalModelId")
+                                LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
+                                refreshUpgradeBannerState()
                             }
                         )
                     } else {
@@ -1047,6 +1133,33 @@ struct SettingsView: View {
         localModelId = UserDefaults.standard.string(forKey: "llmLocalModelId") ?? localModelId
         let raw = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? localEngine.rawValue
         localEngine = LocalEngine(rawValue: raw) ?? localEngine
+        LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
+    }
+
+    private func refreshUpgradeBannerState() {
+        let shouldShow = LocalModelPreferences.shouldShowUpgradeBanner(engine: localEngine, modelId: localModelId)
+        showLocalModelUpgradeBanner = shouldShow && currentProvider == "ollama"
+    }
+
+    private func handleUpgradeSuccess(engine: LocalEngine, baseURL: String, modelId: String) {
+        localEngine = engine
+        localBaseURL = baseURL
+        localModelId = modelId
+        UserDefaults.standard.set(baseURL, forKey: "llmLocalBaseURL")
+        UserDefaults.standard.set(modelId, forKey: "llmLocalModelId")
+        UserDefaults.standard.set(engine.rawValue, forKey: "llmLocalEngine")
+        LocalModelPreferences.syncPreset(for: engine, modelId: modelId)
+        LocalModelPreferences.markUpgradeDismissed(true)
+        refreshUpgradeBannerState()
+        upgradeStatusMessage = "Upgraded to \(LocalModelPreset.recommended.displayName)"
+        AnalyticsService.shared.capture("local_model_upgraded", [
+            "engine": engine.rawValue,
+            "model": modelId
+        ])
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+            upgradeStatusMessage = nil
+        }
     }
 
     private func loadCurrentProvider() {
@@ -1254,6 +1367,290 @@ private struct SettingsCard<Content: View>: View {
     }
 }
 
+private struct LocalModelUpgradeBanner: View {
+    let preset: LocalModelPreset
+    let onKeepLegacy: () -> Void
+    let onUpgrade: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "sparkles")
+                    .foregroundStyle(Color.white)
+                    .padding(8)
+                    .background(Color(red: 0.12, green: 0.09, blue: 0.02))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Upgrade to \(preset.displayName)")
+                        .font(.custom("Nunito", size: 16))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+                    Text("Sharper OCR + reasoning without losing offline privacy.")
+                        .font(.custom("Nunito", size: 13))
+                        .foregroundColor(.white.opacity(0.8))
+                }
+                Spacer()
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(preset.highlightBullets, id: \.self) { bullet in
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(Color(red: 0.76, green: 1, blue: 0.74))
+                            .padding(.top, 2)
+                        Text(bullet)
+                            .font(.custom("Nunito", size: 13))
+                            .foregroundColor(.white.opacity(0.85))
+                    }
+                }
+            }
+
+            HStack(spacing: 12) {
+                DayflowSurfaceButton(
+                    action: onKeepLegacy,
+                    content: {
+                        Text("Keep Qwen2.5").font(.custom("Nunito", size: 13)).fontWeight(.semibold)
+                    },
+                    background: Color.white.opacity(0.12),
+                    foreground: .white,
+                    borderColor: Color.white.opacity(0.25),
+                    cornerRadius: 8,
+                    horizontalPadding: 18,
+                    verticalPadding: 10,
+                    showOverlayStroke: false
+                )
+                DayflowSurfaceButton(
+                    action: onUpgrade,
+                    content: {
+                        HStack(spacing: 6) {
+                            Text("Upgrade now").font(.custom("Nunito", size: 13)).fontWeight(.semibold)
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                    },
+                    background: Color.white,
+                    foreground: .black,
+                    borderColor: .clear,
+                    cornerRadius: 8,
+                    horizontalPadding: 18,
+                    verticalPadding: 10,
+                    showShadow: false
+                )
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(Color(red: 0.16, green: 0.11, blue: 0))
+        )
+    }
+}
+
+private struct LocalModelUpgradeSheet: View {
+    let preset: LocalModelPreset
+    let initialEngine: LocalEngine
+    let initialBaseURL: String
+    let initialModelId: String
+    let onCancel: () -> Void
+    let onUpgradeSuccess: (LocalEngine, String, String) -> Void
+
+    @State private var selectedEngine: LocalEngine
+    @State private var candidateBaseURL: String
+    @State private var candidateModelId: String
+    @State private var didApplyUpgrade = false
+
+    init(
+        preset: LocalModelPreset,
+        initialEngine: LocalEngine,
+        initialBaseURL: String,
+        initialModelId: String,
+        onCancel: @escaping () -> Void,
+        onUpgradeSuccess: @escaping (LocalEngine, String, String) -> Void
+    ) {
+        self.preset = preset
+        self.initialEngine = initialEngine
+        self.initialBaseURL = initialBaseURL
+        self.initialModelId = initialModelId
+        self.onCancel = onCancel
+        self.onUpgradeSuccess = onUpgradeSuccess
+
+        let startingEngine = initialEngine
+        _selectedEngine = State(initialValue: startingEngine)
+        _candidateBaseURL = State(initialValue: initialBaseURL.isEmpty ? startingEngine.defaultBaseURL : initialBaseURL)
+        let recommendedModel = preset.modelId(for: startingEngine == .custom ? .ollama : startingEngine)
+        _candidateModelId = State(initialValue: recommendedModel)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            HStack {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Upgrade to \(preset.displayName)")
+                        .font(.custom("Nunito", size: 22))
+                        .fontWeight(.semibold)
+                    Text("Follow the steps below, run a quick test, and Dayflow will switch you over automatically.")
+                        .font(.custom("Nunito", size: 13))
+                        .foregroundColor(.black.opacity(0.6))
+                }
+                Spacer()
+                Button(action: onCancel) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.black.opacity(0.35))
+                }
+                .buttonStyle(.plain)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(preset.highlightBullets, id: \.self) { bullet in
+                    HStack(spacing: 8) {
+                        Image(systemName: "sparkle")
+                            .font(.system(size: 12))
+                            .foregroundColor(Color(red: 0.39, green: 0.23, blue: 0.02))
+                        Text(bullet)
+                            .font(.custom("Nunito", size: 13))
+                            .foregroundColor(.black.opacity(0.75))
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Which local runtime are you using?")
+                    .font(.custom("Nunito", size: 14))
+                    .foregroundColor(.black.opacity(0.65))
+                Picker("Engine", selection: $selectedEngine) {
+                    Text("Ollama").tag(LocalEngine.ollama)
+                    Text("LM Studio").tag(LocalEngine.lmstudio)
+                    Text("Custom").tag(LocalEngine.custom)
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 420)
+            }
+
+            instructionView(for: selectedEngine)
+
+            LocalLLMTestView(
+                baseURL: $candidateBaseURL,
+                modelId: $candidateModelId,
+                engine: selectedEngine,
+                showInputs: true,
+                buttonLabel: "Test upgrade",
+                basePlaceholder: selectedEngine.defaultBaseURL,
+                modelPlaceholder: preset.modelId(for: selectedEngine == .custom ? .ollama : selectedEngine),
+                onTestComplete: { success in
+                    if success && !didApplyUpgrade {
+                        didApplyUpgrade = true
+                        onUpgradeSuccess(selectedEngine, candidateBaseURL, candidateModelId)
+                    }
+                }
+            )
+
+            Text("Once the test succeeds, Dayflow updates your settings to \(preset.displayName) automatically.")
+                .font(.custom("Nunito", size: 12))
+                .foregroundColor(.black.opacity(0.55))
+
+            HStack {
+                Spacer()
+                DayflowSurfaceButton(
+                    action: onCancel,
+                    content: {
+                        Text("Close").font(.custom("Nunito", size: 13)).fontWeight(.semibold)
+                    },
+                    background: Color.white,
+                    foreground: .black,
+                    borderColor: Color.black.opacity(0.15),
+                    cornerRadius: 8,
+                    horizontalPadding: 18,
+                    verticalPadding: 10,
+                    showOverlayStroke: false
+                )
+            }
+        }
+        .padding(32)
+        .onChange(of: selectedEngine) { newEngine in
+            candidateModelId = preset.modelId(for: newEngine == .custom ? .ollama : newEngine)
+            if newEngine != .custom {
+                candidateBaseURL = newEngine.defaultBaseURL
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func instructionView(for engine: LocalEngine) -> some View {
+        let instruction = preset.instructions(for: engine == .custom ? .ollama : engine)
+        VStack(alignment: .leading, spacing: 12) {
+            Text(instruction.title)
+                .font(.custom("Nunito", size: 16))
+                .fontWeight(.semibold)
+            Text(instruction.subtitle)
+                .font(.custom("Nunito", size: 13))
+                .foregroundColor(.black.opacity(0.65))
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(instruction.bullets.enumerated()), id: \.offset) { index, bullet in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("\(index + 1).")
+                            .font(.custom("Nunito", size: 13))
+                            .foregroundColor(.black.opacity(0.55))
+                            .frame(width: 18, alignment: .leading)
+                        Text(bullet)
+                            .font(.custom("Nunito", size: 13))
+                            .foregroundColor(.black.opacity(0.8))
+                    }
+                }
+            }
+
+            if let command = instruction.command,
+               let commandTitle = instruction.commandTitle,
+               let commandSubtitle = instruction.commandSubtitle {
+                TerminalCommandView(
+                    title: commandTitle,
+                    subtitle: commandSubtitle,
+                    command: command
+                )
+            }
+
+            if let buttonTitle = instruction.buttonTitle,
+               let url = instruction.buttonURL {
+                DayflowSurfaceButton(
+                    action: { NSWorkspace.shared.open(url) },
+                    content: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .font(.system(size: 14))
+                            Text(buttonTitle)
+                                .font(.custom("Nunito", size: 13))
+                                .fontWeight(.semibold)
+                        }
+                    },
+                    background: Color(red: 0.25, green: 0.17, blue: 0),
+                    foreground: .white,
+                    borderColor: .clear,
+                    cornerRadius: 8,
+                    horizontalPadding: 20,
+                    verticalPadding: 10,
+                    showOverlayStroke: true
+                )
+            }
+
+            if let note = instruction.note {
+                Text(note)
+                    .font(.custom("Nunito", size: 12))
+                    .foregroundColor(.black.opacity(0.55))
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.white)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                )
+        )
+    }
+}
+
 private struct GeminiModelSettingsCard: View {
     @Binding var selectedModel: GeminiModel
     let onSelectionChanged: (GeminiModel) -> Void
@@ -1287,17 +1684,6 @@ private struct GeminiModelSettingsCard: View {
         }
     }
 }
-
-private extension LocalEngine {
-    var displayName: String {
-        switch self {
-        case .ollama: return "Ollama"
-        case .lmstudio: return "LM Studio"
-        case .custom: return "Custom"
-        }
-    }
-}
-
 private struct StorageLimitOption: Identifiable {
     let id: Int
     let label: String
