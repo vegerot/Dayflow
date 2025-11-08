@@ -18,7 +18,8 @@ final class OllamaProvider: LLMProvider {
             return m
         }
         // Fallback to a sensible default
-        return isLMStudio ? "qwen2.5-vl-3b-instruct" : "qwen2.5vl:3b"
+        let engine: LocalEngine = isLMStudio ? .lmstudio : .ollama
+        return LocalModelPreferences.defaultModelId(for: engine)
     }
     private var isLMStudio: Bool {
         (UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama") == "lmstudio"
@@ -1235,7 +1236,7 @@ final class OllamaProvider: LLMProvider {
                     endTs: Int(endDate.timeIntervalSince1970),
                     observation: segment.description,
                     metadata: nil,
-                    llmModel: "qwen2.5vl:3b",
+                    llmModel: savedModelId,
                     createdAt: Date()
                 )
             )
@@ -1269,7 +1270,7 @@ final class OllamaProvider: LLMProvider {
             throw NSError(
                 domain: "OllamaProvider",
                 code: 11,
-                userInfo: [NSLocalizedDescriptionKey: "No valid observations generated from frame fallback"]
+                userInfo: [NSLocalizedDescriptionKey: "It looks like your local AI is currently down. Please make sure that your Ollama/LMStudio is up and running properly. If you're having trouble getting local AI to work, consider switching to Gemini in settings."]
             )
         }
 

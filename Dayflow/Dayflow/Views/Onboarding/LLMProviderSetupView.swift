@@ -405,18 +405,18 @@ struct LLMProviderSetupView: View {
             }
         case .localModelInstall:
             VStack(alignment: .leading, spacing: 16) {
-                Text("Install Qwen 2.5 VLM")
+                Text("Install Qwen3-VL 4B")
                     .font(.custom("Nunito", size: 24))
                     .fontWeight(.semibold)
                     .foregroundColor(.black.opacity(0.9))
                 if setupState.localEngine == .ollama {
-                    Text("After installing Ollama, run this in your terminal to download the model (≈3GB):")
+                    Text("After installing Ollama, run this in your terminal to download the model (≈5GB):")
                         .font(.custom("Nunito", size: 14))
                         .foregroundColor(.black.opacity(0.6))
                     TerminalCommandView(
                         title: "Run this command:",
-                        subtitle: "Downloads Qwen 2.5 Vision 3B for Ollama",
-                        command: "ollama pull qwen2.5vl:3b"
+                        subtitle: "Downloads Qwen3 Vision 4B for Ollama",
+                        command: "ollama pull qwen3-vl:4b"
                     )
                 } else if setupState.localEngine == .lmstudio {
                     VStack(alignment: .leading, spacing: 16) {
@@ -429,7 +429,7 @@ struct LLMProviderSetupView: View {
                             content: {
                                 HStack(spacing: 8) {
                                     Image(systemName: "arrow.down.circle.fill").font(.system(size: 14))
-                                    Text("Download Qwen 2.5 VL in LM Studio").font(.custom("Nunito", size: 14)).fontWeight(.semibold)
+                                    Text("Download Qwen3-VL 4B in LM Studio").font(.custom("Nunito", size: 14)).fontWeight(.semibold)
                                 }
                             },
                             background: Color(red: 0.25, green: 0.17, blue: 0),
@@ -461,7 +461,7 @@ struct LLMProviderSetupView: View {
                             Text("1. Open LM Studio → Models tab")
                                 .font(.custom("Nunito", size: 12))
                                 .foregroundColor(.black.opacity(0.45))
-                            Text("2. Search for 'Qwen2.5-VL-3B' and install the Instruct variant")
+                            Text("2. Search for 'Qwen3-VL-4B' and install the Instruct variant")
                                 .font(.custom("Nunito", size: 12))
                                 .foregroundColor(.black.opacity(0.45))
                         }
@@ -473,7 +473,7 @@ struct LLMProviderSetupView: View {
                             .font(.custom("Nunito", size: 16))
                             .fontWeight(.semibold)
                             .foregroundColor(.black.opacity(0.85))
-                        Text("Make sure your server exposes the OpenAI Chat Completions API and has a Qwen 2.5 Vision model installed.")
+                        Text("Make sure your server exposes the OpenAI Chat Completions API and has Qwen3-VL 4B (or Qwen2.5-VL 3B if you need the legacy model) installed.")
                             .font(.custom("Nunito", size: 14))
                             .foregroundColor(.black.opacity(0.75))
                     }
@@ -549,7 +549,7 @@ struct LLMProviderSetupView: View {
                 
                 TerminalCommandView(
                     title: "Run this command:",
-                    subtitle: "This will download the Qwen 2.5 Vision model (about 3GB)",
+                    subtitle: "This will download the \(LocalModelPreset.qwen3VL4B.displayName) model (about 5GB)",
                     command: command
                 )
                 
@@ -578,7 +578,7 @@ struct LLMProviderSetupView: View {
                             (
                                 Text("Advanced users can pick any ") +
                                 Text("vision-capable").fontWeight(.bold) +
-                                Text(" LLM, but we strongly recommend using Qwen 2.5-VL 3B based on our internal benchmarks.")
+                                Text(" LLM, but we strongly recommend using Qwen3-VL 4B based on our internal benchmarks.")
                             )
                             .font(.custom("Nunito", size: 14))
                             .foregroundColor(.black.opacity(0.6))
@@ -803,6 +803,7 @@ struct LLMProviderSetupView: View {
         }
         // Store model id for local engines
         UserDefaults.standard.set(setupState.localModelId, forKey: "llmLocalModelId")
+        LocalModelPreferences.syncPreset(for: setupState.localEngine, modelId: setupState.localModelId)
         // Store local engine selection for header/model defaults
         UserDefaults.standard.set(setupState.localEngine.rawValue, forKey: "llmLocalEngine")
         // Store selected provider key for robustness across relaunches
@@ -830,7 +831,7 @@ struct LLMProviderSetupView: View {
     }
 
     private func openLMStudioModelDownload() {
-        if let url = URL(string: "https://model.lmstudio.ai/download/lmstudio-community/Qwen2.5-VL-3B-Instruct-GGUF") {
+        if let url = URL(string: "https://model.lmstudio.ai/download/lmstudio-community/Qwen3-VL-4B-Instruct-GGUF") {
             NSWorkspace.shared.open(url)
         }
     }
@@ -921,7 +922,7 @@ class ProviderSetupState: ObservableObject {
                     title: "Before you begin",
                     contentType: .information(
                         "For experienced users",
-                        "This path is recommended only if you're comfortable running LLMs locally and debugging technical issues. If terms like vLLM or API endpoint don't ring a bell, we recommend going back and picking 'Bring your own API keys'. It's non-technical and takes about 30 seconds.\n\nFor local mode, Dayflow recommends Qwen 2.5-VL 3B as the core vision-language model."
+                        "This path is recommended only if you're comfortable running LLMs locally and debugging technical issues. If terms like vLLM or API endpoint don't ring a bell, we recommend going back and picking 'Bring your own API keys'. It's non-technical and takes about 30 seconds.\n\nFor local mode, Dayflow recommends Qwen3-VL 4B as the core vision-language model (Qwen2.5-VL 3B remains available if you need a smaller download)."
                     )
                 ),
                 SetupStep(id: "choose", title: "Choose engine", contentType: .localChoice),
@@ -1225,31 +1226,21 @@ enum StepContentType {
 }
 
 
-enum LocalEngine: String {
-    case ollama
-    case lmstudio
-    case custom
-}
-
 extension ProviderSetupState {
     @MainActor func selectEngine(_ engine: LocalEngine) {
         localEngine = engine
-        switch engine {
-        case .ollama:
-            localBaseURL = "http://localhost:11434"
-            localModelId = "qwen2.5vl:3b"
-        case .lmstudio:
-            localBaseURL = "http://localhost:1234"
-            localModelId = "qwen2.5-vl-3b-instruct"
-        case .custom:
-            break
+        if engine != .custom {
+            localBaseURL = engine.defaultBaseURL
         }
+        let defaultModel = LocalModelPreferences.defaultModelId(for: engine == .custom ? .ollama : engine)
+        localModelId = defaultModel
+        LocalModelPreferences.syncPreset(for: engine, modelId: defaultModel)
 
         // Track local engine selection for analytics
         AnalyticsService.shared.capture("local_engine_selected", [
             "engine": engine.rawValue,
             "base_url": localBaseURL,
-            "default_model": localModelId
+            "default_model": defaultModel
         ])
     }
     
@@ -1265,6 +1256,9 @@ struct LocalLLMTestView: View {
     @Binding var modelId: String
     let engine: LocalEngine
     var showInputs: Bool = true
+    var buttonLabel: String = "Test Local API"
+    var basePlaceholder: String? = nil
+    var modelPlaceholder: String? = nil
     let onTestComplete: (Bool) -> Void
 
     private let accentColor = Color(red: 0.25, green: 0.17, blue: 0)
@@ -1281,7 +1275,7 @@ struct LocalLLMTestView: View {
                     Text("Base URL")
                         .font(.custom("Nunito", size: 13))
                         .foregroundColor(.black.opacity(0.6))
-                    TextField(engine == .lmstudio ? "http://localhost:1234" : "http://localhost:11434", text: $baseURL)
+                    TextField(basePlaceholder ?? engine.defaultBaseURL, text: $baseURL)
                         .textFieldStyle(.roundedBorder)
                 }
                 
@@ -1289,7 +1283,7 @@ struct LocalLLMTestView: View {
                     Text("Model ID")
                         .font(.custom("Nunito", size: 13))
                         .foregroundColor(.black.opacity(0.6))
-                    TextField(engine == .lmstudio ? "qwen2.5-vl-3b-instruct" : "qwen2.5vl:3b", text: $modelId)
+                    TextField(modelPlaceholder ?? LocalModelPreferences.defaultModelId(for: engine), text: $modelId)
                         .textFieldStyle(.roundedBorder)
                 }
             }
@@ -1303,7 +1297,10 @@ struct LocalLLMTestView: View {
                         } else {
                             Image(systemName: success ? "checkmark.circle.fill" : "bolt.fill").font(.system(size: 14))
                         }
-                        Text(isTesting ? "Testing..." : (success ? "Test Successful!" : "Test Local API")).font(.custom("Nunito", size: 14)).fontWeight(.semibold)
+                        let idleLabel = success ? "Test Successful!" : buttonLabel
+                        Text(isTesting ? "Testing..." : idleLabel)
+                            .font(.custom("Nunito", size: 14))
+                            .fontWeight(.semibold)
                     }
                 },
                 background: success ? successAccentColor.opacity(0.2) : accentColor,
