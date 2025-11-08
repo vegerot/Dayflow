@@ -371,9 +371,11 @@ struct OnboardingCategorySetupView: View {
 
 struct CompletionView: View {
     let onFinish: () -> Void
-    
+    @State private var referralSelection: ReferralOption? = nil
+    @State private var referralDetail: String = ""
+
     var body: some View {
-        VStack(spacing: 32) {
+        VStack(spacing: 16) {
             Image("DayflowLogoMainApp")
                 .resizable()
                 .renderingMode(.original)
@@ -381,7 +383,7 @@ struct CompletionView: View {
                 .frame(height: 64)
 
             // Title section
-            VStack(spacing: 12) {
+            VStack(spacing: 8) {
                 Text("You are ready to go!")
                     .font(.custom("InstrumentSerif-Regular", size: 36))
                     .foregroundColor(.black.opacity(0.9))
@@ -393,18 +395,20 @@ struct CompletionView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             
-            // Preview area
-            Image("OnboardingTimeline")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: 720)
-                .frame(maxHeight: 400)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .shadow(color: Color.black.opacity(0.12), radius: 18, x: 0, y: 10)
+            // Referral survey replaces the static preview
+            ReferralSurveyView(
+                prompt: "I have a small favor to ask. I'd love to understand where you first heard about Dayflow.",
+                showSubmitButton: false,
+                selectedReferral: $referralSelection,
+                customReferral: $referralDetail
+            )
 
             // Proceed button
             DayflowSurfaceButton(
-                action: onFinish,
+                action: {
+                    submitReferralIfNeeded()
+                    onFinish()
+                },
                 content: { 
                     Text("Proceed")
                         .font(.custom("Nunito", size: 16))
@@ -419,11 +423,37 @@ struct CompletionView: View {
                 minWidth: 200,
                 showOverlayStroke: true
             )
+            .padding(.top, 16)
         }
         .padding(.horizontal, 48)
         .padding(.vertical, 60)
         .frame(maxWidth: 720)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func submitReferralIfNeeded() {
+        guard let payload = referralPayload() else { return }
+        AnalyticsService.shared.capture("onboarding_referral", payload)
+    }
+
+    private func referralPayload() -> [String: String]? {
+        guard let option = referralSelection else { return nil }
+
+        var payload: [String: String] = [
+            "source": option.analyticsValue,
+            "surface": "onboarding_completion"
+        ]
+
+        let trimmedDetail = referralDetail.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if option.requiresDetail {
+            guard !trimmedDetail.isEmpty else { return nil }
+            payload["detail"] = trimmedDetail
+        } else if !trimmedDetail.isEmpty {
+            payload["detail"] = trimmedDetail
+        }
+
+        return payload
     }
 }
 

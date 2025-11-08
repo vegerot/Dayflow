@@ -59,11 +59,8 @@ struct WhatsNewView: View {
     let releaseNote: ReleaseNote
     let onDismiss: () -> Void
 
-    @State private var selectedReferral: ReferralOption? = nil
-    @State private var customReferral: String = ""
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("What's New in \(releaseNote.version) 🎉")
@@ -109,48 +106,10 @@ struct WhatsNewView: View {
 
             Divider()
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("I have a small favor to ask. I'd love to understand where you first heard about Dayflow.")
-                    .font(.custom("Nunito", size: 15).weight(.semibold))
-                    .foregroundColor(.black.opacity(0.85))
-
-                VStack(spacing: 10) {
-                    ForEach(Array(referralRows.enumerated()), id: \.offset) { _, row in
-                        HStack(spacing: 12) {
-                            ForEach(row, id: \.id) { option in
-                                referralOptionView(option)
-                            }
-
-                            if row.count == 1 {
-                                Spacer(minLength: 0)
-                            }
-                        }
-                    }
-                }
-
-            }
-            HStack {
-                Spacer()
-                DayflowSurfaceButton(
-                    action: dismiss,
-                    content: {
-                        Text("Submit")
-                            .font(.custom("Nunito", size: 16))
-                            .fontWeight(.semibold)
-                    },
-                    background: submitBackground,
-                    foreground: Color.white.opacity(canSubmit ? 1 : 0.85),
-                    borderColor: .clear,
-                    cornerRadius: 8,
-                    horizontalPadding: 40,
-                    verticalPadding: 14,
-                    minWidth: 200,
-                    showOverlayStroke: true
-                )
-                .disabled(!canSubmit)
-                .opacity(canSubmit ? 1 : 0.85)
-                .keyboardShortcut(.defaultAction)
-            }
+            ReferralSurveyView(
+                prompt: "I have a small favor to ask. I'd love to understand where you first heard about Dayflow.",
+                onSubmit: handleReferralSubmission
+            )
         }
         .padding(.horizontal, 44)
         .padding(.vertical, 36)
@@ -168,65 +127,18 @@ struct WhatsNewView: View {
         }
     }
 
-    private var referralRows: [[ReferralOption]] {
-        [
-            [.hackerNews, .x],
-            [.friend, .newsletterBlog],
-            [.other]
+    private func handleReferralSubmission(option: ReferralOption, detail: String?) {
+        var payload: [String: String] = [
+            "version": releaseNote.version,
+            "source": option.analyticsValue
         ]
-    }
 
-    private var canSubmit: Bool {
-        guard let option = selectedReferral else { return false }
-        if option.requiresDetail {
-            return !customReferral.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if let detail = detail, !detail.isEmpty {
+            payload["detail"] = detail
         }
-        return true
-    }
 
-    private var submitBackground: Color {
-        canSubmit
-            ? Color(red: 0.25, green: 0.17, blue: 0)
-            : Color(red: 0.88, green: 0.84, blue: 0.78)
-    }
-
-    @ViewBuilder
-    private func referralOptionView(_ option: ReferralOption) -> some View {
-        let isSelected = selectedReferral == option
-        VStack(alignment: .leading, spacing: option.requiresDetail && isSelected ? 8 : 0) {
-            Button(action: { select(option) }) {
-                HStack(spacing: 8) {
-                    Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                        .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
-
-                    Text(option.displayName)
-                        .font(.custom("Nunito", size: 14))
-                        .foregroundColor(.black.opacity(0.78))
-
-                    Spacer(minLength: 0)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 10)
-                .padding(.horizontal, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(isSelected ? Color(red: 1.0, green: 0.95, blue: 0.9) : Color.white)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color(red: 0.25, green: 0.17, blue: 0).opacity(isSelected ? 0.22 : 0.1), lineWidth: 1)
-                )
-            }
-            .buttonStyle(PlainButtonStyle())
-
-            if option.requiresDetail && isSelected {
-                TextField(option.detailPlaceholder, text: $customReferral)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .font(.custom("Nunito", size: 13))
-                    .padding(.horizontal, 12)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        AnalyticsService.shared.capture("whats_new_referral", payload)
+        dismiss()
     }
 
     private func dismiss() {
@@ -234,92 +146,10 @@ struct WhatsNewView: View {
             "version": releaseNote.version
         ])
 
-        if let referral = referralEventPayload() {
-            AnalyticsService.shared.capture("whats_new_referral", referral)
-        }
-
         // Mark this version as seen
         WhatsNewView.markAsSeen()
 
         onDismiss()
-    }
-
-    private func referralEventPayload() -> [String: String]? {
-        guard let option = selectedReferral else { return nil }
-
-        var payload: [String: String] = [
-            "version": releaseNote.version,
-            "source": option.analyticsValue
-        ]
-
-        if option.requiresDetail {
-            let detail = customReferral.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !detail.isEmpty {
-                payload["detail"] = detail
-            }
-        }
-
-        return payload
-    }
-
-    private func select(_ option: ReferralOption) {
-        selectedReferral = option
-
-        if !option.requiresDetail {
-            customReferral = ""
-        }
-    }
-}
-
-extension WhatsNewView {
-    enum ReferralOption: CaseIterable, Identifiable, Hashable {
-        case hackerNews
-        case x
-        case friend
-        case newsletterBlog
-        case other
-
-        var id: String { analyticsValue }
-
-        var displayName: String {
-            switch self {
-            case .hackerNews: return "Hacker News"
-            case .x: return "X / Twitter"
-            case .friend: return "Friend or colleague"
-            case .newsletterBlog: return "Newsletter or blog (which one?)"
-            case .other: return "Something else"
-            }
-        }
-
-        var analyticsValue: String {
-            switch self {
-            case .hackerNews: return "hacker_news"
-            case .x: return "x"
-            case .friend: return "friend"
-            case .newsletterBlog: return "newsletter_blog"
-            case .other: return "other"
-            }
-        }
-
-        var requiresDetail: Bool {
-            switch self {
-            case .newsletterBlog, .other:
-                return true
-            default:
-                return false
-            }
-        }
-
-        var detailPlaceholder: String {
-            switch self {
-            case .newsletterBlog:
-                return "Which newsletter or blog?"
-            case .other:
-                return "Tell me more"
-            default:
-                return ""
-            }
-        }
     }
 }
 
