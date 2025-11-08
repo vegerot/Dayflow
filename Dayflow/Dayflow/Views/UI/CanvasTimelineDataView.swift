@@ -29,6 +29,7 @@ struct CanvasTimelineDataView: View {
     @Binding var selectedActivity: TimelineActivity?
     @Binding var scrollToNowTick: Int
     @Binding var hasAnyActivities: Bool
+    @Binding var refreshTrigger: Int
 
     @State private var selectedCardId: UUID? = nil
     @State private var positionedActivities: [CanvasPositionedActivity] = []
@@ -113,6 +114,9 @@ struct CanvasTimelineDataView: View {
             loadTask = nil
         }
         .onChange(of: selectedDate) { _ in
+            loadActivities()
+        }
+        .onChange(of: refreshTrigger) { _ in
             loadActivities()
         }
     }
@@ -406,6 +410,7 @@ struct CanvasTimelineDataView: View {
             }
 
             return TimelineActivity(
+                recordId: card.recordId,
                 batchId: card.batchId,
                 startTime: adjustedStartDate,
                 endTime: adjustedEndDate,
@@ -716,11 +721,13 @@ struct CanvasActivityCard: View {
         @State private var date = Date()
         @State private var selected: TimelineActivity? = nil
         @State private var tick: Int = 0
+        @State private var refresh: Int = 0
         var body: some View {
             CanvasTimelineDataView(selectedDate: $date,
                                    selectedActivity: $selected,
                                    scrollToNowTick: $tick,
-                                   hasAnyActivities: .constant(true))
+                                   hasAnyActivities: .constant(true),
+                                   refreshTrigger: $refresh)
                 .frame(width: 800, height: 600)
                 .environmentObject(CategoryStore())
                 .environmentObject(AppState.shared)

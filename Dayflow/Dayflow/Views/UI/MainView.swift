@@ -20,6 +20,8 @@ struct MainView: View {
     @State private var selectedActivity: TimelineActivity? = nil
     @State private var scrollToNowTick: Int = 0
     @State private var hasAnyActivities: Bool = true
+    @State private var refreshActivitiesTrigger: Int = 0
+    @State private var refreshActivitiesTrigger: Int = 0
     @ObservedObject private var inactivity = InactivityMonitor.shared
     
     // Animation states for orchestrated entrance - Emil Kowalski principles
@@ -186,7 +188,8 @@ struct MainView: View {
                                         selectedDate: $selectedDate,
                                         selectedActivity: $selectedActivity,
                                         scrollToNowTick: $scrollToNowTick,
-                                        hasAnyActivities: $hasAnyActivities
+                                        hasAnyActivities: $hasAnyActivities,
+                                        refreshTrigger: $refreshActivitiesTrigger
                                     )
                                     .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
                                     .environmentObject(categoryStore)
