@@ -12,6 +12,7 @@ import SwiftUI
 /// Represents an activity in the timeline view
 struct TimelineActivity: Identifiable {
     let id = UUID()
+    let recordId: Int64?
     let batchId: Int64? // Tracks source batch for retry functionality
     let startTime: Date
     let endTime: Date
@@ -24,6 +25,24 @@ struct TimelineActivity: Identifiable {
     let videoSummaryURL: String?
     let screenshot: NSImage?
     let appSites: AppSites?
+
+    func withCategory(_ newCategory: String) -> TimelineActivity {
+        TimelineActivity(
+            recordId: recordId,
+            batchId: batchId,
+            startTime: startTime,
+            endTime: endTime,
+            title: title,
+            summary: summary,
+            detailedSummary: detailedSummary,
+            category: newCategory,
+            subcategory: subcategory,
+            distractions: distractions,
+            videoSummaryURL: videoSummaryURL,
+            screenshot: screenshot,
+            appSites: appSites
+        )
+    }
 }
 
 

@@ -77,6 +77,8 @@ protocol StorageManaging: Sendable {
     func replaceTimelineCardsInRange(from: Date, to: Date, with: [TimelineCardShell], batchId: Int64) -> (insertedIds: [Int64], deletedVideoPaths: [String])
     func fetchRecentTimelineCardsForDebug(limit: Int) -> [TimelineCardDebugEntry]
 
+    func updateTimelineCardCategory(cardId: Int64, category: String)
+
     func fetchRecentLLMCallsForDebug(limit: Int) -> [LLMCallDebugEntry]
     func fetchRecentAnalysisBatchesForDebug(limit: Int) -> [AnalysisBatchDebugEntry]
     func fetchLLMCallsForBatches(batchIds: [Int64], limit: Int) -> [LLMCallDebugEntry]
@@ -160,6 +162,7 @@ struct Distraction: Codable, Sendable, Identifiable {
 
 struct TimelineCard: Codable, Sendable, Identifiable {
     var id = UUID()
+    let recordId: Int64?
     let batchId: Int64? // Tracks source batch for retry functionality
     let startTimestamp: String
     let endTimestamp: String
@@ -866,6 +869,19 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }
     }
 
+    func updateTimelineCardCategory(cardId: Int64, category: String) {
+        let trimmed = category.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false else { return }
+
+        try? timedWrite("updateTimelineCardCategory") { db in
+            try db.execute(sql: """
+                UPDATE timeline_cards
+                SET category = ?
+                WHERE id = ?
+            """, arguments: [trimmed, cardId])
+        }
+    }
+
     func fetchTimelineCards(forBatch batchId: Int64) -> [TimelineCard] {
         let decoder = JSONDecoder()
         return (try? timedRead("fetchTimelineCards(forBatch)") { db in
@@ -887,6 +903,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     }
                 }
                 return TimelineCard(
+                    recordId: row["id"],
                     batchId: batchId,
                     startTimestamp: row["start"] ?? "",
                     endTimestamp: row["end"] ?? "",
@@ -989,6 +1006,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
                 // Create TimelineCard instance using renamed columns
                 return TimelineCard(
+                    recordId: row["id"],
                     batchId: row["batch_id"],
                     startTimestamp: row["start"] ?? "", // Use row["start"]
                     endTimestamp: row["end"] ?? "",   // Use row["end"]
@@ -1038,6 +1056,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
                 // Create TimelineCard instance using renamed columns
                 return TimelineCard(
+                    recordId: row["id"],
                     batchId: row["batch_id"],
                     startTimestamp: row["start"] ?? "",
                     endTimestamp: row["end"] ?? "",
