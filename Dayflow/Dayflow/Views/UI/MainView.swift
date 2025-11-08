@@ -21,7 +21,6 @@ struct MainView: View {
     @State private var scrollToNowTick: Int = 0
     @State private var hasAnyActivities: Bool = true
     @State private var refreshActivitiesTrigger: Int = 0
-    @State private var refreshActivitiesTrigger: Int = 0
     @ObservedObject private var inactivity = InactivityMonitor.shared
     
     // Animation states for orchestrated entrance - Emil Kowalski principles
@@ -43,12 +42,28 @@ struct MainView: View {
         let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"; return fmt.string(from: Date())
     }()
     @State private var showCategoryEditor = false
+    @State private var feedbackModalVisible = false
+    @State private var feedbackMessage: String = ""
+    @State private var feedbackShareLogs = true
+    @State private var feedbackDirection: TimelineRatingDirection? = nil
+    @State private var feedbackActivitySnapshot: TimelineActivity? = nil
+    @State private var feedbackMode: TimelineFeedbackMode = .form
+
+    private let rateSummaryFooterHeight: CGFloat = 28
+    private var rateSummaryFooterInset: CGFloat {
+        selectedActivity == nil ? 0 : rateSummaryFooterHeight
+    }
 
     private static let maxDateTitleWidth: CGFloat = {
         let referenceText = "Today, Sep 30"
         let font = NSFont(name: "InstrumentSerif-Regular", size: 36) ?? NSFont.systemFont(ofSize: 36)
         let width = referenceText.size(withAttributes: [.font: font]).width
         return ceil(width) + 4 // small buffer so arrows never nudge
+    }()
+    private let iso8601Formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
     }()
 
     var body: some View {
@@ -213,13 +228,54 @@ struct MainView: View {
                             ZStack(alignment: .topLeading) {
                                 Color.white.opacity(0.7)
 
-                                ActivityCard(
-                                    activity: selectedActivity,
-                                    maxHeight: geo.size.height,
-                                    scrollSummary: true,
-                                    hasAnyActivities: hasAnyActivities
-                                )
+                                ZStack(alignment: .bottom) {
+                                    ActivityCard(
+                                        activity: selectedActivity,
+                                        maxHeight: geo.size.height,
+                                        scrollSummary: true,
+                                        hasAnyActivities: hasAnyActivities,
+                                        onCategoryChange: { category, activity in
+                                            handleCategoryChange(to: category, for: activity)
+                                        },
+                                        onNavigateToCategoryEditor: {
+                                            showCategoryEditor = true
+                                        }
+                                    )
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .allowsHitTesting(!feedbackModalVisible)
+                                    .padding(.bottom, rateSummaryFooterInset)
+
+                                    if selectedActivity != nil && !feedbackModalVisible {
+                                        TimelineRateSummaryView(onRate: handleTimelineRating)
+                                            .frame(maxWidth: .infinity)
+                                            .allowsHitTesting(!feedbackModalVisible)
+                                            .transition(
+                                                .move(edge: .bottom)
+                                                    .combined(with: .opacity)
+                                            )
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 .opacity(contentOpacity)
+
+                                if let direction = feedbackDirection, feedbackModalVisible {
+                                    TimelineFeedbackModal(
+                                        message: $feedbackMessage,
+                                        shareLogs: $feedbackShareLogs,
+                                        direction: direction,
+                                        mode: feedbackMode,
+                                        onSubmit: handleFeedbackSubmit,
+                                        onClose: { dismissFeedbackModal() },
+                                        onConfigureCategories: {
+                                            configureCategoriesFromFeedback()
+                                        }
+                                    )
+                                    .padding(.leading, 24)
+                                    .padding(.bottom, 0)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                                    .zIndex(2)
+                                }
                             }
                             .clipShape(
                                 UnevenRoundedRectangle(
@@ -372,6 +428,7 @@ struct MainView: View {
             }
         }
         .onChange(of: selectedActivity?.id) { _ in
+            dismissFeedbackModal(animated: false)
             guard let a = selectedActivity else { return }
             let dur = a.endTime.timeIntervalSince(a.startTime)
             AnalyticsService.shared.capture("activity_card_opened", [
@@ -428,6 +485,135 @@ struct MainView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
+    }
+
+    private func handleCategoryChange(to category: TimelineCategory, for activity: TimelineActivity) {
+        let newName = category.name.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Optimistically update the selected activity so the UI reflects the change immediately.
+        selectedActivity = activity.withCategory(newName)
+
+        // Ask the timeline list to refresh so other cards stay in sync.
+        refreshActivitiesTrigger &+= 1
+
+        guard let recordId = activity.recordId else { return }
+
+        // Persist the change off the main actor to avoid blocking UI interactions.
+        Task.detached(priority: .userInitiated) {
+            StorageManager.shared.updateTimelineCardCategory(cardId: recordId, category: newName)
+        }
+    }
+
+    private func handleTimelineRating(_ direction: TimelineRatingDirection) {
+        guard let activity = selectedActivity else { return }
+
+        feedbackActivitySnapshot = activity
+        feedbackDirection = direction
+        feedbackMessage = ""
+        feedbackShareLogs = true
+        feedbackMode = .form
+
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            feedbackModalVisible = true
+        }
+
+        let props = timelineFeedbackAnalyticsPayload(for: activity, direction: direction)
+        AnalyticsService.shared.capture("timeline_summary_rated", props)
+    }
+
+    private func handleFeedbackSubmit() {
+        let trimmed = feedbackMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let activity = feedbackActivitySnapshot,
+              let direction = feedbackDirection else { return }
+
+        var props = timelineFeedbackAnalyticsPayload(for: activity, direction: direction)
+        props["feedback_message_length"] = trimmed.count
+        props["share_logs_enabled"] = feedbackShareLogs
+        if !trimmed.isEmpty {
+            props["feedback_message"] = trimmed
+        }
+
+        AnalyticsService.shared.capture("timeline_summary_feedback_submitted", props)
+        feedbackMessage = ""
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            feedbackMode = .thanks
+        }
+    }
+
+    private func dismissFeedbackModal(animated: Bool = true) {
+        guard feedbackModalVisible else { return }
+
+        let reset = {
+            feedbackModalVisible = false
+            feedbackDirection = nil
+            feedbackActivitySnapshot = nil
+            feedbackMessage = ""
+            feedbackMode = .form
+        }
+
+        if animated {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                reset()
+            }
+        } else {
+            reset()
+        }
+    }
+
+    private func configureCategoriesFromFeedback() {
+        dismissFeedbackModal()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            showCategoryEditor = true
+        }
+    }
+
+    private func timelineFeedbackAnalyticsPayload(for activity: TimelineActivity, direction: TimelineRatingDirection) -> [String: Any] {
+        var props: [String: Any] = [
+            "thumb_direction": direction.rawValue,
+            "timeline_selected_day": dayString(selectedDate),
+            "activity_title": activity.title,
+            "activity_summary": activity.summary,
+            "activity_detailed_summary": activity.detailedSummary,
+            "activity_category": activity.category,
+            "activity_subcategory": activity.subcategory,
+            "activity_start_ts": iso8601Formatter.string(from: activity.startTime),
+            "activity_end_ts": iso8601Formatter.string(from: activity.endTime),
+            "activity_duration_seconds": Int(activity.endTime.timeIntervalSince(activity.startTime)),
+            "activity_day_bucket": AnalyticsService.shared.dayString(activity.startTime),
+            "activity_has_screenshot": activity.screenshot != nil,
+            "activity_has_video_summary": activity.videoSummaryURL != nil,
+            "timeline_share_logs_default": true
+        ]
+
+        if let recordId = activity.recordId {
+            props["activity_record_id"] = Int(recordId)
+        }
+        if let batchId = activity.batchId {
+            props["activity_batch_id"] = Int(batchId)
+        }
+        if let videoURL = activity.videoSummaryURL {
+            props["activity_video_summary_url"] = videoURL
+        }
+        if let appSites = activity.appSites {
+            if let primary = appSites.primary {
+                props["activity_primary_site"] = primary
+            }
+            if let secondary = appSites.secondary {
+                props["activity_secondary_site"] = secondary
+            }
+        }
+        if let distractions = activity.distractions, !distractions.isEmpty {
+            props["activity_distractions_count"] = distractions.count
+            let preview = distractions.prefix(3).map { "\($0.title):\($0.summary)" }.joined(separator: " || ")
+            props["activity_distractions_preview"] = preview
+        } else {
+            props["activity_distractions_count"] = 0
+        }
+
+        props["activity_summary_length"] = activity.summary.count
+        props["activity_detailed_summary_length"] = activity.detailedSummary.count
+
+        return props
     }
 }
 
@@ -525,22 +711,19 @@ struct TabFilterBar: View {
     var body: some View {
         GeometryReader { geometry in
             let availableWidth = geometry.size.width
-            let inlineWidth = chipRowWidth + chipButtonSpacing + editButtonSize
-            let fitsInline = chipRowWidth == 0 ? true : inlineWidth <= availableWidth
+            let inlineContentLimit = max(0, availableWidth - (editButtonSize + chipButtonSpacing))
+            let fitsInline = chipRowWidth == 0 ? true : chipRowWidth <= inlineContentLimit
 
             Group {
                 if fitsInline {
                     HStack(spacing: chipButtonSpacing) {
-                        measuredChipRow
+                        scrollableChipRow(maxWidth: chipRowWidth == 0 ? inlineContentLimit : chipRowWidth)
                         editButton
                     }
                 } else {
                     ZStack(alignment: .trailing) {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            measuredChipRow
-                                .padding(.trailing, editButtonSize + chipButtonSpacing)
-                        }
-                        .frame(height: 26)
+                        scrollableChipRow(maxWidth: nil)
+                            .padding(.trailing, editButtonSize + chipButtonSpacing)
 
                         overflowGradient
                         editButton
@@ -582,6 +765,22 @@ struct TabFilterBar: View {
                     .inset(by: 0.25)
                     .stroke(Color(red: 0.88, green: 0.88, blue: 0.88), lineWidth: 0.5)
             )
+        }
+    }
+
+    private func scrollableChipRow(maxWidth: CGFloat?) -> some View {
+        let row = ScrollView(.horizontal, showsIndicators: false) {
+            measuredChipRow
+        }
+        .frame(height: 26)
+        .clipped()
+
+        return Group {
+            if let maxWidth {
+                row.frame(width: max(0, maxWidth), alignment: .leading)
+            } else {
+                row
+            }
         }
     }
 
@@ -821,13 +1020,15 @@ struct ActivityCard: View {
     var maxHeight: CGFloat? = nil
     var scrollSummary: Bool = false
     var hasAnyActivities: Bool = true
-    var onCategorySwap: (() -> Void)? = nil
+    var onCategoryChange: ((TimelineCategory, TimelineActivity) -> Void)? = nil
+    var onNavigateToCategoryEditor: (() -> Void)? = nil
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var categoryStore: CategoryStore
 
     @State private var isRetrying = false
     @State private var retryProgress: String = ""
     @State private var retryError: String? = nil
+    @State private var showCategoryPicker = false
 
     private let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -837,140 +1038,34 @@ struct ActivityCard: View {
     
     var body: some View {
         if let activity = activity {
-            VStack(alignment: .leading, spacing: 16) {
-                // Header
-                HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(activity.title)
-                            .font(
-                                Font.custom("Nunito", size: 16)
-                                    .weight(.semibold)
-                            )
-                            .foregroundColor(.black)
+            ZStack(alignment: .top) {
+                activityDetails(for: activity)
+                    .padding(16)
+                    .allowsHitTesting(!showCategoryPicker)
 
-                        HStack(alignment: .center, spacing: 6) {
-                            Text("\(timeFormatter.string(from: activity.startTime)) - \(timeFormatter.string(from: activity.endTime))")
-                                .font(
-                                    Font.custom("Nunito", size: 12)
-                                )
-                                .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
-                                .lineLimit(1)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 4)
-                                .background(Color(red: 0.96, green: 0.94, blue: 0.91).opacity(0.9))
-                                .cornerRadius(6)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .inset(by: 0.38)
-                                        .stroke(Color(red: 0.9, green: 0.9, blue: 0.9), lineWidth: 0.75)
-                                )
-
-                            Spacer(minLength: 6)
-
-                            HStack(spacing: 6) {
-                                if let badge = categoryBadge(for: activity.category) {
-                                    HStack(spacing: 6) {
-                                        Circle()
-                                            .fill(badge.indicator)
-                                            .frame(width: 8, height: 8)
-
-                                        Text(badge.name)
-                                            .font(Font.custom("Nunito", size: 12))
-                                            .foregroundColor(Color(red: 0.2, green: 0.2, blue: 0.2))
-                                            .lineLimit(1)
-                                    }
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.white.opacity(0.76))
-                                    .cornerRadius(6)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .inset(by: 0.25)
-                                            .stroke(Color(red: 0.88, green: 0.88, blue: 0.88), lineWidth: 0.5)
-                                    )
-                                }
-
-                                Button(action: { onCategorySwap?() }) {
-                                    Image("CategorySwapButton")
-                                        .resizable()
-                                        .renderingMode(.original)
-                                        .frame(width: 24, height: 24)
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                                .accessibilityLabel(Text("Change category"))
+                if showCategoryPicker && !isFailedCard(activity) {
+                    CategoryPickerOverlay(
+                        categories: categoryStore.categories,
+                        currentCategoryName: activity.category,
+                        onSelect: { selectedCategory in
+                            commitCategorySelection(selectedCategory, for: activity)
+                        },
+                        onNavigateToEditor: {
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                                showCategoryPicker = false
                             }
+                            onNavigateToCategoryEditor?()
                         }
-                    }
-
-                    Spacer()
-
-                    // Retry button centered between title and time (only for failed cards)
-                    if isFailedCard(activity) {
-                        retryButtonInline(for: activity)
-                    }
-                }
-
-                // Error message (if retry failed)
-                if isFailedCard(activity), let error = retryError {
-                    HStack(alignment: .top, spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(.red)
-                            .font(.system(size: 12))
-
-                        Text(error)
-                            .font(.custom("Nunito", size: 11))
-                            .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
-                            .lineLimit(2)
-                    }
-                    .padding(8)
-                    .background(Color.red.opacity(0.05))
-                    .cornerRadius(6)
-                }
-
-                // Video thumbnail placeholder
-                if let videoURL = activity.videoSummaryURL {
-                    VideoThumbnailView(
-                        videoURL: videoURL,
-                        title: activity.title,
-                        startTime: activity.startTime,
-                        endTime: activity.endTime
                     )
-                        .id(videoURL)
-                        .frame(height: 200)
-                } else {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.gray.opacity(0.1))
-                        .frame(height: 200)
-                        .overlay(
-                            VStack {
-                                Image(systemName: "video.slash")
-                                    .font(.system(size: 30))
-                                    .foregroundColor(.gray.opacity(0.5))
-                                Text("No video available")
-                                    .font(.caption)
-                                    .foregroundColor(.gray.opacity(0.5))
-                            }
-                        )
-                }
-                
-                // Summary section (scrolls internally when constrained)
-                Group {
-                    if scrollSummary {
-                        ScrollView(.vertical, showsIndicators: false) {
-                            summaryContent(for: activity)
-                                .frame(maxWidth: .infinity, alignment: .topLeading)
-                        }
-                        .id(activity.id) // Reset scroll position whenever the selected activity changes
-                        .frame(maxWidth: .infinity)
-                        .frame(maxHeight: .infinity, alignment: .topLeading)
-                    } else {
-                        summaryContent(for: activity)
-                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(1)
                 }
             }
-            .padding(16)
             .if(maxHeight != nil) { view in
                 view.frame(maxHeight: maxHeight!)
+            }
+            .onChange(of: activity.id) { _ in
+                showCategoryPicker = false
             }
         } else {
             // Empty state
@@ -1012,6 +1107,133 @@ struct ActivityCard: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .if(maxHeight != nil) { view in
                 view.frame(maxHeight: maxHeight!)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func activityDetails(for activity: TimelineActivity) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(activity.title)
+                        .font(
+                            Font.custom("Nunito", size: 16)
+                                .weight(.semibold)
+                        )
+                        .foregroundColor(.black)
+
+                    HStack(alignment: .center, spacing: 6) {
+                        Text("\(timeFormatter.string(from: activity.startTime)) - \(timeFormatter.string(from: activity.endTime))")
+                            .font(
+                                Font.custom("Nunito", size: 12)
+                            )
+                            .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
+                            .lineLimit(1)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 4)
+                            .background(Color(red: 0.96, green: 0.94, blue: 0.91).opacity(0.9))
+                            .cornerRadius(6)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .inset(by: 0.38)
+                                    .stroke(Color(red: 0.9, green: 0.9, blue: 0.9), lineWidth: 0.75)
+                            )
+
+                        Spacer(minLength: 6)
+
+                        HStack(spacing: 6) {
+                            if let badge = categoryBadge(for: activity.category) {
+                                HStack(spacing: 6) {
+                                    Circle()
+                                        .fill(badge.indicator)
+                                        .frame(width: 8, height: 8)
+
+                                    Text(badge.name)
+                                        .font(Font.custom("Nunito", size: 12))
+                                        .foregroundColor(Color(red: 0.2, green: 0.2, blue: 0.2))
+                                        .lineLimit(1)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.white.opacity(0.76))
+                                .cornerRadius(6)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .inset(by: 0.25)
+                                        .stroke(Color(red: 0.88, green: 0.88, blue: 0.88), lineWidth: 0.5)
+                                )
+                            }
+
+                            if !isFailedCard(activity) {
+                                Button(action: {
+                                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                                        showCategoryPicker.toggle()
+                                    }
+                                }) {
+                                    Image("CategorySwapButton")
+                                        .resizable()
+                                        .renderingMode(.original)
+                                        .frame(width: 24, height: 24)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                                .accessibilityLabel(Text("Change category"))
+                            }
+                        }
+                    }
+                }
+
+                Spacer()
+
+                // Retry button centered between title and time (only for failed cards)
+                if isFailedCard(activity) {
+                    retryButtonInline(for: activity)
+                }
+            }
+
+            // Error message (if retry failed)
+            if isFailedCard(activity), let error = retryError {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.red)
+                        .font(.system(size: 12))
+
+                    Text(error)
+                        .font(.custom("Nunito", size: 11))
+                        .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
+                        .lineLimit(2)
+                }
+                .padding(8)
+                .background(Color.red.opacity(0.05))
+                .cornerRadius(6)
+            }
+
+            // Video thumbnail (render only when available)
+            if let videoURL = activity.videoSummaryURL {
+                VideoThumbnailView(
+                    videoURL: videoURL,
+                    title: activity.title,
+                    startTime: activity.startTime,
+                    endTime: activity.endTime
+                )
+                    .id(videoURL)
+                    .frame(height: 200)
+            }
+
+            // Summary section (scrolls internally when constrained)
+            Group {
+                if scrollSummary {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        summaryContent(for: activity)
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                    }
+                    .id(activity.id) // Reset scroll position whenever the selected activity changes
+                    .frame(maxWidth: .infinity)
+                    .frame(maxHeight: .infinity, alignment: .topLeading)
+                } else {
+                    summaryContent(for: activity)
+                }
             }
         }
     }
@@ -1072,13 +1294,19 @@ struct ActivityCard: View {
     private func categoryBadge(for raw: String) -> (name: String, indicator: Color)? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+
         let normalized = trimmed.lowercased()
         let categories = categoryStore.categories
         let matched = categories.first { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalized }
-        guard let category = matched ?? categories.first else { return nil }
 
-        let nsColor = NSColor(hex: category.colorHex) ?? NSColor(hex: "#4F80EB") ?? .systemBlue
-        return (name: category.name, indicator: Color(nsColor: nsColor))
+        let category = matched ?? CategoryPersistence.defaultCategories.first {
+            $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalized
+        }
+
+        guard let resolvedCategory = category else { return nil }
+
+        let nsColor = NSColor(hex: resolvedCategory.colorHex) ?? NSColor(hex: "#4F80EB") ?? .systemBlue
+        return (name: resolvedCategory.name, indicator: Color(nsColor: nsColor))
     }
 
     // MARK: - Retry Functionality
@@ -1163,6 +1391,18 @@ struct ActivityCard: View {
                 }
             }
         )
+    }
+
+    private func commitCategorySelection(_ category: TimelineCategory, for activity: TimelineActivity) {
+        let normalizedCurrent = activity.category.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedNew = category.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+            showCategoryPicker = false
+        }
+
+        guard normalizedCurrent != normalizedNew else { return }
+        onCategoryChange?(category, activity)
     }
 }
 
