@@ -867,7 +867,7 @@ struct ColorOrganizerRoot: View {
     }
 
     private var canAddMoreCategories: Bool {
-        categories.count < 10
+        categories.count < 20
     }
 
     private var addCategoryButton: some View {
