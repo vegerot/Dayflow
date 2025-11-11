@@ -246,7 +246,10 @@ struct MainView: View {
                                     .padding(.bottom, rateSummaryFooterInset)
 
                                     if selectedActivity != nil && !feedbackModalVisible {
-                                        TimelineRateSummaryView(onRate: handleTimelineRating)
+                                        TimelineRateSummaryView(
+                                            activityID: selectedActivity?.id,
+                                            onRate: handleTimelineRating
+                                        )
                                             .frame(maxWidth: .infinity)
                                             .allowsHitTesting(!feedbackModalVisible)
                                             .transition(
@@ -265,10 +268,7 @@ struct MainView: View {
                                         direction: direction,
                                         mode: feedbackMode,
                                         onSubmit: handleFeedbackSubmit,
-                                        onClose: { dismissFeedbackModal() },
-                                        onConfigureCategories: {
-                                            configureCategoriesFromFeedback()
-                                        }
+                                        onClose: { dismissFeedbackModal() }
                                     )
                                     .padding(.leading, 24)
                                     .padding(.bottom, 0)
@@ -557,13 +557,6 @@ struct MainView: View {
             }
         } else {
             reset()
-        }
-    }
-
-    private func configureCategoriesFromFeedback() {
-        dismissFeedbackModal()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            showCategoryEditor = true
         }
     }
 

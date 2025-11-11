@@ -19,11 +19,10 @@ struct TimelineFeedbackModal: View {
     let mode: TimelineFeedbackMode
     let onSubmit: () -> Void
     let onClose: () -> Void
-    let onConfigureCategories: (() -> Void)?
 
     @FocusState private var isEditorFocused: Bool
 
-    private let placeholder = "I don’t have access to your timeline (privacy first!), so your feedback is the only window into how well the timeline is working. If you’re up for elaborating, it really helps improve the product for everyone."
+    private let placeholder = "I don’t have access to your timeline (privacy first!), so your feedback here helps improve the quality of Dayflow for everyone."
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -122,10 +121,10 @@ struct TimelineFeedbackModal: View {
                     }
                 }
 
-                HStack(alignment: .top, spacing: 8) {
-                    Button {
-                        shareLogs.toggle()
-                    } label: {
+                Button {
+                    shareLogs.toggle()
+                } label: {
+                    HStack(alignment: .top, spacing: 8) {
                         RoundedRectangle(cornerRadius: 2)
                             .stroke(Color(hex: "FF8046"), lineWidth: shareLogs ? 0 : 1)
                             .frame(width: 14, height: 14)
@@ -139,14 +138,16 @@ struct TimelineFeedbackModal: View {
                                 RoundedRectangle(cornerRadius: 2)
                                     .fill(shareLogs ? Color(hex: "FF8046") : Color.clear)
                             )
-                    }
-                    .buttonStyle(.plain)
 
-                    Text("I’d like to share this log to the developer to help improve the product.")
-                        .font(Font.custom("Nunito", size: 10).weight(.medium))
-                        .foregroundColor(Color.black)
-                        .fixedSize(horizontal: false, vertical: true)
+                        Text("I’d like to share this log to the developer to help improve the product.")
+                            .font(Font.custom("Nunito", size: 10).weight(.medium))
+                            .foregroundColor(Color.black)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
             }
 
             Button(action: onSubmit) {
@@ -170,28 +171,13 @@ struct TimelineFeedbackModal: View {
                 .multilineTextAlignment(.center)
                 .padding(.bottom, 4)
 
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("If you find that your activities are summarized inaccurately, try editing the descriptions of your categories to improve Dayflow’s accuracy.")
-                        .font(Font.custom("Nunito", size: 12).weight(.medium))
-                        .foregroundColor(Color(hex: "333333"))
-                        .multilineTextAlignment(.leading)
+            VStack(alignment: .leading, spacing: 12) {
+                Text("If you find that your activities are summarized inaccurately, try editing the descriptions of your categories to improve Dayflow’s accuracy.")
+                    .font(Font.custom("Nunito", size: 12).weight(.medium))
+                    .foregroundColor(Color(hex: "333333"))
+                    .multilineTextAlignment(.leading)
 
-                    categoryTipsIllustration
-                }
-
-                Button {
-                    onConfigureCategories?()
-                } label: {
-                    Text("Configure categories")
-                        .font(Font.custom("Nunito", size: 12).weight(.medium))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 30)
-                        .background(Color(hex: "402B00"))
-                        .cornerRadius(4)
-                }
-                .buttonStyle(.plain)
+                categoryTipsIllustration
             }
         }
     }
@@ -199,56 +185,18 @@ struct TimelineFeedbackModal: View {
 
 extension TimelineFeedbackModal {
     private var categoryTipsIllustration: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .topLeading) {
+        Image("CategoryEditUI")
+            .resizable()
+            .scaledToFit()
+            .frame(maxWidth: .infinity)
+            .frame(height: 140)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 1.0, green: 0.92, blue: 0.84),
-                                Color(red: 1.0, green: 0.82, blue: 0.63)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.white.opacity(0.7), lineWidth: 0.5)
-                    )
-
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(Color(red: 0.45, green: 0.22, blue: 0.02))
-                            .padding(6)
-                            .background(Color.white.opacity(0.8))
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Category tips")
-                                .font(Font.custom("Nunito", size: 11).weight(.semibold))
-                                .foregroundColor(Color(red: 0.35, green: 0.16, blue: 0))
-
-                            Text("Tighten up your category descriptions to help Dayflow understand what you’re working on.")
-                                .font(Font.custom("Nunito", size: 10))
-                                .foregroundColor(Color(red: 0.35, green: 0.16, blue: 0).opacity(0.8))
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-
-                    Text("Tip: Mention tools, meeting names, or the outcomes you expect (e.g. ‘Summaries ▸ Weekly project update with task outcomes’).")
-                        .font(Font.custom("Nunito", size: 10))
-                        .foregroundColor(Color(red: 0.35, green: 0.16, blue: 0).opacity(0.85))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(14)
-                .frame(width: geometry.size.width, alignment: .leading)
-            }
-        }
-        .frame(height: 120)
-        .frame(maxWidth: .infinity)
+                    .stroke(Color.white.opacity(0.7), lineWidth: 0.5)
+            )
+            .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
+            .accessibilityLabel("Illustration showing how to edit categories")
     }
 }
 
@@ -259,8 +207,7 @@ extension TimelineFeedbackModal {
         direction: .up,
         mode: .form,
         onSubmit: {},
-        onClose: {},
-        onConfigureCategories: nil
+        onClose: {}
     )
     .padding()
     .background(Color.gray.opacity(0.1))
@@ -271,8 +218,7 @@ extension TimelineFeedbackModal {
         direction: .up,
         mode: .thanks,
         onSubmit: {},
-        onClose: {},
-        onConfigureCategories: {}
+        onClose: {}
     )
     .padding()
     .background(Color.gray.opacity(0.1))
