@@ -29,7 +29,7 @@ enum LocalModelPreset: String, CaseIterable, Codable {
         switch self {
         case .qwen3VL4B:
             return [
-                "Sharper OCR + chart/table understanding",
+                "New, most powerful local VLM",
                 "Longer reasoning chains for complex sessions",
                 "Fits on most Apple Silicon machines (≈5GB VRAM)"
             ]
@@ -59,7 +59,7 @@ enum LocalModelPreset: String, CaseIterable, Codable {
         case .ollama, .custom:
             return LocalModelInstructionSet(
                 title: "Install via Ollama",
-                subtitle: "Make sure you're on Ollama 0.12.7 or newer before pulling the model.",
+                subtitle: "Make sure you're on Ollama 0.12.10 or newer before pulling the model.",
                 bullets: [
                     "Open Terminal",
                     "Run the pull command below (≈5GB download)",
@@ -75,7 +75,7 @@ enum LocalModelPreset: String, CaseIterable, Codable {
         case .lmstudio:
             return LocalModelInstructionSet(
                 title: "Install inside LM Studio",
-                subtitle: "Use LM Studio's model browser to download the GGUF build.",
+                subtitle: "Make sure you're on 0.3.31. Use LM Studio's model browser to download the GGUF build.",
                 bullets: [
                     "Open LM Studio and click the Models tab",
                     "Search for \"\(modelId(for: .lmstudio))\"",
