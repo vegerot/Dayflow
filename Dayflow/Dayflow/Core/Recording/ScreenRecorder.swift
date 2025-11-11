@@ -335,7 +335,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
                         "error_type": "user_initiated",
                         "outcome": "user_cancelled"
                     ])
-                    self.forceStopFlag()
+                    self.forceStopFlag(reason: "user_cancelled_startup", userInitiated: true)
                 }
                 return
             }
@@ -374,15 +374,23 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
                         "outcome": "gave_up",
                         "failure_reason": failureReason
                     ])
-                    self.forceStopFlag()
+                    self.forceStopFlag(
+                        reason: "startup_\(failureReason)",
+                        userInitiated: false,
+                        extra: ["error_domain": errorDomain, "error_code": errorCode]
+                    )
                 }
             }
         }
     }
 
     @MainActor
-    private func forceStopFlag() {
+    private func forceStopFlag(reason: String, userInitiated: Bool, extra: [String: Any] = [:]) {
         AppState.shared.isRecording = false
+        guard !userInitiated else { return }
+        var props: [String: Any] = ["reason": reason]
+        extra.forEach { props[$0.key] = $0.value }
+        AnalyticsService.shared.capture("recording_forced_off", props)
     }
 
     @MainActor
@@ -863,7 +871,7 @@ extension ScreenRecorder: SCStreamDelegate {
         if isUserInitiatedStop(scError) {
             dbg("User stopped recording through system UI - updating app state")
             Task { @MainActor in
-                AppState.shared.isRecording = false
+                self.forceStopFlag(reason: "user_stopped_via_system_ui", userInitiated: true)
                 AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "user"])
             }
         } else if shouldRetry(scError) {
@@ -883,7 +891,11 @@ extension ScreenRecorder: SCStreamDelegate {
         } else {
             dbg("Non-retryable error - stopping recording")
             Task { @MainActor in
-                AppState.shared.isRecording = false
+                self.forceStopFlag(
+                    reason: "non_retryable_stream_error",
+                    userInitiated: false,
+                    extra: ["error_code": scError.code, "error_domain": scError.domain]
+                )
                 AnalyticsService.shared.capture("recording_error", [
                     "code": scError.code,
                     "retryable": false
