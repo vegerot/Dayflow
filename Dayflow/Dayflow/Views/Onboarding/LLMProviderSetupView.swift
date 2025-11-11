@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Foundation
+import AppKit
 
 private let cliSearchPaths: [String] = {
     let home = NSHomeDirectory()
@@ -608,7 +609,7 @@ struct LLMProviderSetupView: View {
                                     Picker("Engine", selection: $setupState.localEngine) {
                                         Text("LM Studio").tag(LocalEngine.lmstudio)
                                         Text("Ollama").tag(LocalEngine.ollama)
-                                        Text("Other").tag(LocalEngine.custom)
+                                        Text("Custom model").tag(LocalEngine.custom)
                                     }
                                     .pickerStyle(.segmented)
                                     .frame(maxWidth: 380)
@@ -864,7 +865,7 @@ class ProviderSetupState: ObservableObject {
     // Local engine configuration
     @Published var localEngine: LocalEngine = .ollama
     @Published var localBaseURL: String = "http://localhost:11434"
-    @Published var localModelId: String = "qwen2.5vl:3b"
+    @Published var localModelId: String = LocalModelPreferences.defaultModelId(for: .ollama)
     // CLI detection
     @Published var codexCLIStatus: CLIDetectionState = .unknown
     @Published var claudeCLIStatus: CLIDetectionState = .unknown
@@ -1251,6 +1252,52 @@ extension ProviderSetupState {
     }
 }
 
+private enum LocalLLMTestConstants {
+    static let blankImageDataURL = LocalLLMTestImageFactory.blankImageDataURL(width: 1280, height: 720)
+    static let prompt = "What color is this image? Answer with a single word."
+    static let slowMachineMessage = "It took longer than 30 seconds, so your machine doesn't appear powerful enough to run this model locally."
+    static let maxLatency: TimeInterval = 30
+}
+
+private enum LocalLLMTestImageFactory {
+    static func blankImageDataURL(width: Int, height: Int) -> String {
+        guard let data = makeWhiteImageData(width: width, height: height) else {
+            assertionFailure("Failed to build local LLM test image")
+            return ""
+        }
+        return "data:image/jpeg;base64,\(data.base64EncodedString())"
+    }
+
+    private static func makeWhiteImageData(width: Int, height: Int) -> Data? {
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width,
+            pixelsHigh: height,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            return nil
+        }
+
+        let rect = NSRect(x: 0, y: 0, width: width, height: height)
+        NSGraphicsContext.saveGraphicsState()
+        if let context = NSGraphicsContext(bitmapImageRep: bitmap) {
+            NSGraphicsContext.current = context
+            NSColor.white.setFill()
+            rect.fill()
+            context.flushGraphics()
+        }
+        NSGraphicsContext.restoreGraphicsState()
+
+        return bitmap.representation(using: .jpeg, properties: [:])
+    }
+}
+
 struct LocalLLMTestView: View {
     @Binding var baseURL: String
     @Binding var modelId: String
@@ -1332,27 +1379,49 @@ struct LocalLLMTestView: View {
         isTesting = true
         success = false
         resultMessage = nil
-        
+
         guard let url = URL(string: "\(baseURL)/v1/chat/completions") else {
             resultMessage = "Invalid base URL"
             isTesting = false
             onTestComplete(false)
             return
         }
-        
-        struct Req: Codable { let model: String; let messages: [Msg]; let max_tokens: Int }
-        struct Msg: Codable { let role: String; let content: String }
-        let req = Req(model: modelId, messages: [Msg(role: "user", content: "Say 'hello' and your model name.")], max_tokens: 50)
-        
+
+        let payload = LocalLLMChatRequest(
+            model: modelId,
+            messages: [
+                LocalLLMChatMessage(
+                    role: "user",
+                    content: [
+                        .text(LocalLLMTestConstants.prompt),
+                        .imageDataURL(LocalLLMTestConstants.blankImageDataURL)
+                    ]
+                )
+            ],
+            maxTokens: 10
+        )
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if engine == .lmstudio { request.setValue("Bearer lm-studio", forHTTPHeaderField: "Authorization") }
-        request.httpBody = try? JSONEncoder().encode(req)
-        request.timeoutInterval = 15
-        
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        request.httpBody = try? encoder.encode(payload)
+        request.timeoutInterval = 35
+
+        let startedAt = Date()
+
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
+                let duration = Date().timeIntervalSince(startedAt)
+                if duration > LocalLLMTestConstants.maxLatency {
+                    self.resultMessage = LocalLLMTestConstants.slowMachineMessage
+                    self.success = false
+                    self.isTesting = false
+                    self.onTestComplete(false)
+                    return
+                }
                 if let error = error {
                     self.resultMessage = error.localizedDescription
                     self.isTesting = false
@@ -1377,6 +1446,35 @@ struct LocalLLMTestView: View {
             }
         }.resume()
     }
+}
+
+private struct LocalLLMChatRequest: Codable {
+    let model: String
+    let messages: [LocalLLMChatMessage]
+    let maxTokens: Int
+}
+
+private struct LocalLLMChatMessage: Codable {
+    let role: String
+    let content: [LocalLLMChatContent]
+}
+
+private struct LocalLLMChatContent: Codable {
+    let type: String
+    let text: String?
+    let imageURL: LocalLLMChatImageURL?
+
+    static func text(_ value: String) -> LocalLLMChatContent {
+        LocalLLMChatContent(type: "text", text: value, imageURL: nil)
+    }
+
+    static func imageDataURL(_ url: String) -> LocalLLMChatContent {
+        LocalLLMChatContent(type: "image_url", text: nil, imageURL: LocalLLMChatImageURL(url: url))
+    }
+}
+
+private struct LocalLLMChatImageURL: Codable {
+    let url: String
 }
 
 enum CLITool: String, CaseIterable {
