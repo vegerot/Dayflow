@@ -119,6 +119,7 @@ struct SettingsView: View {
                 .padding(.trailing, 16)
                 .padding(.bottom, 24)
             }
+            .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
             .frame(maxWidth: 600, alignment: .leading)
 
             Spacer(minLength: 0)
@@ -147,26 +148,25 @@ struct SettingsView: View {
             AnalyticsService.shared.setOptIn(enabled)
         }
         .onChange(of: currentProvider) { newProvider in
-            reloadLocalProviderSettings()
-            if newProvider == "gemini" {
-                loadGeminiPromptOverridesIfNeeded(force: true)
-            } else if newProvider == "ollama" {
-                loadOllamaPromptOverridesIfNeeded(force: true)
-            }
-            refreshUpgradeBannerState()
+            applyProviderChangeSideEffects(for: newProvider)
         }
         .onChange(of: selectedTab) { newValue in
             if newValue == .storage {
                 refreshStorageIfNeeded()
             }
         }
-        .onChange(of: localEngine) { _ in
+        .onChange(of: localEngine) { newValue in
+            UserDefaults.standard.set(newValue.rawValue, forKey: "llmLocalEngine")
             LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
             refreshUpgradeBannerState()
         }
-        .onChange(of: localModelId) { _ in
+        .onChange(of: localModelId) { newValue in
+            UserDefaults.standard.set(newValue, forKey: "llmLocalModelId")
             LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
             refreshUpgradeBannerState()
+        }
+        .onChange(of: localBaseURL) { newValue in
+            UserDefaults.standard.set(newValue, forKey: "llmLocalBaseURL")
         }
         .sheet(item: Binding(
             get: { setupModalProvider.map { ProviderSetupWrapper(id: $0) } },
@@ -546,9 +546,9 @@ struct SettingsView: View {
                             action: { isShowingLocalModelUpgradeSheet = true },
                             content: {
                                 HStack(spacing: 6) {
-                                    Image(systemName: "arrow.up.circle.fill")
+                                    Image(systemName: usingRecommendedLocalModel ? "slider.horizontal.2.square" : "arrow.up.circle.fill")
                                         .font(.system(size: 14))
-                                    Text("Upgrade local model")
+                                    Text(usingRecommendedLocalModel ? "Manage local model" : "Upgrade local model")
                                         .font(.custom("Nunito", size: 13))
                                         .fontWeight(.semibold)
                                 }
@@ -599,6 +599,18 @@ struct SettingsView: View {
                 }
             }
 
+            SettingsCard(title: "Provider options", subtitle: "Switch providers at any time") {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 20) {
+                        ForEach(providerCards, id: \.id) { card in
+                            card
+                                .frame(width: 340)
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                }
+            }
+
             if currentProvider == "gemini" {
                 SettingsCard(title: "Gemini model preference", subtitle: "Choose which Gemini model Dayflow should prioritize") {
                     GeminiModelSettingsCard(selectedModel: $selectedGeminiModel) { model in
@@ -612,18 +624,6 @@ struct SettingsView: View {
             } else if currentProvider == "ollama" {
                 SettingsCard(title: "Local prompt customization", subtitle: "Adjust the prompts used for local timeline summaries") {
                     ollamaPromptCustomizationView
-                }
-            }
-
-            SettingsCard(title: "Provider options", subtitle: "Switch providers at any time") {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 20) {
-                        ForEach(providerCards, id: \.id) { card in
-                            card
-                                .frame(width: 340)
-                        }
-                    }
-                    .padding(.horizontal, 4)
                 }
             }
         }
@@ -1128,12 +1128,32 @@ struct SettingsView: View {
 
     // Debug log copy helpers removed per design request
 
+    private func applyProviderChangeSideEffects(for provider: String) {
+        reloadLocalProviderSettings()
+        if provider == "gemini" {
+            loadGeminiPromptOverridesIfNeeded(force: true)
+        } else if provider == "ollama" {
+            loadOllamaPromptOverridesIfNeeded(force: true)
+        }
+        refreshUpgradeBannerState()
+    }
+
     private func reloadLocalProviderSettings() {
         localBaseURL = UserDefaults.standard.string(forKey: "llmLocalBaseURL") ?? localBaseURL
         localModelId = UserDefaults.standard.string(forKey: "llmLocalModelId") ?? localModelId
         let raw = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? localEngine.rawValue
         localEngine = LocalEngine(rawValue: raw) ?? localEngine
         LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
+    }
+
+    private var usingRecommendedLocalModel: Bool {
+        let comparisonEngine = localEngine == .custom ? .ollama : localEngine
+        let normalized = localModelId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let recommended = LocalModelPreset.recommended.modelId(for: comparisonEngine)
+        if normalized.caseInsensitiveCompare(recommended) == .orderedSame {
+            return true
+        }
+        return LocalModelPreferences.currentPreset() == .qwen3VL4B
     }
 
     private func refreshUpgradeBannerState() {
@@ -1228,6 +1248,7 @@ struct SettingsView: View {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
             currentProvider = providerId
         }
+        applyProviderChangeSideEffects(for: providerId)
 
         if providerId == "gemini" {
             let preference = GeminiModelPreference.load()
@@ -1385,7 +1406,7 @@ private struct LocalModelUpgradeBanner: View {
                         .font(.custom("Nunito", size: 16))
                         .fontWeight(.semibold)
                         .foregroundColor(.white)
-                    Text("Sharper OCR + reasoning without losing offline privacy.")
+                    Text("Upgrade to Qwen3VL for a big improvement in quality.")
                         .font(.custom("Nunito", size: 13))
                         .foregroundColor(.white.opacity(0.8))
                 }
@@ -1483,91 +1504,95 @@ private struct LocalModelUpgradeSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            HStack {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Upgrade to \(preset.displayName)")
-                        .font(.custom("Nunito", size: 22))
-                        .fontWeight(.semibold)
-                    Text("Follow the steps below, run a quick test, and Dayflow will switch you over automatically.")
-                        .font(.custom("Nunito", size: 13))
-                        .foregroundColor(.black.opacity(0.6))
-                }
-                Spacer()
-                Button(action: onCancel) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundColor(.black.opacity(0.35))
-                }
-                .buttonStyle(.plain)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(preset.highlightBullets, id: \.self) { bullet in
-                    HStack(spacing: 8) {
-                        Image(systemName: "sparkle")
-                            .font(.system(size: 12))
-                            .foregroundColor(Color(red: 0.39, green: 0.23, blue: 0.02))
-                        Text(bullet)
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Upgrade to \(preset.displayName)")
+                            .font(.custom("Nunito", size: 22))
+                            .fontWeight(.semibold)
+                        Text("Follow the steps below, run a quick test, and Dayflow will switch you over automatically.")
                             .font(.custom("Nunito", size: 13))
-                            .foregroundColor(.black.opacity(0.75))
+                            .foregroundColor(.black.opacity(0.6))
+                    }
+                    Spacer()
+                    Button(action: onCancel) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.black.opacity(0.35))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(preset.highlightBullets, id: \.self) { bullet in
+                        HStack(spacing: 8) {
+                            Image(systemName: "sparkle")
+                                .font(.system(size: 12))
+                                .foregroundColor(Color(red: 0.39, green: 0.23, blue: 0.02))
+                            Text(bullet)
+                                .font(.custom("Nunito", size: 13))
+                                .foregroundColor(.black.opacity(0.75))
+                        }
                     }
                 }
-            }
 
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Which local runtime are you using?")
-                    .font(.custom("Nunito", size: 14))
-                    .foregroundColor(.black.opacity(0.65))
-                Picker("Engine", selection: $selectedEngine) {
-                    Text("Ollama").tag(LocalEngine.ollama)
-                    Text("LM Studio").tag(LocalEngine.lmstudio)
-                    Text("Custom").tag(LocalEngine.custom)
-                }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 420)
-            }
-
-            instructionView(for: selectedEngine)
-
-            LocalLLMTestView(
-                baseURL: $candidateBaseURL,
-                modelId: $candidateModelId,
-                engine: selectedEngine,
-                showInputs: true,
-                buttonLabel: "Test upgrade",
-                basePlaceholder: selectedEngine.defaultBaseURL,
-                modelPlaceholder: preset.modelId(for: selectedEngine == .custom ? .ollama : selectedEngine),
-                onTestComplete: { success in
-                    if success && !didApplyUpgrade {
-                        didApplyUpgrade = true
-                        onUpgradeSuccess(selectedEngine, candidateBaseURL, candidateModelId)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Which local runtime are you using?")
+                        .font(.custom("Nunito", size: 14))
+                        .foregroundColor(.black.opacity(0.65))
+                    Picker("Engine", selection: $selectedEngine) {
+                        Text("Ollama").tag(LocalEngine.ollama)
+                        Text("LM Studio").tag(LocalEngine.lmstudio)
+                        Text("Custom").tag(LocalEngine.custom)
                     }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 420)
                 }
-            )
 
-            Text("Once the test succeeds, Dayflow updates your settings to \(preset.displayName) automatically.")
-                .font(.custom("Nunito", size: 12))
-                .foregroundColor(.black.opacity(0.55))
+                instructionView(for: selectedEngine)
 
-            HStack {
-                Spacer()
-                DayflowSurfaceButton(
-                    action: onCancel,
-                    content: {
-                        Text("Close").font(.custom("Nunito", size: 13)).fontWeight(.semibold)
-                    },
-                    background: Color.white,
-                    foreground: .black,
-                    borderColor: Color.black.opacity(0.15),
-                    cornerRadius: 8,
-                    horizontalPadding: 18,
-                    verticalPadding: 10,
-                    showOverlayStroke: false
+                LocalLLMTestView(
+                    baseURL: $candidateBaseURL,
+                    modelId: $candidateModelId,
+                    engine: selectedEngine,
+                    showInputs: true,
+                    buttonLabel: "Test upgrade",
+                    basePlaceholder: selectedEngine.defaultBaseURL,
+                    modelPlaceholder: preset.modelId(for: selectedEngine == .custom ? .ollama : selectedEngine),
+                    onTestComplete: { success in
+                        if success && !didApplyUpgrade {
+                            didApplyUpgrade = true
+                            onUpgradeSuccess(selectedEngine, candidateBaseURL, candidateModelId)
+                        }
+                    }
                 )
+
+                Text("Once the test succeeds, Dayflow updates your settings to \(preset.displayName) automatically.")
+                    .font(.custom("Nunito", size: 12))
+                    .foregroundColor(.black.opacity(0.55))
+
+                HStack {
+                    Spacer()
+                    DayflowSurfaceButton(
+                        action: onCancel,
+                        content: {
+                            Text("Close").font(.custom("Nunito", size: 13)).fontWeight(.semibold)
+                        },
+                        background: Color.white,
+                        foreground: .black,
+                        borderColor: Color.black.opacity(0.15),
+                        cornerRadius: 8,
+                        horizontalPadding: 18,
+                        verticalPadding: 10,
+                        showOverlayStroke: false
+                    )
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(32)
         }
-        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onChange(of: selectedEngine) { newEngine in
             candidateModelId = preset.modelId(for: newEngine == .custom ? .ollama : newEngine)
             if newEngine != .custom {
