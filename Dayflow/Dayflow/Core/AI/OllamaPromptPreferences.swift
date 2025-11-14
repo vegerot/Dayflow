@@ -68,19 +68,23 @@ enum OllamaPromptDefaults {
 
     static let titleBlock = """
         TITLE GUIDELINES:
-        Write like you're texting a friend about what you did today. Keep it 5-8 words maximum.
-        Be specific about what you actually did, not generic descriptions.
-        ⚠️ ONLY use details that exist in the summary - don't add information that wasn't mentioned.
+        Write like you're texting a friend. Keep it conversational and within 5-8 words (lean short).
+        Focus on ONE standout activity; you may mention one other equally dominant action, but phrase it as a quick "and/while" or dash connection (never a comma list).
+        Lead with an active verb or app + action, and include at most one supporting detail (app, medium, or topic). If you mention two activities, make it clear they both mattered without sounding like a checklist.
+        Describe what you were doing with the app/site; never just list tool names or open windows.
+        ⚠️ ONLY use details that exist in the summary — never invent context.
 
         GOOD EXAMPLES:
-        "Fixed CORS bugs in API endpoints"
-        "Mac settings while researching chargers"
-        "Wrote docs, kept checking Twitter"
-        "iPhone wireless charging research session"
-        "Debugged auth flow, tested endpoints"
-        "Reddit rabbit hole about React patterns"
+        "Debugged auth flow in VS Code"
+        "YouTube rabbit hole on gaming drama"
+        "Reviewing Figma designs"
+        "Slack catching up during deploy wait"
+        "Tweaked React hooks for dashboard"
 
         BAD EXAMPLES (with explanations):
+
+        ✗ "React coded, games streamed, tweets checked"
+          WHY BAD: Lists three different activities; no focus or clear takeaway.
 
         ✗ "User engaging in video calls, software updates, and browsing system preferences"
           WHY BAD: Too long (11 words), formal "engaging", says "User" instead of natural first-person
@@ -88,17 +92,13 @@ enum OllamaPromptDefaults {
         ✗ "Browsing and Browsing, Responding to Slack"
           WHY BAD: Repetitive "Browsing and Browsing", unclear what was browsed, awkward phrasing
 
-        ✗ "Browsing social media and coding project updates"
-          WHY BAD: Generic "browsing social media", vague "project updates", doesn't match actual activity
-
         ✗ "(Debugging & Coding) User's Time Spans"
           WHY BAD: Weird parentheses format, formal "Time Spans", says "User's" instead of natural language
 
-        ✗ "User Engages in Social Media Activities"
-          WHY BAD: Formal corporate speak ("engages", "activities"), says "User", too generic
-
         ✗ "Working on computer tasks and applications"
           WHY BAD: Completely generic, "working on" is lazy, could describe any computer use
+        ✗ "GitHub Desktop + terminal logs"
+          WHY BAD: Only lists tools; doesn't explain the action or intent
     """
 }
 
