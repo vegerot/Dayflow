@@ -62,7 +62,6 @@ final class SilentUserDriver: NSObject, SPUUserDriver {
 
     func showReady(toInstallAndRelaunch reply: @escaping (SPUUserUpdateChoice) -> Void) {
         print("[Sparkle] Ready to install; allowing termination")
-        // Allow app termination for install and relaunch on the main actor
         Task { @MainActor in
             AppDelegate.allowTermination = true
             reply(.install)

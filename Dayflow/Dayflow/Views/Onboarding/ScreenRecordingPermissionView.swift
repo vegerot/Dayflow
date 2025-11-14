@@ -197,7 +197,6 @@ struct ScreenRecordingPermissionView: View {
             }
         }
         .onDisappear {
-            // Restore default behavior: do not allow termination unless explicit
             Task { @MainActor in AppDelegate.allowTermination = false }
         }
     }
@@ -212,22 +211,17 @@ struct ScreenRecordingPermissionView: View {
         if CGPreflightScreenCaptureAccess() {
             permissionState = .granted
             AnalyticsService.shared.capture("screen_permission_granted")
-            Task { @MainActor in
-                AppDelegate.allowTermination = false
-            }
+            Task { @MainActor in AppDelegate.allowTermination = false }
         } else {
             permissionState = .needsAction
             AnalyticsService.shared.capture("screen_permission_denied")
-            Task { @MainActor in
-                AppDelegate.allowTermination = true
-            }
+            Task { @MainActor in AppDelegate.allowTermination = true }
         }
         isCheckingPermission = false
     }
-    
+
     private func openSystemSettings() {
         initiatedFlow = true
-        // Ensure termination is allowed before the user toggles permission
         Task { @MainActor in AppDelegate.allowTermination = true }
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
             _ = NSWorkspace.shared.open(url)

@@ -80,8 +80,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AnalyticsService.shared.capture("app_updated", ["from_version": last, "to_version": "\(version) (\(build))"])        
         }
         UserDefaults.standard.set(build, forKey: "lastRunBuild")
-        
-        statusBar = StatusBarController()   // safe: AppKit is ready, main thread
+        statusBar = StatusBarController()
         deepLinkRouter = AppDeepLinkRouter(delegate: self)
 
         // Check if we've passed the screen recording permission step
