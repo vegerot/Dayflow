@@ -48,6 +48,7 @@ struct LLMCategoryDescriptor: Codable, Equatable, Hashable, Sendable {
 
 @MainActor
 final class CategoryStore: ObservableObject {
+    static let shared = CategoryStore()
     enum StoreKeys {
         static let categories = "colorCategories"
         static let hasUsedApp = "hasUsedApp"

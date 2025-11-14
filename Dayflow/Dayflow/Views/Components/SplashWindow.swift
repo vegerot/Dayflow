@@ -27,6 +27,7 @@ class SplashWindow: NSWindow {
         self.level = .floating
         self.hasShadow = false
         self.isMovableByWindowBackground = false
+        self.ignoresMouseEvents = true // never block clicks if this borderless window lingers
         
         // Center window
         self.center()

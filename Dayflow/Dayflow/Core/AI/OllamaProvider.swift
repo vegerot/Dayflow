@@ -788,6 +788,8 @@ final class OllamaProvider: LLMProvider {
           "reasoning": "Explain how you chose the title",
           "title": "5-8 word conversational title using only summary facts"
         }
+
+        Avoid comma-separated lists or multiple conjunctions; only mention a second activity if it clearly shares the spotlight without turning into a checklist.
         """
 
         print("[DEBUG] generateTitle final prompt:")
