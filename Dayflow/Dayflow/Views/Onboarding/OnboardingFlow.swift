@@ -410,7 +410,7 @@ struct CompletionView: View {
                     onFinish()
                 },
                 content: { 
-                    Text("Proceed")
+                    Text("Start")
                         .font(.custom("Nunito", size: 16))
                         .fontWeight(.semibold) 
                 },
