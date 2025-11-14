@@ -81,6 +81,9 @@ struct SettingsView: View {
         }
         return stored
     }()
+    @State private var localAPIKey: String = {
+        UserDefaults.standard.string(forKey: "llmLocalAPIKey") ?? ""
+    }()
     @State private var showLocalModelUpgradeBanner = false
     @State private var isShowingLocalModelUpgradeSheet = false
     @State private var upgradeStatusMessage: String?
@@ -168,6 +171,9 @@ struct SettingsView: View {
         .onChange(of: localBaseURL) { newValue in
             UserDefaults.standard.set(newValue, forKey: "llmLocalBaseURL")
         }
+        .onChange(of: localAPIKey) { newValue in
+            persistLocalAPIKey(newValue)
+        }
         .sheet(item: Binding(
             get: { setupModalProvider.map { ProviderSetupWrapper(id: $0) } },
             set: { setupModalProvider = $0?.id }
@@ -188,9 +194,10 @@ struct SettingsView: View {
                 initialEngine: localEngine,
                 initialBaseURL: localBaseURL,
                 initialModelId: localModelId,
+                initialAPIKey: localAPIKey,
                 onCancel: { isShowingLocalModelUpgradeSheet = false },
-                onUpgradeSuccess: { engine, baseURL, modelId in
-                    handleUpgradeSuccess(engine: engine, baseURL: baseURL, modelId: modelId)
+                onUpgradeSuccess: { engine, baseURL, modelId, apiKey in
+                    handleUpgradeSuccess(engine: engine, baseURL: baseURL, modelId: modelId, apiKey: apiKey)
                     isShowingLocalModelUpgradeSheet = false
                 }
             )
@@ -580,12 +587,14 @@ struct SettingsView: View {
                         LocalLLMTestView(
                             baseURL: $localBaseURL,
                             modelId: $localModelId,
+                            apiKey: $localAPIKey,
                             engine: localEngine,
-                            showInputs: false,
+                            showInputs: localEngine == .custom,
                             onTestComplete: { _ in
                                 UserDefaults.standard.set(localBaseURL, forKey: "llmLocalBaseURL")
                                 UserDefaults.standard.set(localModelId, forKey: "llmLocalModelId")
                                 LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
+                                persistLocalAPIKey(localAPIKey)
                                 refreshUpgradeBannerState()
                             }
                         )
@@ -813,6 +822,8 @@ struct SettingsView: View {
                 summaryRow(label: "Engine", value: localEngine.displayName)
                 summaryRow(label: "Model", value: localModelId.isEmpty ? "Not configured" : localModelId)
                 summaryRow(label: "Endpoint", value: localBaseURL)
+                let hasKey = !localAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                summaryRow(label: "API key", value: hasKey ? "Stored in UserDefaults" : "Not set")
             case "gemini":
                 summaryRow(label: "Model preference", value: selectedGeminiModel.displayName)
                 summaryRow(label: "API key", value: KeychainManager.shared.retrieve(for: "gemini") != nil ? "Stored safely in Keychain" : "Not set")
@@ -1141,6 +1152,7 @@ struct SettingsView: View {
     private func reloadLocalProviderSettings() {
         localBaseURL = UserDefaults.standard.string(forKey: "llmLocalBaseURL") ?? localBaseURL
         localModelId = UserDefaults.standard.string(forKey: "llmLocalModelId") ?? localModelId
+        localAPIKey = UserDefaults.standard.string(forKey: "llmLocalAPIKey") ?? localAPIKey
         let raw = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? localEngine.rawValue
         localEngine = LocalEngine(rawValue: raw) ?? localEngine
         LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
@@ -1161,13 +1173,16 @@ struct SettingsView: View {
         showLocalModelUpgradeBanner = shouldShow && currentProvider == "ollama"
     }
 
-    private func handleUpgradeSuccess(engine: LocalEngine, baseURL: String, modelId: String) {
+    private func handleUpgradeSuccess(engine: LocalEngine, baseURL: String, modelId: String, apiKey: String) {
+        let normalizedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         localEngine = engine
         localBaseURL = baseURL
         localModelId = modelId
+        localAPIKey = normalizedKey
         UserDefaults.standard.set(baseURL, forKey: "llmLocalBaseURL")
         UserDefaults.standard.set(modelId, forKey: "llmLocalModelId")
         UserDefaults.standard.set(engine.rawValue, forKey: "llmLocalEngine")
+        persistLocalAPIKey(normalizedKey)
         LocalModelPreferences.syncPreset(for: engine, modelId: modelId)
         LocalModelPreferences.markUpgradeDismissed(true)
         refreshUpgradeBannerState()
@@ -1179,6 +1194,15 @@ struct SettingsView: View {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
             upgradeStatusMessage = nil
+        }
+    }
+
+    private func persistLocalAPIKey(_ value: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            UserDefaults.standard.removeObject(forKey: "llmLocalAPIKey")
+        } else {
+            UserDefaults.standard.set(trimmed, forKey: "llmLocalAPIKey")
         }
     }
 
@@ -1261,9 +1285,11 @@ struct SettingsView: View {
             let localEngine = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
             let localModelId = UserDefaults.standard.string(forKey: "llmLocalModelId") ?? "unknown"
             let localBaseURL = UserDefaults.standard.string(forKey: "llmLocalBaseURL") ?? "unknown"
+            let localAPIKey = (UserDefaults.standard.string(forKey: "llmLocalAPIKey") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             props["local_engine"] = localEngine
             props["model_id"] = localModelId
             props["base_url"] = localBaseURL
+            props["has_api_key"] = !localAPIKey.isEmpty
         }
         AnalyticsService.shared.capture("provider_setup_completed", props)
         AnalyticsService.shared.setPersonProperties(["current_llm_provider": providerId])
@@ -1473,12 +1499,14 @@ private struct LocalModelUpgradeSheet: View {
     let initialEngine: LocalEngine
     let initialBaseURL: String
     let initialModelId: String
+    let initialAPIKey: String
     let onCancel: () -> Void
-    let onUpgradeSuccess: (LocalEngine, String, String) -> Void
+    let onUpgradeSuccess: (LocalEngine, String, String, String) -> Void
 
     @State private var selectedEngine: LocalEngine
     @State private var candidateBaseURL: String
     @State private var candidateModelId: String
+    @State private var candidateAPIKey: String
     @State private var didApplyUpgrade = false
 
     init(
@@ -1486,13 +1514,15 @@ private struct LocalModelUpgradeSheet: View {
         initialEngine: LocalEngine,
         initialBaseURL: String,
         initialModelId: String,
+        initialAPIKey: String,
         onCancel: @escaping () -> Void,
-        onUpgradeSuccess: @escaping (LocalEngine, String, String) -> Void
+        onUpgradeSuccess: @escaping (LocalEngine, String, String, String) -> Void
     ) {
         self.preset = preset
         self.initialEngine = initialEngine
         self.initialBaseURL = initialBaseURL
         self.initialModelId = initialModelId
+        self.initialAPIKey = initialAPIKey
         self.onCancel = onCancel
         self.onUpgradeSuccess = onUpgradeSuccess
 
@@ -1501,6 +1531,7 @@ private struct LocalModelUpgradeSheet: View {
         _candidateBaseURL = State(initialValue: initialBaseURL.isEmpty ? startingEngine.defaultBaseURL : initialBaseURL)
         let recommendedModel = preset.modelId(for: startingEngine == .custom ? .ollama : startingEngine)
         _candidateModelId = State(initialValue: recommendedModel)
+        _candidateAPIKey = State(initialValue: initialAPIKey)
     }
 
     var body: some View {
@@ -1555,6 +1586,7 @@ private struct LocalModelUpgradeSheet: View {
                 LocalLLMTestView(
                     baseURL: $candidateBaseURL,
                     modelId: $candidateModelId,
+                    apiKey: $candidateAPIKey,
                     engine: selectedEngine,
                     showInputs: true,
                     buttonLabel: "Test upgrade",
@@ -1563,7 +1595,7 @@ private struct LocalModelUpgradeSheet: View {
                     onTestComplete: { success in
                         if success && !didApplyUpgrade {
                             didApplyUpgrade = true
-                            onUpgradeSuccess(selectedEngine, candidateBaseURL, candidateModelId)
+                            onUpgradeSuccess(selectedEngine, candidateBaseURL, candidateModelId, candidateAPIKey)
                         }
                     }
                 )
@@ -1597,6 +1629,7 @@ private struct LocalModelUpgradeSheet: View {
             candidateModelId = preset.modelId(for: newEngine == .custom ? .ollama : newEngine)
             if newEngine != .custom {
                 candidateBaseURL = newEngine.defaultBaseURL
+                candidateAPIKey = ""
             }
         }
     }

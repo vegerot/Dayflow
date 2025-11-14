@@ -621,6 +621,7 @@ struct LLMProviderSetupView: View {
                                 LocalLLMTestView(
                                     baseURL: $setupState.localBaseURL,
                                     modelId: $setupState.localModelId,
+                                    apiKey: $setupState.localAPIKey,
                                     engine: setupState.localEngine,
                                     showInputs: setupState.localEngine == .custom,
                                     onTestComplete: { success in
@@ -811,6 +812,16 @@ struct LLMProviderSetupView: View {
         UserDefaults.standard.set("ollama", forKey: "selectedLLMProvider")
         // Also store the endpoint explicitly for other parts of the app if needed
         UserDefaults.standard.set(endpoint, forKey: "llmLocalBaseURL")
+        persistLocalAPIKey(setupState.localAPIKey)
+    }
+
+    private func persistLocalAPIKey(_ value: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            UserDefaults.standard.removeObject(forKey: "llmLocalAPIKey")
+        } else {
+            UserDefaults.standard.set(trimmed, forKey: "llmLocalAPIKey")
+        }
     }
     
     private func openGoogleAIStudio() {
@@ -866,6 +877,7 @@ class ProviderSetupState: ObservableObject {
     @Published var localEngine: LocalEngine = .ollama
     @Published var localBaseURL: String = "http://localhost:11434"
     @Published var localModelId: String = LocalModelPreferences.defaultModelId(for: .ollama)
+    @Published var localAPIKey: String = UserDefaults.standard.string(forKey: "llmLocalAPIKey") ?? ""
     // CLI detection
     @Published var codexCLIStatus: CLIDetectionState = .unknown
     @Published var claudeCLIStatus: CLIDetectionState = .unknown
@@ -1241,14 +1253,16 @@ extension ProviderSetupState {
         AnalyticsService.shared.capture("local_engine_selected", [
             "engine": engine.rawValue,
             "base_url": localBaseURL,
-            "default_model": defaultModel
+            "default_model": defaultModel,
+            "has_api_key": !localAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         ])
     }
     
     var localCurlCommand: String {
         let payload = "{\"model\":\"\(localModelId)\",\"messages\":[{\"role\":\"user\",\"content\":\"Say 'hello' and your model name.\"}],\"max_tokens\":50}"
         let authHeader = localEngine == .lmstudio ? " -H \"Authorization: Bearer lm-studio\"" : ""
-        return "curl -s \(localBaseURL)/v1/chat/completions -H \"Content-Type: application/json\"\(authHeader) -d '\(payload)'"
+        let endpoint = LocalEndpointUtilities.chatCompletionsURL(baseURL: localBaseURL)?.absoluteString ?? "\(localBaseURL)/v1/chat/completions"
+        return "curl -s \(endpoint) -H \"Content-Type: application/json\"\(authHeader) -d '\(payload)'"
     }
 }
 
@@ -1299,17 +1313,43 @@ private enum LocalLLMTestImageFactory {
 }
 
 struct LocalLLMTestView: View {
-    @Binding var baseURL: String
-    @Binding var modelId: String
-    let engine: LocalEngine
-    var showInputs: Bool = true
-    var buttonLabel: String = "Test Local API"
-    var basePlaceholder: String? = nil
-    var modelPlaceholder: String? = nil
-    let onTestComplete: (Bool) -> Void
+    @Binding private var baseURL: String
+    @Binding private var modelId: String
+    @Binding private var apiKey: String
+    private let engine: LocalEngine
+    private let showInputs: Bool
+    private let buttonLabel: String
+    private let basePlaceholder: String?
+    private let modelPlaceholder: String?
+    private let onTestComplete: (Bool) -> Void
+
+    init(
+        baseURL: Binding<String>,
+        modelId: Binding<String>,
+        apiKey: Binding<String> = .constant(""),
+        engine: LocalEngine,
+        showInputs: Bool = true,
+        buttonLabel: String = "Test Local API",
+        basePlaceholder: String? = nil,
+        modelPlaceholder: String? = nil,
+        onTestComplete: @escaping (Bool) -> Void
+    ) {
+        _baseURL = baseURL
+        _modelId = modelId
+        _apiKey = apiKey
+        self.engine = engine
+        self.showInputs = showInputs
+        self.buttonLabel = buttonLabel
+        self.basePlaceholder = basePlaceholder
+        self.modelPlaceholder = modelPlaceholder
+        self.onTestComplete = onTestComplete
+    }
 
     private let accentColor = Color(red: 0.25, green: 0.17, blue: 0)
     private let successAccentColor = Color(red: 0.34, green: 1, blue: 0.45)
+    private var trimmedAPIKey: String {
+        apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     @State private var isTesting = false
     @State private var resultMessage: String?
@@ -1332,6 +1372,20 @@ struct LocalLLMTestView: View {
                         .foregroundColor(.black.opacity(0.6))
                     TextField(modelPlaceholder ?? LocalModelPreferences.defaultModelId(for: engine), text: $modelId)
                         .textFieldStyle(.roundedBorder)
+                }
+
+                if engine == .custom {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("API key (optional)")
+                            .font(.custom("Nunito", size: 13))
+                            .foregroundColor(.black.opacity(0.6))
+                        SecureField("sk-live-...", text: $apiKey)
+                            .textFieldStyle(.roundedBorder)
+                            .disableAutocorrection(true)
+                        Text("Stored locally in UserDefaults and sent as a Bearer token for custom endpoints (LiteLLM, OpenRouter, etc.)")
+                            .font(.custom("Nunito", size: 11))
+                            .foregroundColor(.black.opacity(0.5))
+                    }
                 }
             }
             
@@ -1380,7 +1434,7 @@ struct LocalLLMTestView: View {
         success = false
         resultMessage = nil
 
-        guard let url = URL(string: "\(baseURL)/v1/chat/completions") else {
+        guard let url = LocalEndpointUtilities.chatCompletionsURL(baseURL: baseURL) else {
             resultMessage = "Invalid base URL"
             isTesting = false
             onTestComplete(false)
@@ -1405,6 +1459,9 @@ struct LocalLLMTestView: View {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if engine == .lmstudio { request.setValue("Bearer lm-studio", forHTTPHeaderField: "Authorization") }
+        if engine == .custom && !trimmedAPIKey.isEmpty {
+            request.setValue("Bearer \(trimmedAPIKey)", forHTTPHeaderField: "Authorization")
+        }
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
         request.httpBody = try? encoder.encode(payload)

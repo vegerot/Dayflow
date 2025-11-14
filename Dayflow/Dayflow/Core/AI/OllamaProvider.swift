@@ -24,6 +24,13 @@ final class OllamaProvider: LLMProvider {
     private var isLMStudio: Bool {
         (UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama") == "lmstudio"
     }
+    private var isCustomEngine: Bool {
+        (UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama") == "custom"
+    }
+    private var customAPIKey: String? {
+        let trimmed = UserDefaults.standard.string(forKey: "llmLocalAPIKey")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
 
     // Get the actual local engine type for analytics tracking
     private var localEngine: String {
@@ -452,7 +459,9 @@ final class OllamaProvider: LLMProvider {
     }
 
     private func callChatAPI(_ request: ChatRequest, operation: String, batchId: Int64? = nil, maxRetries: Int = 3) async throws -> ChatResponse {
-        let url = URL(string: "\(endpoint)/v1/chat/completions")!
+        guard let url = LocalEndpointUtilities.chatCompletionsURL(baseURL: endpoint) else {
+            throw NSError(domain: "OllamaProvider", code: 15, userInfo: [NSLocalizedDescriptionKey: "Invalid local endpoint URL"])
+        }
         
         // Retry logic with exponential backoff
         let attempts = max(1, maxRetries)
@@ -466,9 +475,7 @@ final class OllamaProvider: LLMProvider {
                 var urlRequest = URLRequest(url: url)
                 urlRequest.httpMethod = "POST"
                 urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                if isLMStudio {
-                    urlRequest.setValue("Bearer lm-studio", forHTTPHeaderField: "Authorization")
-                }
+                applyAuthorizationHeader(to: &urlRequest)
                 urlRequest.httpBody = try JSONEncoder().encode(request)
                 urlRequest.timeoutInterval = 60.0  // 60-second timeout
                 
@@ -786,10 +793,11 @@ final class OllamaProvider: LLMProvider {
         Return JSON:
         {
           "reasoning": "Explain how you chose the title",
-          "title": "5-8 word conversational title using only summary facts"
+          "title": "5-8 word conversational title highlighting one standout activity (optionally plus one other dominant action) using only summary facts"
         }
 
         Avoid comma-separated lists or multiple conjunctions; only mention a second activity if it clearly shares the spotlight without turning into a checklist.
+        Always describe what happened (e.g., "Reviewed GitHub PRs") instead of just naming apps or panes.
         """
 
         print("[DEBUG] generateTitle final prompt:")
@@ -883,8 +891,6 @@ final class OllamaProvider: LLMProvider {
 
         MERGE DECISION RULE:
         The Golden Rule: When merged, they should tell one coherent story, not two different ones
-
-        ⚠️ BE STRICT! When in doubt, keep them separate.
 
         MERGE ONLY IF:
         ✓ Same project or closely related task
@@ -992,12 +998,10 @@ final class OllamaProvider: LLMProvider {
         Summary: \(newCard.summary)
 
         Create a unified title and summary that covers the entire period from \(previousCard.startTime) to \(newCard.endTime).
-        Title: 5-10 words, conversational, explicitly name every distinct site, app, or topic mentioned in the inputs, and tie them together with active verbs instead of
-          umbrella categories.
-          Summary: Two or three sentences, first-person perspective without using the word I. Retell the actions in chronological order and reuse the specific proper nouns
-          from the inputs; describe each step with concrete verbs (e.g., read, replied, compared) rather than grouping them under generic labels.
-          Avoid the words social, media, platform, platforms, interaction, interactions, various, engaged, blend, activity, activities.
-          Do not refer to the user; write from the user’s perspective.
+        Title: 5-8 words, conversational, spotlight the main through-line. You may mention one other equally dominant action, but connect it with a quick “while” or em dash—never comma lists or “and” chains. Cite only the most important apps/sites rather than every noun.
+        Summary: Two sentences max, first-person perspective without using the word I. Retell how the work flowed from the first card into the second with concrete verbs (debugged, reviewed, watched) and name the stand-out tools/topics once each. Skip laundry lists, filler like “various tasks,” and bullet points.
+        Avoid the words social, media, platform, platforms, interaction, interactions, various, engaged, blend, activity, activities.
+        Do not refer to the user; write from the user’s perspective.
 
           GOOD EXAMPLES:
           Card 1: Customer interviews wrap-up + Card 2: Insights deck synthesis
@@ -1005,10 +1009,11 @@ final class OllamaProvider: LLMProvider {
           Merged Summary: Logged interview quotes into Airtable. Highlighted the strongest themes and molded them into the insights deck outline.
 
           Card 1: QA-ing mobile release + Card 2: Answering support tickets
-          Merged Title: Balanced mobile QA with support triage
-          Merged Summary: Ran through the iOS smoke checklist in TestFlight. Swapped over to Help Scout to clear the high-priority tickets.
+          Merged Title: Balanced mobile QA while clearing support
+          Merged Summary: Ran through the iOS smoke checklist in TestFlight. Hopped into Help Scout to close the urgent tickets.
 
           BAD EXAMPLES:
+          ✗ Title: Coding, gaming, and Swift fixes with AI tools and Dayflow (comma list trying to cover everything)
           ✗ Title: Busy afternoon session (too vague)
           ✗ Summary: Worked on several things across platforms (generic, missing specifics)
           ✗ Summary that omits a named site/app/topic from the inputs
@@ -1446,5 +1451,15 @@ final class OllamaProvider: LLMProvider {
             code: 9,
             userInfo: [NSLocalizedDescriptionKey: "Failed to generate merged observations after multiple attempts"]
         )
+    }
+}
+
+extension OllamaProvider {
+    private func applyAuthorizationHeader(to request: inout URLRequest) {
+        if isLMStudio {
+            request.setValue("Bearer lm-studio", forHTTPHeaderField: "Authorization")
+        } else if isCustomEngine, let token = customAPIKey {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
     }
 }
