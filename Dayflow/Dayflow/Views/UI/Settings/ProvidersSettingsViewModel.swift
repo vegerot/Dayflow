@@ -225,6 +225,8 @@ final class ProvidersSettingsViewModel: ObservableObject {
                 currentProvider = "ollama"
             case .chatGPTClaude:
                 currentProvider = "chatgpt_claude"
+            case .doubaoArk:
+                currentProvider = "doubao"
             }
         }
         hasLoadedProvider = true
@@ -431,6 +433,15 @@ final class ProvidersSettingsViewModel: ObservableObject {
             let preferredTool = (UserDefaults.standard.string(forKey: "chatCLIPreferredTool") ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             return !preferredTool.isEmpty
+        case "doubao":
+            if UserDefaults.standard.bool(forKey: "doubaoSetupComplete") {
+                return true
+            }
+            let key = (KeychainManager.shared.retrieve(for: "doubao") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let modelId = (UserDefaults.standard.string(forKey: "llmDoubaoModelId") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return !key.isEmpty && !modelId.isEmpty
         default:
             return false
         }
@@ -481,6 +492,11 @@ final class ProvidersSettingsViewModel: ObservableObject {
             providerType = .dayflowBackend()
         case "chatgpt_claude":
             providerType = .chatGPTClaude
+        case "doubao":
+            let endpoint = (UserDefaults.standard.string(forKey: "llmDoubaoBaseURL") ?? "https://ark.cn-beijing.volces.com/api/v3")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedEndpoint = endpoint.isEmpty ? "https://ark.cn-beijing.volces.com/api/v3" : endpoint
+            providerType = .doubaoArk(endpoint: resolvedEndpoint)
         default:
             return
         }
@@ -558,6 +574,13 @@ final class ProvidersSettingsViewModel: ObservableObject {
             props["has_api_key"] = !localAPIKeyValue.isEmpty
         } else if providerId == "chatgpt_claude" {
             props["chat_cli_tool"] = UserDefaults.standard.string(forKey: "chatCLIPreferredTool") ?? "unknown"
+        } else if providerId == "doubao" {
+            let baseURL = UserDefaults.standard.string(forKey: "llmDoubaoBaseURL") ?? "unknown"
+            let modelId = UserDefaults.standard.string(forKey: "llmDoubaoModelId") ?? "unknown"
+            let hasKey = !(KeychainManager.shared.retrieve(for: "doubao") ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            props["base_url"] = baseURL
+            props["model_id"] = modelId
+            props["has_api_key"] = hasKey
         }
         AnalyticsService.shared.capture("provider_setup_completed", props)
     }
@@ -592,6 +615,14 @@ final class ProvidersSettingsViewModel: ObservableObject {
                 badgeText: "RECOMMENDED",
                 badgeType: .orange,
                 icon: "gemini_asset"
+            ),
+            CompactProviderInfo(
+                id: "doubao",
+                title: "Doubao (Ark)",
+                summary: "Volcengine Ark • OpenAI-compatible • bring your own key",
+                badgeText: "BYOK",
+                badgeType: .blue,
+                icon: "globe.asia.australia"
             ),
             CompactProviderInfo(
                 id: "chatgpt",
@@ -629,6 +660,12 @@ final class ProvidersSettingsViewModel: ObservableObject {
             return "\(engineName) - \(truncatedModel)"
         case "gemini":
             return selectedGeminiModel.displayName
+        case "doubao":
+            let model = (UserDefaults.standard.string(forKey: "llmDoubaoModelId") ?? "doubao-seed-1-6-flash-250828")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let displayModel = model.isEmpty ? "doubao-seed-1-6-flash-250828" : model
+            let truncated = displayModel.count > 30 ? String(displayModel.prefix(27)) + "..." : displayModel
+            return "Ark - \(truncated)"
         case "chatgpt_claude":
             if providerId == "chatgpt" {
                 return "ChatGPT – Codex CLI"
@@ -660,6 +697,8 @@ final class ProvidersSettingsViewModel: ObservableObject {
             return "Gemini API"
         case "ollama":
             return "Local API"
+        case "doubao":
+            return "Doubao (Ark) API"
         case "chatgpt_claude":
             if let tool = preferredCLITool {
                 return "\(tool.shortName) CLI"
@@ -674,6 +713,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
         switch id {
         case "ollama": return "Local"
         case "gemini": return "Gemini"
+        case "doubao": return "Doubao"
         case "chatgpt": return "ChatGPT"
         case "claude": return "Claude"
         case "chatgpt_claude":
