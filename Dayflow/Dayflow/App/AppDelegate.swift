@@ -232,6 +232,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         case .dayflowBackend: return "dayflow"
                         case .ollamaLocal: return "ollama"
                         case .chatGPTClaude: return "chat_cli"
+                        case .doubaoArk: return "doubao"
                         }
                     }
                     return "unknown"
