@@ -184,3 +184,155 @@ struct GeminiPromptSections {
         return trimmed.isEmpty ? defaultBlock : trimmed
     }
 }
+
+/// Shared prompt templates used by multiple LLM providers.
+///
+/// When prompts must remain *exactly* identical between providers, keep them here and call these helpers.
+enum LLMPromptTemplates {
+    static func screenRecordingTranscriptionPrompt(durationString: String) -> String {
+        """
+        # Screen Recording Transcription (Reconstruct Mode)
+
+        Watch this screen recording and create an activity log detailed enough that someone could reconstruct the session.
+
+        CRITICAL: This video is exactly \(durationString) long. ALL timestamps must be within 00:00 to \(durationString). No gaps.
+
+        For each segment, ask yourself:
+        "What EXACTLY did they do? What SPECIFIC things can I see?"
+
+        Capture:
+        - Exact app/site names visible
+        - Exact file names, URLs, page titles
+        - Exact usernames, search queries, messages
+        - Exact numbers, stats, prices shown
+
+        Bad: "Checked email"
+        Good: "Gmail: Read email from boss@company.com 'RE: Budget approval' - replied 'Looks good'"
+
+        Bad: "Browsing Twitter"
+        Good: "Twitter/X: Scrolled feed - viewed posts by @pmarca about AI, @sama thread on GPT-5 (12 tweets)"
+
+        Bad: "Working on code"
+        Good: "VS Code: Editing StorageManager.swift - fixed type error on line 47, changed String to String?"
+
+        Segments:
+        - 3-8 segments total
+        - You may use 1 segment only if the user appears idle for most of the recording
+        - Group by GOAL not app (IDE + Terminal + Browser for the same task = 1 segment)
+        - Do not create gaps; cover the full timeline
+
+        Return ONLY JSON in this format:
+        [
+          {
+            "startTimestamp": "MM:SS",
+            "endTimestamp": "MM:SS",
+            "description": "1-3 sentences with specific details"
+          }
+        ]
+        """
+    }
+
+    static func activityCardsPrompt(
+        existingCardsString: String,
+        transcriptText: String,
+        categoriesSection: String,
+        promptSections: GeminiPromptSections,
+        languageBlock: String
+    ) -> String {
+        """
+        You are a digital anthropologist, observing a user's raw activity log. Your goal is to synthesize this log into a high-level, human-readable story of their session, presented as a series of timeline cards.
+        THE GOLDEN RULE:
+            Create cards that narrate one cohesive session, aiming for 15–60 minutes. Keep every card ≥10 minutes, split up any cards that are >60 minutes, and if a prospective card would be <10 minutes, merge it into the neighboring card that preserves the best story.
+
+            CONTINUITY RULE:
+            You may adjust boundaries for clarity, but never introduce new gaps or overlaps. Preserve any original gaps in the source timeline and keep adjacent covered
+          spans meeting cleanly.
+
+            CORE DIRECTIVES:
+            - Theme Test Before Extending: Extend the current card only when the new observations continue the same dominant activity. Shifts shorter than 10 minutes should
+          be logged as distractions or merged into the adjacent segment that keeps the theme coherent; shifts ≥10 minutes become new cards.
+        
+        \(promptSections.title)
+
+        \(promptSections.summary)
+
+        \(categoriesSection)
+
+        \(promptSections.detailedSummary)
+
+        \(languageBlock)
+
+        APP SITES (Website Logos)
+        Identify the main app or website used for each card and include an appSites object.
+
+        Rules:
+        - primary: The canonical domain (or canonical product path) of the main app used in the card.
+        - secondary: Another meaningful app used during this session OR the enclosing app (e.g., browser), if relevant.
+        - Format: lower-case, no protocol, no query or fragments. Use product subdomains/paths when they are canonical (e.g., docs.google.com for Google Docs).
+        - Be specific: prefer product domains over generic ones (docs.google.com over google.com).
+        - If you cannot determine a secondary, omit it.
+        - Do not invent brands; rely on evidence from observations.
+
+        Canonical examples:
+        - Figma → figma.com
+        - Notion → notion.so
+        - Google Docs → docs.google.com
+        - Gmail → mail.google.com
+        - Google Sheets → sheets.google.com
+        - Zoom → zoom.us
+        - ChatGPT → chatgpt.com
+        - VS Code → code.visualstudio.com
+        - Xcode → developer.apple.com/xcode
+        - Chrome → google.com/chrome
+        - Safari → apple.com/safari
+        - Twitter/X → x.com
+
+        YOUR MENTAL MODEL (How to Decide):
+        Before making a decision, ask yourself these questions in order:
+
+        What is the dominant theme of the current card?
+        Do the new observations continue or relate to this theme? If yes, extend the card.
+        Is this a brief (<5 min) and unrelated pivot? If yes, add it as a distraction to the current card and continue extending.
+        Is this a sustained shift in focus (>15 min) that represents a different activity category or goal? If yes, create a new card regardless of the current card's length.
+
+        DISTRACTIONS:
+        A "distraction" is a brief (<5 min) and unrelated activity that interrupts the main theme of a card. Sustained activities (>5 min) are NOT distractions - they either belong to the current theme or warrant a new card. Don't label related sub-tasks as distractions.
+
+        INPUT/OUTPUT CONTRACT:
+        Your output cards MUST cover the same total time range as the "Previous cards" plus any new time from observations.
+        - If Previous cards span 11:11 AM - 11:53 AM, your output must also cover 11:11 AM - 11:53 AM (you may restructure the cards, but don't drop time segments)
+        - If new observations extend beyond the previous cards' time range, create additional cards to cover that new time
+        - The only exception: if there's a genuine gap between previous cards (e.g., 11:27 AM to 11:33 AM with no activity), preserve that gap
+        - Think of "Previous cards" as a DRAFT that you're revising/extending, not as locked history
+
+        INPUTS:
+        Previous cards: \(existingCardsString)
+        New observations: \(transcriptText)
+        Return ONLY a JSON array with this EXACT structure:
+
+                [
+                  {
+                    "startTime": "1:12 AM",
+                    "endTime": "1:30 AM",
+                    "category": "",
+                    "subcategory": "",
+                    "title": "",
+                    "summary": "",
+                    "detailedSummary": "",
+                    "distractions": [
+                      {
+                        "startTime": "1:15 AM",
+                        "endTime": "1:18 AM",
+                        "title": "",
+                        "summary": ""
+                      }
+                    ],
+                    "appSites": {
+                      "primary": "",
+                      "secondary": ""
+                    }
+                  }
+                ]
+        """
+    }
+}
