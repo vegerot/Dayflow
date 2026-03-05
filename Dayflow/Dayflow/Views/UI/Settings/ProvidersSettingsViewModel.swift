@@ -713,7 +713,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
     func loadGeminiPromptOverridesIfNeeded(force: Bool = false) {
         if geminiPromptOverridesLoaded && !force { return }
         isUpdatingGeminiPromptState = true
-        let overrides = GeminiPromptPreferences.load()
+        let overrides = VideoPromptPreferences.load()
 
         let trimmedTitle = overrides.titleBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedSummary = overrides.summaryBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -737,16 +737,16 @@ final class ProvidersSettingsViewModel: ObservableObject {
     }
 
     func persistGeminiPromptOverrides() {
-        let overrides = GeminiPromptOverrides(
+        let overrides = VideoPromptOverrides(
             titleBlock: normalizedOverride(text: geminiTitlePromptText, enabled: useCustomGeminiTitlePrompt),
             summaryBlock: normalizedOverride(text: geminiSummaryPromptText, enabled: useCustomGeminiSummaryPrompt),
             detailedBlock: normalizedOverride(text: geminiDetailedPromptText, enabled: useCustomGeminiDetailedPrompt)
         )
 
         if overrides.isEmpty {
-            GeminiPromptPreferences.reset()
+            VideoPromptPreferences.reset()
         } else {
-            GeminiPromptPreferences.save(overrides)
+            VideoPromptPreferences.save(overrides)
         }
     }
 
@@ -758,7 +758,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
         geminiTitlePromptText = GeminiPromptDefaults.titleBlock
         geminiSummaryPromptText = GeminiPromptDefaults.summaryBlock
         geminiDetailedPromptText = GeminiPromptDefaults.detailedSummaryBlock
-        GeminiPromptPreferences.reset()
+        VideoPromptPreferences.reset()
         isUpdatingGeminiPromptState = false
         geminiPromptOverridesLoaded = true
     }
