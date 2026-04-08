@@ -124,7 +124,7 @@ extension UpdaterManager: SPUUpdaterDelegate {
   nonisolated func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
     Task { @MainActor in
       print("[Sparkle] Updater will relaunch application")
-      AppDelegate.allowTermination = true
+      AppDelegate.allowTermination = false
       self.track("sparkle_app_relaunching")
     }
   }
