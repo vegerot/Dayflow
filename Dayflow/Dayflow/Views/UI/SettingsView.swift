@@ -102,7 +102,7 @@ struct SettingsView: View {
       otherViewModel.refreshAnalyticsState()
       storageViewModel.refreshStorageIfNeeded(isStorageTab: selectedTab == .storage)
       AnalyticsService.shared.capture("settings_opened")
-      launchAtLoginManager.refreshStatus()
+      Task { await launchAtLoginManager.refreshStatusAsync() }
     }
     .onChange(of: selectedTab) { _, newValue in
       if newValue == .storage {

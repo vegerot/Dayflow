@@ -40,7 +40,7 @@ final class LaunchAtLoginManager: ObservableObject {
   }
 
   /// Async version that runs the XPC call off the main actor to avoid blocking
-  private func refreshStatusAsync() async {
+  func refreshStatusAsync() async {
     // Run XPC call on background thread
     let status = await Task.detached(priority: .utility) {
       SMAppService.mainApp.status
