@@ -3,6 +3,18 @@ import GRDB
 import Sentry
 
 extension StorageManager {
+  /// Active cards carrying this exact category label. Used by the agent
+  /// bridge to tell the user how many activities a category delete orphans.
+  func countTimelineCards(inCategory category: String) -> Int {
+    (try? timedRead("countTimelineCards(inCategory:)") { db in
+      try Int.fetchOne(
+        db,
+        sql: "SELECT COUNT(*) FROM timeline_cards WHERE category = ? AND is_deleted = 0",
+        arguments: [category]
+      ) ?? 0
+    }) ?? 0
+  }
+
   func saveTimelineCardShell(batchId: Int64, card: TimelineCardShell) -> Int64? {
     let encoder = JSONEncoder()
     var lastId: Int64? = nil
@@ -189,27 +201,29 @@ extension StorageManager {
     let trimmed = category.trimmingCharacters(in: .whitespacesAndNewlines)
     guard trimmed.isEmpty == false else { return }
 
-    try? timedWrite("updateTimelineCardCategory") { db in
-      try db.execute(
-        sql: """
-              UPDATE timeline_cards
-              SET category = ?
-              WHERE id = ?
-          """, arguments: [trimmed, cardId])
-    }
+    try? updateTimelineCard(cardId: cardId, title: nil, category: trimmed)
   }
 
   func updateTimelineCardTitle(cardId: Int64, title: String) {
     let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
     guard trimmed.isEmpty == false else { return }
 
-    try? timedWrite("updateTimelineCardTitle") { db in
+    try? updateTimelineCard(cardId: cardId, title: trimmed, category: nil)
+  }
+
+  /// Applies every requested activity field in one transaction. Agent writes use the
+  /// throwing form so a database failure is returned instead of reported as success.
+  func updateTimelineCard(cardId: Int64, title: String?, category: String?) throws {
+    guard title != nil || category != nil else { return }
+
+    try timedWrite("updateTimelineCard") { db in
       try db.execute(
         sql: """
               UPDATE timeline_cards
-              SET title = ?
+              SET title = COALESCE(?, title),
+                  category = COALESCE(?, category)
               WHERE id = ?
-          """, arguments: [trimmed, cardId])
+          """, arguments: [title, category, cardId])
     }
   }
 
@@ -348,16 +362,18 @@ extension StorageManager {
               distractions = legacy
             }
           }
+          // subcategory/summary/detailed_summary are nullable in the schema —
+          // decode NULL as "" because the model fields are non-optional and would trap.
           return TimelineCard(
             recordId: row["id"],
             batchId: batchId,
             startTimestamp: row["start"] ?? "",
             endTimestamp: row["end"] ?? "",
             category: row["category"],
-            subcategory: row["subcategory"],
+            subcategory: row["subcategory"] ?? "",
             title: row["title"],
-            summary: row["summary"],
-            detailedSummary: row["detailed_summary"],
+            summary: row["summary"] ?? "",
+            detailedSummary: row["detailed_summary"] ?? "",
             day: row["day"],
             distractions: distractions,
             videoSummaryURL: row["video_summary_url"],
@@ -462,17 +478,19 @@ extension StorageManager {
           }
         }
 
-        // Create TimelineCard instance using renamed columns
+        // Create TimelineCard instance using renamed columns.
+        // subcategory/summary/detailed_summary are nullable in the schema —
+        // decode NULL as "" because the model fields are non-optional and would trap.
         return TimelineCard(
           recordId: row["id"],
           batchId: row["batch_id"],
           startTimestamp: row["start"] ?? "",  // Use row["start"]
           endTimestamp: row["end"] ?? "",  // Use row["end"]
           category: row["category"],
-          subcategory: row["subcategory"],
+          subcategory: row["subcategory"] ?? "",
           title: row["title"],
-          summary: row["summary"],
-          detailedSummary: row["detailed_summary"],
+          summary: row["summary"] ?? "",
+          detailedSummary: row["detailed_summary"] ?? "",
           day: row["day"],
           distractions: distractions,
           videoSummaryURL: row["video_summary_url"],
@@ -523,17 +541,19 @@ extension StorageManager {
           }
         }
 
-        // Create TimelineCard instance using renamed columns
+        // Create TimelineCard instance using renamed columns.
+        // subcategory/summary/detailed_summary are nullable in the schema —
+        // decode NULL as "" because the model fields are non-optional and would trap.
         return TimelineCard(
           recordId: row["id"],
           batchId: row["batch_id"],
           startTimestamp: row["start"] ?? "",
           endTimestamp: row["end"] ?? "",
           category: row["category"],
-          subcategory: row["subcategory"],
+          subcategory: row["subcategory"] ?? "",
           title: row["title"],
-          summary: row["summary"],
-          detailedSummary: row["detailed_summary"],
+          summary: row["summary"] ?? "",
+          detailedSummary: row["detailed_summary"] ?? "",
           day: row["day"],
           distractions: distractions,
           videoSummaryURL: row["video_summary_url"],
@@ -545,6 +565,32 @@ extension StorageManager {
     }
     let result = cards ?? []
     return result
+  }
+
+  func hasTimelineCardConnected(
+    toBatchStartingAt batchStart: Date,
+    maxGap: TimeInterval
+  ) -> Bool {
+    let batchStartTs = Int(batchStart.timeIntervalSince1970)
+    let earliestEndTs = batchStartTs - Int(maxGap)
+
+    return
+      (try? timedRead("hasTimelineCardConnected") { db in
+        try Bool.fetchOne(
+          db,
+          sql: """
+                SELECT EXISTS(
+                  SELECT 1
+                  FROM timeline_cards
+                  WHERE start_ts <= ?
+                    AND end_ts >= ?
+                    AND is_deleted = 0
+                    AND category != 'System'
+                )
+            """,
+          arguments: [batchStartTs, earliestEndTs]
+        ) ?? false
+      }) ?? false
   }
 
   func fetchTotalMinutesTracked(from: Date, to: Date) -> Double {
@@ -731,6 +777,8 @@ extension StorageManager {
         }
       }
 
+      // subcategory/summary/detailed_summary are nullable in the schema —
+      // decode NULL as "" because the model fields are non-optional and would trap.
       return TimelineCardWithTimestamps(
         id: id,
         startTimestamp: row["start"] ?? "",
@@ -738,10 +786,10 @@ extension StorageManager {
         startTs: row["start_ts"] ?? 0,
         endTs: row["end_ts"] ?? 0,
         category: row["category"],
-        subcategory: row["subcategory"],
+        subcategory: row["subcategory"] ?? "",
         title: row["title"],
-        summary: row["summary"],
-        detailedSummary: row["detailed_summary"],
+        summary: row["summary"] ?? "",
+        detailedSummary: row["detailed_summary"] ?? "",
         day: row["day"],
         distractions: distractions,
         videoSummaryURL: row["video_summary_url"]
@@ -782,6 +830,8 @@ extension StorageManager {
         }
       }
 
+      // subcategory/summary/detailed_summary are nullable in the schema —
+      // decode NULL as "" because the model fields are non-optional and would trap.
       return TimelineCardWithTimestamps(
         id: row["id"],
         startTimestamp: row["start"] ?? "",
@@ -789,10 +839,10 @@ extension StorageManager {
         startTs: row["start_ts"] ?? 0,
         endTs: row["end_ts"] ?? 0,
         category: row["category"],
-        subcategory: row["subcategory"],
+        subcategory: row["subcategory"] ?? "",
         title: row["title"],
-        summary: row["summary"],
-        detailedSummary: row["detailed_summary"],
+        summary: row["summary"] ?? "",
+        detailedSummary: row["detailed_summary"] ?? "",
         day: row["day"],
         distractions: distractions,
         videoSummaryURL: row["video_summary_url"]
