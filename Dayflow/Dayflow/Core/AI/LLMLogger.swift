@@ -69,7 +69,8 @@ enum LLMLogger {
 
   static func logFailure(
     ctx: LLMCallContext, http: LLMHTTPInfo?, finishedAt: Date, errorDomain: String?,
-    errorCode: Int?, errorMessage: String?
+    errorCode: Int?, errorMessage: String?, failureStdout: String? = nil,
+    failureStderr: String? = nil
   ) {
     let latencyMs = Int(finishedAt.timeIntervalSince(ctx.startedAt) * 1000)
     let record = makeRecord(
@@ -98,6 +99,12 @@ enum LLMLogger {
           props["error_message_sanitized"] = true
         }
       }
+      props.merge(
+        TelemetryErrorSanitizer.failureOutputProperties(failureStdout, prefix: "stdout")
+      ) { _, new in new }
+      props.merge(
+        TelemetryErrorSanitizer.failureOutputProperties(failureStderr, prefix: "stderr")
+      ) { _, new in new }
       if let httpStatus = http?.httpStatus { props["http_status"] = httpStatus }
       if let headers = http?.responseHeaders {
         if let v = headers["x-usage-input"], let n = Int(v) { props["usage_input_tokens"] = n }
