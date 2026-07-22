@@ -75,17 +75,20 @@ extension AgentCLISupporting {
       failureReason = "invalid_json"
     }
 
-    AnalyticsService.shared.capture(
-      "llm_decode_failed",
-      [
-        "provider": "chat_cli",
-        "provider_id": providerID.rawValue,
-        "operation": "parse_segments",
-        "tool": cliTool.rawValue,
-        "failure_reason": failureReason,
-        "output_was_empty": trimmedOutput.isEmpty,
-        "stderr_was_empty": trimmedStderr.isEmpty,
-      ])
+    var decodeProperties: [String: Any] = [
+      "provider": "chat_cli",
+      "provider_id": providerID.rawValue,
+      "operation": "parse_segments",
+      "tool": cliTool.rawValue,
+      "failure_reason": failureReason,
+    ]
+    decodeProperties.merge(
+      TelemetryErrorSanitizer.failureOutputProperties(output, prefix: "output")
+    ) { _, new in new }
+    decodeProperties.merge(
+      TelemetryErrorSanitizer.failureOutputProperties(stderr, prefix: "stderr")
+    ) { _, new in new }
+    AnalyticsService.shared.capture("llm_decode_failed", decodeProperties)
 
     // Surface CLI error messages to the user if available
     if let cliError = extractCLIError(stdout: output, stderr: stderr) {
