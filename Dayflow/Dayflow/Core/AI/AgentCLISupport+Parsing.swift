@@ -226,16 +226,19 @@ extension AgentCLISupporting {
       }
     }
 
-    AnalyticsService.shared.capture(
-      "llm_decode_failed",
-      [
-        "provider": "chat_cli",
-        "provider_id": providerID.rawValue,
-        "operation": "parse_cards",
-        "tool": cliTool.rawValue,
-        "output_length": output.count,
-        "stderr_length": stderr.count,
-      ])
+    var decodeProperties: [String: Any] = [
+      "provider": "chat_cli",
+      "provider_id": providerID.rawValue,
+      "operation": "parse_cards",
+      "tool": cliTool.rawValue,
+    ]
+    decodeProperties.merge(
+      TelemetryErrorSanitizer.failureOutputProperties(output, prefix: "output")
+    ) { _, new in new }
+    decodeProperties.merge(
+      TelemetryErrorSanitizer.failureOutputProperties(stderr, prefix: "stderr")
+    ) { _, new in new }
+    AnalyticsService.shared.capture("llm_decode_failed", decodeProperties)
 
     // Surface CLI error messages to the user if available
     if let cliError = extractCLIError(stdout: output, stderr: stderr) {
@@ -594,7 +597,8 @@ extension AgentCLISupporting {
 
     LLMLogger.logFailure(
       ctx: ctx, http: http, finishedAt: finishedAt, errorDomain: "ChatCLI",
-      errorCode: (error as NSError).code, errorMessage: error.localizedDescription)
+      errorCode: (error as NSError).code, errorMessage: error.localizedDescription,
+      failureStdout: stdout, failureStderr: stderr)
   }
 
   func cliCommandDebugText(for run: ChatCLIRunResult?) -> String {
