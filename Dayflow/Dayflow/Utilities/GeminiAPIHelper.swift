@@ -7,15 +7,34 @@
 
 import Foundation
 
-class GeminiAPIHelper {
-  static let shared = GeminiAPIHelper()
-  private init() {}
+final class GeminiAPIHelper {
+  typealias RequestData = (URLRequest) async throws -> (Data, URLResponse)
 
-  private let testModel = GeminiModel.flashLite31
+  struct ConnectionResult {
+    let responseText: String
+    let model: GeminiModel
+  }
+
+  static let shared = GeminiAPIHelper()
+
+  private let requestData: RequestData
+  private let logsRequests: Bool
+
+  private init() {
+    requestData = { request in
+      try await URLSession.shared.data(for: request)
+    }
+    logsRequests = true
+  }
+
+  init(requestData: @escaping RequestData, logsRequests: Bool = true) {
+    self.requestData = requestData
+    self.logsRequests = logsRequests
+  }
 
   enum APIError: Error, LocalizedError {
     case invalidAPIKey
-    case rateLimited(String)
+    case rateLimited(String, model: GeminiModel)
     case apiError(String)
     case networkError(String)
     case invalidResponse
@@ -24,7 +43,7 @@ class GeminiAPIHelper {
       switch self {
       case .invalidAPIKey:
         return "Invalid or missing API key"
-      case .rateLimited(let message):
+      case .rateLimited(let message, _):
         return message
       case .apiError(let message):
         return message
@@ -36,22 +55,51 @@ class GeminiAPIHelper {
     }
   }
 
-  // Test the API connection with a simple request
-  func testConnection(apiKey: String) async throws -> String {
+  private struct HTTPFailure: Error {
+    let statusCode: Int
+    let apiError: APIError
+  }
+
+  // Test the selected model first, then use the same fallback order as normal Gemini requests.
+  func testConnection(apiKey: String, preference: GeminiModelPreference) async throws
+    -> ConnectionResult
+  {
     let cleanedAPIKey = apiKey.components(separatedBy: .whitespacesAndNewlines).joined()
     guard !cleanedAPIKey.isEmpty else {
       throw APIError.invalidAPIKey
     }
 
+    let models = preference.orderedModels
+    for (index, model) in models.enumerated() {
+      do {
+        return try await testConnection(
+          apiKey: cleanedAPIKey,
+          model: model,
+          attempt: index + 1
+        )
+      } catch let failure as HTTPFailure {
+        let hasFallback = index < models.count - 1
+        if hasFallback, GeminiDirectProvider.capacityErrorCodes.contains(failure.statusCode) {
+          continue
+        }
+        throw failure.apiError
+      }
+    }
+
+    throw APIError.invalidResponse
+  }
+
+  private func testConnection(apiKey: String, model: GeminiModel, attempt: Int) async throws
+    -> ConnectionResult
+  {
     let url = URL(
       string:
-        "https://generativelanguage.googleapis.com/v1beta/models/\(testModel.rawValue):generateContent?key=\(cleanedAPIKey)"
+        "https://generativelanguage.googleapis.com/v1beta/models/\(model.rawValue):generateContent?key=\(apiKey)"
     )!
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-    // Simple test request
     let requestBody: [String: Any] = [
       "contents": [
         [
@@ -61,24 +109,20 @@ class GeminiAPIHelper {
         ]
       ],
       "generationConfig": [
-        "temperature": 0.1,
-        "maxOutputTokens": 100,
+        "maxOutputTokens": 4096,
+        "thinkingConfig": ["thinkingLevel": "high"],
       ],
     ]
-
     request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
-    // Build timing
     let startedAt = Date()
-
-    let (data, response) = try await URLSession.shared.data(for: request)
-    let ctx = LLMCallContext(
+    let context = LLMCallContext(
       batchId: nil,
       callGroupId: UUID().uuidString,
-      attempt: 1,
+      attempt: attempt,
       provider: "gemini",
       providerID: LLMProviderID.gemini.rawValue,
-      model: testModel.rawValue,
+      model: model.rawValue,
       operation: "test_connection",
       requestMethod: request.httpMethod,
       requestURL: request.url,
@@ -86,155 +130,104 @@ class GeminiAPIHelper {
       requestBody: request.httpBody,
       startedAt: startedAt
     )
-    if let http = response as? HTTPURLResponse {
-      let headers: [String: String] = http.allHeaderFields.reduce(into: [:]) { acc, kv in
-        if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible {
-          acc[k] = v.description
-        }
+
+    let data: Data
+    let response: URLResponse
+    do {
+      (data, response) = try await requestData(request)
+    } catch {
+      if logsRequests {
+        LLMLogger.logFailure(
+          ctx: context,
+          http: nil,
+          finishedAt: Date(),
+          errorDomain: (error as NSError).domain,
+          errorCode: (error as NSError).code,
+          errorMessage: error.localizedDescription
+        )
       }
-      LLMLogger.logSuccess(
-        ctx: ctx,
-        http: LLMHTTPInfo(
-          httpStatus: http.statusCode, responseHeaders: headers, responseBody: data),
-        finishedAt: Date()
-      )
-    } else {
-      LLMLogger.logSuccess(
-        ctx: ctx,
-        http: LLMHTTPInfo(httpStatus: nil, responseHeaders: nil, responseBody: data),
-        finishedAt: Date()
-      )
+      throw error
     }
 
     guard let httpResponse = response as? HTTPURLResponse else {
-      LLMLogger.logFailure(
-        ctx: ctx,
-        http: (response as? HTTPURLResponse).map { http in
-          let headers: [String: String] = http.allHeaderFields.reduce(into: [:]) { acc, kv in
-            if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible {
-              acc[k] = v.description
-            }
-          }
-          return LLMHTTPInfo(
-            httpStatus: http.statusCode, responseHeaders: headers, responseBody: data)
-        },
-        finishedAt: Date(),
-        errorDomain: "GeminiAPIHelper",
-        errorCode: nil,
-        errorMessage: "Invalid response"
-      )
+      if logsRequests {
+        LLMLogger.logFailure(
+          ctx: context,
+          http: nil,
+          finishedAt: Date(),
+          errorDomain: "GeminiAPIHelper",
+          errorCode: nil,
+          errorMessage: "Invalid response"
+        )
+      }
       throw APIError.invalidResponse
     }
 
-    if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
-      if let message = extractErrorMessage(from: data) {
+    let httpInfo = LLMHTTPInfo(
+      httpStatus: httpResponse.statusCode,
+      responseHeaders: responseHeaders(from: httpResponse),
+      responseBody: data
+    )
+
+    guard httpResponse.statusCode == 200 else {
+      let error = apiError(
+        statusCode: httpResponse.statusCode,
+        data: data,
+        model: model
+      )
+      if logsRequests {
         LLMLogger.logFailure(
-          ctx: ctx,
-          http: LLMHTTPInfo(
-            httpStatus: httpResponse.statusCode,
-            responseHeaders: httpResponse.allHeaderFields.reduce(into: [:]) { acc, kv in
-              if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible {
-                acc[k] = v.description
-              }
-            }, responseBody: data),
+          ctx: context,
+          http: httpInfo,
           finishedAt: Date(),
           errorDomain: "GeminiAPIHelper",
           errorCode: httpResponse.statusCode,
-          errorMessage: message
+          errorMessage: error.localizedDescription
         )
-        if isRateLimit(statusCode: httpResponse.statusCode, message: message) {
-          throw APIError.rateLimited(message)
-        }
-        throw APIError.apiError(message)
       }
-      if let body = String(data: data, encoding: .utf8) {
-        print(
-          "🔎 GEMINI DEBUG: testConnection unauthorized (\(httpResponse.statusCode)) body=\(body)")
-      }
-      LLMLogger.logFailure(
-        ctx: ctx,
-        http: LLMHTTPInfo(
-          httpStatus: httpResponse.statusCode,
-          responseHeaders: httpResponse.allHeaderFields.reduce(into: [:]) { acc, kv in
-            if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible {
-              acc[k] = v.description
-            }
-          }, responseBody: data),
-        finishedAt: Date(),
-        errorDomain: "GeminiAPIHelper",
-        errorCode: httpResponse.statusCode,
-        errorMessage: "Invalid or missing API key"
-      )
-      throw APIError.invalidAPIKey
+      throw HTTPFailure(statusCode: httpResponse.statusCode, apiError: error)
     }
 
-    if httpResponse.statusCode != 200 {
-      if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-        let error = errorData["error"] as? [String: Any],
-        let message = error["message"] as? String
-      {
-        print(
-          "🔎 GEMINI DEBUG: testConnection non-200 status=\(httpResponse.statusCode) message=\(message)"
-        )
-        LLMLogger.logFailure(
-          ctx: ctx,
-          http: LLMHTTPInfo(
-            httpStatus: httpResponse.statusCode,
-            responseHeaders: httpResponse.allHeaderFields.reduce(into: [:]) { acc, kv in
-              if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible {
-                acc[k] = v.description
-              }
-            }, responseBody: data),
-          finishedAt: Date(),
-          errorDomain: "GeminiAPIHelper",
-          errorCode: httpResponse.statusCode,
-          errorMessage: message
-        )
-        if isRateLimit(statusCode: httpResponse.statusCode, message: message) {
-          throw APIError.rateLimited(message)
-        }
-        throw APIError.networkError(message)
-      }
-      if let body = String(data: data, encoding: .utf8) {
-        print(
-          "🔎 GEMINI DEBUG: testConnection non-200 status=\(httpResponse.statusCode) body=\(body)")
-      }
-      LLMLogger.logFailure(
-        ctx: ctx,
-        http: LLMHTTPInfo(
-          httpStatus: httpResponse.statusCode,
-          responseHeaders: httpResponse.allHeaderFields.reduce(into: [:]) { acc, kv in
-            if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible {
-              acc[k] = v.description
-            }
-          }, responseBody: data),
-        finishedAt: Date(),
-        errorDomain: "GeminiAPIHelper",
-        errorCode: httpResponse.statusCode,
-        errorMessage: "Status code: \(httpResponse.statusCode)"
+    if logsRequests {
+      LLMLogger.logSuccess(
+        ctx: context,
+        http: httpInfo,
+        finishedAt: Date()
       )
-      let statusMessage = "Status code: \(httpResponse.statusCode)"
-      if isRateLimit(statusCode: httpResponse.statusCode, message: statusMessage) {
-        throw APIError.rateLimited(statusMessage)
-      }
-      throw APIError.networkError(statusMessage)
     }
 
+    return ConnectionResult(
+      responseText: extractResponseText(from: data) ?? "",
+      model: model
+    )
+  }
+
+  private func apiError(statusCode: Int, data: Data, model: GeminiModel) -> APIError {
+    let message = extractErrorMessage(from: data) ?? "Status code: \(statusCode)"
+
+    if isRateLimit(statusCode: statusCode, message: message) {
+      return .rateLimited(message, model: model)
+    }
+
+    if statusCode == 401 || statusCode == 403 {
+      return extractErrorMessage(from: data) == nil ? .invalidAPIKey : .apiError(message)
+    }
+
+    return .networkError(message)
+  }
+
+  private func extractResponseText(from data: Data) -> String? {
     guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
       let candidates = json["candidates"] as? [[String: Any]],
       let firstCandidate = candidates.first,
       let content = firstCandidate["content"] as? [String: Any],
       let parts = content["parts"] as? [[String: Any]],
-      let firstPart = parts.first,
-      let text = firstPart["text"] as? String
+      let firstPart = parts.first
     else {
-      if let body = String(data: data, encoding: .utf8) {
-        print("🔎 GEMINI DEBUG: testConnection unexpected format; body=\(body)")
-      }
-      throw APIError.invalidResponse
+      return nil
     }
 
-    return text
+    return firstPart["text"] as? String
   }
 
   private func extractErrorMessage(from data: Data) -> String? {
@@ -246,6 +239,14 @@ class GeminiAPIHelper {
       return nil
     }
     return message
+  }
+
+  private func responseHeaders(from response: HTTPURLResponse) -> [String: String] {
+    response.allHeaderFields.reduce(into: [:]) { headers, field in
+      if let key = field.key as? String, let value = field.value as? CustomStringConvertible {
+        headers[key] = value.description
+      }
+    }
   }
 
   private func isRateLimit(statusCode: Int, message: String) -> Bool {
@@ -260,5 +261,4 @@ class GeminiAPIHelper {
       || lowercased.contains("overloaded")
       || lowercased.contains("temporarily unavailable")
   }
-
 }

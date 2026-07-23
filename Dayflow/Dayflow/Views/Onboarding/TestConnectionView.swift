@@ -9,13 +9,19 @@ import SwiftUI
 
 struct TestConnectionView: View {
   let apiKeyOverride: String?
+  let model: GeminiModel
   let onTestComplete: ((Bool) -> Void)?
 
   @State private var isTesting = false
   @State private var testResult: TestResult?
 
-  init(apiKey: String? = nil, onTestComplete: ((Bool) -> Void)? = nil) {
+  init(
+    apiKey: String? = nil,
+    model: GeminiModel,
+    onTestComplete: ((Bool) -> Void)? = nil
+  ) {
     self.apiKeyOverride = apiKey
+    self.model = model
     self.onTestComplete = onTestComplete
   }
 
@@ -62,18 +68,27 @@ struct TestConnectionView: View {
 
     isTesting = true
     testResult = nil
-    AnalyticsService.shared.capture("connection_test_started", ["provider": "gemini"])
+    AnalyticsService.shared.capture(
+      "connection_test_started",
+      ["provider": "gemini", "model": model.rawValue]
+    )
 
     Task {
       do {
-        let _ = try await GeminiAPIHelper.shared.testConnection(apiKey: apiKey)
+        let result = try await GeminiAPIHelper.shared.testConnection(
+          apiKey: apiKey,
+          preference: GeminiModelPreference(primary: model)
+        )
         await MainActor.run {
           testResult = .success("Connection successful.")
           isTesting = false
           onTestComplete?(true)
         }
-        AnalyticsService.shared.capture("connection_test_succeeded", ["provider": "gemini"])
-      } catch GeminiAPIHelper.APIError.rateLimited {
+        AnalyticsService.shared.capture(
+          "connection_test_succeeded",
+          ["provider": "gemini", "model": result.model.rawValue]
+        )
+      } catch GeminiAPIHelper.APIError.rateLimited(_, let attemptedModel) {
         await MainActor.run {
           testResult = .success("API key works, but Gemini is rate limited right now.")
           isTesting = false
@@ -84,7 +99,7 @@ struct TestConnectionView: View {
           [
             "provider": "gemini",
             "status": "rate_limited",
-            "model": GeminiModel.flashLite31.rawValue,
+            "model": attemptedModel.rawValue,
           ])
       } catch {
         await MainActor.run {

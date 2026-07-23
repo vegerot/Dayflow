@@ -3,7 +3,7 @@ import Foundation
 extension GeminiDirectProvider {
   // MARK: - Dashboard Chat (Gemini function calling)
 
-  static let dashboardChatModel = GeminiModel.flashLite31.rawValue
+  static let dashboardChatModel = GeminiModel.flashLite35.rawValue
   static let dashboardChatMaxToolRounds = 20
   static let dashboardChatTimelinePayloadSoftLimitBytes = 800_000
   var dashboardGenerateEndpoint: String {
@@ -264,12 +264,11 @@ extension GeminiDirectProvider {
     includeThinkingConfig: Bool
   ) -> [String: Any] {
     var generationConfig: [String: Any] = [
-      "temperature": 0.2,
       "maxOutputTokens": 8192,
     ]
     if includeThinkingConfig {
       generationConfig["thinkingConfig"] = [
-        "thinkingLevel": "medium"
+        "thinkingLevel": "high"
       ]
     }
 

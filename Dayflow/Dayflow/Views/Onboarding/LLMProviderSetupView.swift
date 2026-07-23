@@ -469,6 +469,7 @@ struct LLMProviderSetupView: View {
               if providerType == .gemini {
                 TestConnectionView(
                   apiKey: setupState.apiKey,
+                  model: setupState.geminiModel,
                   onTestComplete: { success in
                     setupState.hasTestedConnection = true
                     setupState.testSuccessful = success
