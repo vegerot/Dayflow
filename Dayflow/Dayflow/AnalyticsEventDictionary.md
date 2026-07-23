@@ -187,16 +187,16 @@ This document lists manual events, properties, and code locations. All events re
   - privacy: model routing metadata only; prompts, responses, and raw errors are never included
   - files: Core/AI/CodexProvider.swift, Core/AI/GeminiDirectProvider+Text.swift, Core/AI/GeminiDirectProvider+Transcription.swift, Core/AI/GeminiDirectProvider+ActivityCards.swift
 - llm_decode_failed
-  - props: compatibility family in `provider`, exact provider in `provider_id`, operation, attempt, and output/stderr presence or length metadata
-  - privacy: raw model output and stderr are never sent to analytics
+  - props: compatibility family in `provider`, exact provider in `provider_id`, operation, failure reason, and output/stderr presence, length, JSON-removal, and optional sanitized non-JSON detail metadata
+  - privacy: non-JSON failure output is redacted and capped at 500 characters; braced/bracketed blocks and fenced JSON are removed first, and successful output is never emitted
   - files: Core/AI/AgentCLISupport+Parsing.swift, Core/AI/AgentCLISupport+Transcription.swift
 - llm_validation_failed
   - props: compatibility family in `provider`, exact provider in `provider_id`, operation, validation type, attempt, detail presence or length metadata, and an optional sanitized `error_detail`
   - privacy: validation details are redacted and capped at 500 characters; raw model output, stderr, and generated card content are never sent to analytics
   - files: Core/AI/CodexProvider+ActivityCards.swift, Core/AI/CodexProvider+Transcription.swift, Core/AI/ClaudeProvider+ActivityCards.swift, Core/AI/ClaudeProvider+Transcription.swift, System/AnalyticsService.swift
 - llm_api_call
-  - props: `provider: string`, `provider_id?: dayflow|gemini|chatgpt|claude|openai_compatible|local`, `model: string`, `operation: string`, `attempt: int`, `latency_ms: int`, `outcome: success|error`, `error_domain?: string`, `error_code?: int`, `error_message?: string`, `http_status?: int`, `has_response_body?: bool`, `response_body_bytes?: int`
-  - privacy: error messages are redacted and capped at 500 characters; request and response bodies stay local and are never sent to analytics
+  - props: `provider: string`, `provider_id?: dayflow|gemini|chatgpt|claude|openai_compatible|local`, `model: string`, `operation: string`, `attempt: int`, `latency_ms: int`, `outcome: success|error`, `error_domain?: string`, `error_code?: int`, `error_message?: string`, `stdout_was_present?: bool`, `stdout_length?: int`, `stdout_json_removed?: bool`, `stdout_non_json_length?: int`, `stdout_non_json_detail?: string`, `stderr_was_present?: bool`, `stderr_length?: int`, `stderr_json_removed?: bool`, `stderr_non_json_length?: int`, `stderr_non_json_detail?: string`, `http_status?: int`, `has_response_body?: bool`, `response_body_bytes?: int`
+  - privacy: error messages and non-JSON failure stdout/stderr are redacted and capped at 500 characters; braced/bracketed blocks and fenced JSON are removed first, successful output is never emitted, and request/response bodies stay local
   - file: Core/AI/LLMLogger.swift
 
 <!-- Storage-related events intentionally removed -->
