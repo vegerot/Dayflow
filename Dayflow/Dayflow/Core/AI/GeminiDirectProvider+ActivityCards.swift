@@ -379,10 +379,10 @@ extension GeminiDirectProvider {
     ]
 
     let generationConfig: [String: Any] = [
-      "temperature": 0.3,
       "maxOutputTokens": 65536,
       "responseMimeType": "application/json",
       "responseSchema": cardSchema,
+      "thinkingConfig": ["thinkingLevel": "high"],
     ]
 
     let requestBody: [String: Any] = [
