@@ -9,8 +9,8 @@ extension GeminiDirectProvider {
     let callStart = Date()
 
     let generationConfig: [String: Any] = [
-      "temperature": 0.7,
       "maxOutputTokens": maxOutputTokens,
+      "thinkingConfig": ["thinkingLevel": "high"],
     ]
 
     let requestBody: [String: Any] = [
