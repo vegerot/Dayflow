@@ -136,7 +136,7 @@ enum DailyRecapProvider: String, Codable, CaseIterable, Sendable {
     case .local:
       return Self.currentLocalModelID()
     case .gemini:
-      return GeminiModel.flash35.rawValue
+      return GeminiModel.flash36.rawValue
     case .chatgpt:
       return "gpt-5.4"
     case .claude:
