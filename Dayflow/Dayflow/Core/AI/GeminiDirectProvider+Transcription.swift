@@ -276,11 +276,11 @@ extension GeminiDirectProvider {
     ]
 
     let generationConfig: [String: Any] = [
-      "temperature": 0.3,
       "maxOutputTokens": 65536,
       "mediaResolution": "MEDIA_RESOLUTION_HIGH",
       "responseMimeType": "application/json",
       "responseSchema": transcriptionSchema,
+      "thinkingConfig": ["thinkingLevel": "high"],
     ]
 
     let requestBody: [String: Any] = [
