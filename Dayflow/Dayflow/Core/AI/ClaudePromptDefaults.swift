@@ -53,78 +53,56 @@ enum ClaudePromptPreferences {
 
 enum ClaudePromptDefaults {
   static let titleBlock = """
-    TITLE GUIDELINES
-    Core principle: If you read this title next week, would you know what you actually did?
-    Be specific, but concise:
-    Every title needs concrete details. Name the actual thing—the show, the person, the feature, the file, the game. But keep it scannable—aim for roughly 5-10 words. Extra details belong in the summary.
+    <title_goal>
+    Write one glanceable memory cue for every fixed card. The user should recognize the episode next week without opening its summary. Use natural language, usually 4-10 words.
+    </title_goal>
 
-    Bad: "Watched videos" → Good: "The Office bloopers on YouTube"
-    Bad: "Worked on UI" → Good: "Fixed navbar overlap on mobile"
-    Bad: "Had a call" → Good: "Call with James about venue options"
-    Bad: "Did research" → Good: "Comparing gyms near the new apartment"
-    Bad: "Debugged issues" → Good: "Tracked down Stripe webhook failures"
-    Bad: "Played games" → Good: "Civilization VI — finally beat Deity difficulty"
-    Bad: "Browsed YouTube" → Good: "Veritasium video on turbulence"
-    Bad: "Chatted with team" → Good: "Slack debate about monorepo vs multirepo"
-    Bad: "Made a reservation" → Good: "Booked Nobu for Saturday 7pm"
-    Bad: "Coded" → Good: "Built CSV export for transactions"
+    <selection_order>
+    1. Identify the most coherent observed goal or event inside this card from sustained evidence, recurrence, and deliberate interaction. Do not choose the last screen or the most unusual noun.
+    2. If one activity clearly occupies more supported minutes, title only that activity. Prefer a direct conversation or concrete artifact over diffuse passive pages and notifications.
+    3. Add the strongest supported anchor that distinguishes this episode from its neighbors: a person, artifact, game character or mode, place, feature, comparison subjects, or real-world automation target.
+    </selection_order>
 
-    Don't overload the title:
-    If you're using em-dashes, parentheses, or listing 3+ things—you're probably cramming summary content into the title.
+    <rules>
+    - Recompute every title after final boundaries change; previous titles are drafts.
+    - A brief passive headline, newsletter, notification, advertisement, or one-off name cannot take over a longer episode.
+    - A short direct interaction may be the best cue only when the rest of the card is diffuse passive catch-up and no longer coherent activity exists. Name the actual person and supported topic. Do not append unrelated brief debugging, group threads, or notifications.
+    - When research leads into configuring a recurring check, prefer the setup action and real-world target over generic research or the agent UI.
+    - When several tools or models support review of one named artifact, title the artifact being reviewed. When the task itself is a structured comparison, name two or three recurring items or the two compared styles.
+    - For a merged gaming episode, choose the most sustained or distinctive character, mode, map, or action. Do not mention earlier shorter matches with "then," "after," or a chronological list.
+    - "And" is fine for one shared goal or a balanced compound. Do not use it to expose a shorter incidental activity.
+    </rules>
 
-    Bad: "Apartment hunting — Zillow listings in Brooklyn, StreetEasy saved searches, and broker fee research"
-    Good: "Apartment hunting in Brooklyn"
-    Bad: "Weekly metrics review — signups, churn rate, MRR growth, and cohort retention"
-    Good: "Weekly metrics review"
-    Bad: "Call with Mom — talked about Dad's birthday, her knee surgery, and Aunt Linda's visit"
-    Good: "Call with Mom"
+    <mixed_cards>
+    Determine whether time was fragmented from its evidence, not from its draft title. For a long span of diffuse passive switching, use "Scattered" plus two or three familiar channels and ignore incidental newsletters or headlines. Avoid repeating "Scattered" within one returned array when a later mixed episode can use a concrete balanced compound, but never change boundaries or promote an incidental activity merely to avoid the repeated word.
+    </mixed_cards>
 
-    Avoid vague words:
-    These words hide what actually happened:
+    <examples>
+    <example>
+    Evidence: apartment research followed by configuring an agent to check Lisbon rents each morning.
+    Title: Setting Up Daily Lisbon Rent Checks
+    </example>
+    <example>
+    Evidence: recurring side-by-side judgments of Runway, Pika, and Luma clips.
+    Title: Comparing Runway, Pika, and Luma Clips
+    </example>
+    <example>
+    Evidence: several image tools used while judging the opening frames of one launch trailer.
+    Title: Reviewing Launch Trailer Opening Frames
+    </example>
+    <example>
+    Evidence: eleven minutes messaging Priya about feeling ill and dinner, plus a three-minute unrelated debugger check.
+    Title: Messages With Priya About Feeling Ill
+    </example>
+    <example>
+    Evidence: one merged Overwatch episode with a shorter ranked match followed by a longer Kiriko arcade run on Lijiang Tower.
+    Title: Kiriko Team Fights on Lijiang Tower
+    </example>
+    </examples>
 
-    "worked on" → doing what to it?
-    "looked at" → reviewing? debugging? reading?
-    "handled" → fixed? ignored? escalated?
-    "dealt with" → means nothing
-    "various" / "some" / "multiple" → name them or pick the main one
-    "deep dive" / "rabbit hole" → just say what you researched
-    "sync" / "aligned" / "circled back" → say what you discussed or decided
-    "browsing" / "iterations" / "analytics" → what specifically?
-
-    Avoid repetitive structure:
-    Don't start every title with a verb. Mix it up naturally:
-
-    "Fixed the infinite scroll bug on search results"
-    "Breaking Bad rewatch — season 3 finale"
-    "Call with recruiter about the Stripe role"
-    "AWS cost spike investigation"
-    "Planning the bachelor party itinerary"
-    "Stardew Valley — finished the community center"
-    "iPhone vs Pixel camera comparison for Mom"
-    "Morning coffee + Hacker News catch-up"
-
-    If several titles in a row start with "Fixed... Debugged... Built... Reviewed..." — vary the structure.
-    Use "and" sparingly:
-    Don't use "and" to connect unrelated things. Pick the main activity for the title; the rest goes in the summary.
-
-    Bad: "Fixed bug and replied to emails" → Good: "Fixed pagination crash" (emails in summary)
-    Bad: "YouTube then coded" → Good: "Built the settings modal" (YouTube is a distraction)
-    Bad: "Read articles, watched TikTok, checked Discord" → Good: "Scattered browsing" (it was scattered, just say that)
-
-    "And" is okay when both parts serve the same goal:
-
-    OK: "Designed and prototyped the onboarding flow"
-    OK: "Researched and booked the Airbnb in Lisbon"
-    OK: "Drafted and sent the investor update"
-
-    When it's genuinely scattered:
-    If there was no main focus—just bouncing between tabs—don't force a fake throughline:
-
-    "YouTube and Twitter browsing"
-    "Scattered browsing break"
-    "Catching up on Reddit and Discord"
-
-    Before finalizing: would this title help you remember what you actually did?
+    <final_check>
+    Compare every title with its fixed evidence and neighboring cards. Reject a title that foregrounds a shorter detour, preserves match chronology, promotes an incidental newsletter or headline, or uses generic phrases such as "research," "design work," "agent task," "results," or unnamed "AI models" despite a stronger cue. Stay broad when the evidence is genuinely broad.
+    </final_check>
     """
 
   static let summaryBlock = """
