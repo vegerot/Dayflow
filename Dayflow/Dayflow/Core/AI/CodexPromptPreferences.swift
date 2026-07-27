@@ -65,78 +65,52 @@ enum CodexPromptPreferences {
 
 enum CodexPromptDefaults {
   static let titleBlock = """
-    TITLE GUIDELINES
-    Core principle: If you read this title next week, would you know what you actually did?
-    Be specific, but concise:
-    Every title needs concrete details. Name the actual thing—the show, the person, the feature, the file, the game. But keep it scannable—aim for roughly 5-10 words. Extra details belong in the summary.
+    TITLE GOAL
 
-    Bad: "Watched videos" → Good: "The Office bloopers on YouTube"
-    Bad: "Worked on UI" → Good: "Fixed navbar overlap on mobile"
-    Bad: "Had a call" → Good: "Call with James about venue options"
-    Bad: "Did research" → Good: "Comparing gyms near the new apartment"
-    Bad: "Debugged issues" → Good: "Tracked down Stripe webhook failures"
-    Bad: "Played games" → Good: "Civilization VI — finally beat Deity difficulty"
-    Bad: "Browsed YouTube" → Good: "Veritasium video on turbulence"
-    Bad: "Chatted with team" → Good: "Slack debate about monorepo vs multirepo"
-    Bad: "Made a reservation" → Good: "Booked Nobu for Saturday 7pm"
-    Bad: "Coded" → Good: "Built CSV export for transactions"
+    Write one glanceable, evidence-backed memory cue for each card. The user should recognize what happened next week without opening the summary. Usually use 4-10 words.
 
-    Don't overload the title:
-    If you're using em-dashes, parentheses, or listing 3+ things—you're probably cramming summary content into the title.
+    BOUNDARIES BEFORE TITLES
 
-    Bad: "Apartment hunting — Zillow listings in Brooklyn, StreetEasy saved searches, and broker fee research"
-    Good: "Apartment hunting in Brooklyn"
-    Bad: "Weekly metrics review — signups, churn rate, MRR growth, and cohort retention"
-    Good: "Weekly metrics review"
-    Bad: "Call with Mom — talked about Dad's birthday, her knee surgery, and Aunt Linda's visit"
-    Good: "Call with Mom"
+    Re-segment the supplied evidence before choosing title words; previous cards and their 15-minute seams are drafts. Keep a meeting or huddle separate from subsequent hands-on artifact work when both sides can be at least 10 minutes, even if they share a project. When a direct conversation begins near a draft seam, continues into the next batch, and then gives way to a different browsing episode, place the boundary after the conversation ends when both resulting cards can be at least 10 minutes. After that pass, freeze boundaries—proper names and title phrasing must not move them.
 
-    Avoid vague words:
-    These words hide what actually happened:
+    CUE PRIORITY
 
-    "worked on" → doing what to it?
-    "looked at" → reviewing? debugging? reading?
-    "handled" → fixed? ignored? escalated?
-    "dealt with" → means nothing
-    "various" / "some" / "multiple" → name them or pick the main one
-    "deep dive" / "rabbit hole" → just say what you researched
-    "sync" / "aligned" / "circled back" → say what you discussed or decided
-    "browsing" / "iterations" / "analytics" → what specifically?
+    1. Re-read only the evidence inside each final card.
+    2. Choose the sustained goal or strongest recurring cue, weighting duration and deliberate interaction over novelty.
+    3. Add the details that distinguish the episode: person and topic, familiar project, named artifact, comparison subjects, game mode or character, service, place, cadence, or real-world target.
+    4. A deliberate completion such as configuring a scheduled task may outrank longer preparatory browsing when it is the clearest reconstructable outcome.
+    5. Prefer what the user acted on over a passive notification, advertisement, or briefly visible noun.
 
-    Avoid repetitive structure:
-    Don't start every title with a verb. Mix it up naturally:
+    FOCUSED CARDS
 
-    "Fixed the infinite scroll bug on search results"
-    "Breaking Bad rewatch — season 3 finale"
-    "Call with recruiter about the Stripe role"
-    "AWS cost spike investigation"
-    "Planning the bachelor party itinerary"
-    "Stardew Valley — finished the community center"
-    "iPhone vs Pixel camera comparison for Mom"
-    "Morning coffee + Hacker News catch-up"
+    - For a meeting or huddle, name the interaction type, person, and main project or decision topic. Do not append secondary work.
+    - When the evidence says a scheduled, daily, or recurring check was configured, title that setup with its cadence, named service, and target. Do not dilute it with surrounding searches or detours.
+    - For a sustained comparison, name two to four recurring subjects and the artifact type instead of saying “AI models,” “outputs,” or “research.”
+    - For launch or storyboard work, preserve the named treatment and artifact type—frames, storyboards, or clips—rather than collapsing it to “visuals.”
+    - For a game, prefer the supported mode, character, and memorable observed event over a generic game-session label.
+    - When several tools support one artifact, name the artifact rather than the tools.
 
-    If several titles in a row start with "Fixed... Debugged... Built... Reviewed..." — vary the structure.
-    Use "and" sparingly:
-    Don't use "and" to connect unrelated things. Pick the main activity for the title; the rest goes in the summary.
+    MIXED CARDS
 
-    Bad: "Fixed bug and replied to emails" → Good: "Fixed pagination crash" (emails in summary)
-    Bad: "YouTube then coded" → Good: "Built the settings modal" (YouTube is a distraction)
-    Bad: "Read articles, watched TikTok, checked Discord" → Good: "Scattered browsing" (it was scattered, just say that)
+    - For diffuse passive switching with no deliberate thread, use an honest “Scattered” title with recurring channels such as email, X, news, or YouTube. Do not promote one unusual product or article.
+    - For a direct conversation, include the observed person and salient topic rather than “catch-up”; the person usually matters more than the messaging app.
+    - For intentional browsing, preserve observed proper names for destinations, stores, artifacts, and benchmark sites. Prefer “Tokyo flower shops and Design Bench” over “Japanese culture and AI designs.”
 
-    "And" is okay when both parts serve the same goal:
+    GROUNDING
 
-    OK: "Designed and prototyped the onboarding flow"
-    OK: "Researched and booked the Airbnb in Lisbon"
-    OK: "Drafted and sent the investor update"
+    Describe only observed actions and outcomes. Reading is not deciding, reviewing is not creating, investigating is not fixing, and drafting is not sending. Never invent a differentiator.
 
-    When it's genuinely scattered:
-    If there was no main focus—just bouncing between tabs—don't force a fake throughline:
+    PATTERN EXAMPLES
 
-    "YouTube and Twitter browsing"
-    "Scattered browsing break"
-    "Catching up on Reddit and Discord"
+    - “Slack huddle with Priya on checkout launch”
+    - “Set up daily Zillow rent checks”
+    - “Compared Runway, Pika, Veo, and Luma clips”
+    - “Maya’s sick-day texts and weekend plans”
+    - “Kyoto ceramics, screenplay notes, and Design Bench”
 
-    Before finalizing: would this title help you remember what you actually did?
+    FINAL CHECK
+
+    Reject a title that foregrounds a shorter passive detour, copies an old title after evidence changed, claims an unsupported outcome, omits an observed person from a conversation cue, or stays generic despite a stronger supported proper name.
     """
 
   static let summaryBlock = """
