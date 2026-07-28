@@ -35,27 +35,62 @@ enum ClaudeOutputValidationError: Error, Equatable, LocalizedError {
 struct ClaudeOutputValidationOptions {
   let minimumNonFinalCardDurationSeconds: Int
   let maximumCardDurationSeconds: Int
-  let evidenceToleranceSeconds: Int
+  let sourceConnectionToleranceSeconds: Int
+  let outputCoverageToleranceSeconds: Int
   let calendar: Calendar
 
   init(
     minimumNonFinalCardDurationSeconds: Int = 10 * 60,
     maximumCardDurationSeconds: Int = 60 * 60,
-    evidenceToleranceSeconds: Int = 60,
+    sourceConnectionToleranceSeconds: Int = ClaudeTimelineTolerance.sourceConnectionSeconds,
+    outputCoverageToleranceSeconds: Int = ClaudeTimelineTolerance.outputCoverageSeconds,
     calendar: Calendar = .current
   ) {
     self.minimumNonFinalCardDurationSeconds = minimumNonFinalCardDurationSeconds
     self.maximumCardDurationSeconds = maximumCardDurationSeconds
-    self.evidenceToleranceSeconds = evidenceToleranceSeconds
+    self.sourceConnectionToleranceSeconds = sourceConnectionToleranceSeconds
+    self.outputCoverageToleranceSeconds = outputCoverageToleranceSeconds
     self.calendar = calendar
   }
 }
 
-/// Retired strict validator retained for reference and isolated tooling. Production Claude and
-/// ChatGPT generation intentionally use the v2.0.0 validators in `AgentCLISupporting` instead.
+enum ClaudeTimelineTolerance {
+  /// Source intervals one minute apart belong to the same connected rewrite span.
+  static let sourceConnectionSeconds = 60
+
+  /// Generated cards may drift by less than a minute, but may not omit a whole minute.
+  static let outputCoverageSeconds = 59
+}
+
+/// Strict structural validation for Claude timeline output.
 ///
 /// Validation never rewrites timestamps, changes semantic fields, drops cards, or fills gaps.
 enum ClaudeOutputValidator {
+  static func resolveActivityCardInterval(
+    _ card: ActivityCardData,
+    nearest anchorEpoch: Int,
+    calendar: Calendar = .current
+  ) throws -> Range<Int> {
+    let startClock = try parseClockTimestamp(card.startTime)
+    let endClock = try parseClockTimestamp(card.endTime)
+    let anchor = TimelineAnchor.epoch(anchorEpoch)
+    let start = linearTime(secondsOfDay: startClock, nearest: anchor, calendar: calendar)
+    let end = linearCardEnd(
+      start: start,
+      startSecondsOfDay: startClock,
+      endSecondsOfDay: endClock,
+      anchor: anchor,
+      calendar: calendar
+    )
+    guard end > start else {
+      throw ClaudeOutputValidationError.invalidCardDuration(
+        title: card.title,
+        seconds: end - start
+      )
+    }
+    return start..<end
+  }
+
   static func validateActivityCards(
     _ cards: [ActivityCardData],
     existingCards: [ActivityCardData],
@@ -65,7 +100,8 @@ enum ClaudeOutputValidator {
     guard !cards.isEmpty else { throw ClaudeOutputValidationError.emptyCards }
     guard options.minimumNonFinalCardDurationSeconds > 0,
       options.maximumCardDurationSeconds >= options.minimumNonFinalCardDurationSeconds,
-      options.evidenceToleranceSeconds >= 0
+      options.sourceConnectionToleranceSeconds >= 0,
+      options.outputCoverageToleranceSeconds >= 0
     else {
       throw ClaudeOutputValidationError.invalidConfiguration
     }
@@ -125,7 +161,8 @@ enum ClaudeOutputValidator {
       observations: observations,
       existingCards: existingCards,
       anchor: anchor,
-      calendar: options.calendar
+      calendar: options.calendar,
+      mergeTolerance: options.sourceConnectionToleranceSeconds
     )
     guard !evidence.isEmpty else { return }
 
@@ -133,8 +170,8 @@ enum ClaudeOutputValidator {
       for index in 0..<(evidence.count - 1) {
         let gapStart = evidence[index].end
         let gapEnd = evidence[index + 1].start
-        guard gapEnd > gapStart else { continue }
-        if let card = parsedCards.first(where: { $0.start < gapEnd && $0.end > gapStart }) {
+        guard gapEnd - gapStart > options.sourceConnectionToleranceSeconds else { continue }
+        if let card = parsedCards.first(where: { $0.start < gapStart && $0.end > gapEnd }) {
           throw ClaudeOutputValidationError.cardCoversEvidenceGap(title: card.card.title)
         }
       }
@@ -145,7 +182,7 @@ enum ClaudeOutputValidator {
         intervalIsCovered(
           card.start..<card.end,
           by: evidence,
-          tolerance: options.evidenceToleranceSeconds
+          tolerance: options.outputCoverageToleranceSeconds
         )
       else {
         throw ClaudeOutputValidationError.outputOutsideEvidence
@@ -157,7 +194,7 @@ enum ClaudeOutputValidator {
         intervalIsCovered(
           evidenceInterval.start..<evidenceInterval.end,
           by: parsedCards.map { EvidenceInterval(start: $0.start, end: $0.end) },
-          tolerance: options.evidenceToleranceSeconds
+          tolerance: options.outputCoverageToleranceSeconds
         )
       else {
         throw ClaudeOutputValidationError.missingEvidenceCoverage
@@ -252,42 +289,23 @@ extension ClaudeOutputValidator {
   fileprivate static func parseClockTimestamp(_ timestamp: String) throws -> Int {
     let trimmed = timestamp.trimmingCharacters(in: .whitespacesAndNewlines)
     let whitespaceParts = trimmed.split(whereSeparator: { $0.isWhitespace })
-    if whitespaceParts.count == 2 {
-      let meridiem = whitespaceParts[1].uppercased()
-      let parts = whitespaceParts[0].split(separator: ":", omittingEmptySubsequences: false)
-      guard meridiem == "AM" || meridiem == "PM",
-        parts.count == 2 || parts.count == 3,
-        let rawHour = Int(parts[0]),
-        let minute = Int(parts[1]),
-        (1...12).contains(rawHour),
-        (0..<60).contains(minute)
-      else {
-        throw ClaudeOutputValidationError.invalidTimestamp(timestamp)
-      }
-      let second: Int
-      if parts.count == 3 {
-        guard let parsedSecond = Int(parts[2]), (0..<60).contains(parsedSecond) else {
-          throw ClaudeOutputValidationError.invalidTimestamp(timestamp)
-        }
-        second = parsedSecond
-      } else {
-        second = 0
-      }
-      return ((rawHour % 12) + (meridiem == "PM" ? 12 : 0)) * 3600 + minute * 60 + second
+    guard whitespaceParts.count == 2 else {
+      throw ClaudeOutputValidationError.invalidTimestamp(timestamp)
     }
-
-    let parts = trimmed.split(separator: ":", omittingEmptySubsequences: false)
-    guard parts.count == 3,
-      let hour = Int(parts[0]),
+    let meridiem = whitespaceParts[1].uppercased()
+    let parts = whitespaceParts[0].split(separator: ":", omittingEmptySubsequences: false)
+    guard meridiem == "AM" || meridiem == "PM",
+      parts.count == 2,
+      (1...2).contains(parts[0].count),
+      parts[1].count == 2,
+      let rawHour = Int(parts[0]),
       let minute = Int(parts[1]),
-      let second = Int(parts[2]),
-      (0..<24).contains(hour),
-      (0..<60).contains(minute),
-      (0..<60).contains(second)
+      (1...12).contains(rawHour),
+      (0..<60).contains(minute)
     else {
       throw ClaudeOutputValidationError.invalidTimestamp(timestamp)
     }
-    return hour * 3600 + minute * 60 + second
+    return ((rawHour % 12) + (meridiem == "PM" ? 12 : 0)) * 3600 + minute * 60
   }
 
   fileprivate static func timelineAnchor(
@@ -428,7 +446,8 @@ extension ClaudeOutputValidator {
     observations: [Observation],
     existingCards: [ActivityCardData],
     anchor: TimelineAnchor,
-    calendar: Calendar
+    calendar: Calendar,
+    mergeTolerance: Int
   ) -> [EvidenceInterval] {
     var intervals = observations.compactMap { observation -> EvidenceInterval? in
       guard observation.endTs > observation.startTs else { return nil }
@@ -456,7 +475,7 @@ extension ClaudeOutputValidator {
         merged.append(interval)
         continue
       }
-      if interval.start <= last.end {
+      if interval.start <= last.end + mergeTolerance {
         merged[merged.count - 1].end = max(last.end, interval.end)
       } else {
         merged.append(interval)
