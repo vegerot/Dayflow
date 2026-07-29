@@ -10,6 +10,7 @@ struct ActivityGenerationContext {
   let existingCards: [ActivityCardData]  // Cards that overlap with current analysis window
   let currentTime: Date  // Current time to prevent future timestamps
   let categories: [LLMCategoryDescriptor]
+  let hasPreviousCardWithinFiveMinutes: Bool
 }
 
 enum DashboardChatProvider: String, Codable, CaseIterable {

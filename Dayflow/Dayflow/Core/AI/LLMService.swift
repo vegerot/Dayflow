@@ -9,6 +9,34 @@ import Foundation
 import GRDB
 import SwiftUI
 
+private final class TimelineCardGenerationGate: @unchecked Sendable {
+  private let lock = NSLock()
+  private var isHeld = false
+  private var waiters: [CheckedContinuation<Void, Never>] = []
+
+  func acquire() async {
+    await withCheckedContinuation { continuation in
+      lock.lock()
+      if isHeld {
+        waiters.append(continuation)
+        lock.unlock()
+      } else {
+        isHeld = true
+        lock.unlock()
+        continuation.resume()
+      }
+    }
+  }
+
+  func release() {
+    lock.lock()
+    let next = waiters.isEmpty ? nil : waiters.removeFirst()
+    if next == nil { isHeld = false }
+    lock.unlock()
+    next?.resume()
+  }
+}
+
 struct ProcessedBatchResult {
   let cards: [ActivityCardData]
   let cardIds: [Int64]
@@ -68,6 +96,7 @@ protocol LLMServicing {
 
 final class LLMService: LLMServicing {
   static let shared: LLMServicing = LLMService()
+  private static let timelineCardGenerationGate = TimelineCardGenerationGate()
   private static let timelineFailureToastLastShownDayByKindDefaultsKey =
     "timelineFailureToastLastShownDayByKind"
   private static let timelineFailureToastThrottleQueue = DispatchQueue(
@@ -584,12 +613,57 @@ final class LLMService: LLMServicing {
     .standard
   }
 
+  static func cardReplacementStartTime(
+    activeProviderID: LLMProviderID,
+    generatedCards: [ActivityCardData],
+    batchStartTime: Date,
+    windowStartTime: Date
+  ) -> Date {
+    guard activeProviderID == .claude else { return windowStartTime }
+    guard let firstCard = generatedCards.first,
+      let interval = try? ClaudeOutputValidator.resolveActivityCardInterval(
+        firstCard,
+        nearest: Int(batchStartTime.timeIntervalSince1970)
+      )
+    else {
+      return batchStartTime
+    }
+    return Date(timeIntervalSince1970: TimeInterval(interval.lowerBound))
+  }
+
+  static func cardReplacementEndTime(
+    activeProviderID: LLMProviderID,
+    generatedCards: [ActivityCardData],
+    batchEndTime: Date
+  ) -> Date {
+    guard activeProviderID == .claude else { return batchEndTime }
+    guard let lastCard = generatedCards.last,
+      let interval = try? ClaudeOutputValidator.resolveActivityCardInterval(
+        lastCard,
+        nearest: Int(batchEndTime.timeIntervalSince1970)
+      )
+    else {
+      return batchEndTime
+    }
+    return max(
+      batchEndTime,
+      Date(timeIntervalSince1970: TimeInterval(interval.upperBound))
+    )
+  }
+
   // Keep the existing processBatch implementation for backward compatibility
   func processBatch(
     _ batchId: Int64, progressHandler: ((LLMProcessingStep) -> Void)? = nil,
     completion: @escaping (Result<ProcessedBatchResult, Error>) -> Void
   ) {
     Task {
+      var holdsTimelineCardGenerationGate = false
+      defer {
+        if holdsTimelineCardGenerationGate {
+          Self.timelineCardGenerationGate.release()
+        }
+      }
+
       // Get batch info first (outside do-catch so it's available in catch block)
       let batches = StorageManager.shared.allBatches()
       guard let batchInfo = batches.first(where: { $0.0 == batchId }) else {
@@ -759,6 +833,11 @@ final class LLMService: LLMServicing {
 
         // SLIDING WINDOW CARD GENERATION - Replace old card generation with sliding window approach
 
+        // Transcription can run in parallel, but timeline reads, generation, and replacement form
+        // one serialized rewrite and must not overlap another batch's rewrite.
+        await Self.timelineCardGenerationGate.acquire()
+        holdsTimelineCardGenerationGate = true
+
         // Calculate card-generation lookback window.
         let currentTime = Date(timeIntervalSince1970: TimeInterval(batchEndTs))
         let windowStartTime = currentTime.addingTimeInterval(-batchingConfig.cardLookbackDuration)
@@ -781,8 +860,16 @@ final class LLMService: LLMServicing {
           to: currentTime
         )
 
+        let batchStartTime = Date(timeIntervalSince1970: TimeInterval(batchStartTs))
+        let hasPreviousCardWithinFiveMinutes = StorageManager.shared.hasTimelineCardConnected(
+          toBatchStartingAt: batchStartTime,
+          maxGap: 5 * 60
+        )
+
         // Convert TimelineCards to ActivityCardData for context
-        let existingActivityCards = existingTimelineCards.map { card in
+        let existingActivityCards = existingTimelineCards.filter { card in
+          card.category != "System"
+        }.map { card in
           ActivityCardData(
             startTime: card.startTimestamp,
             endTime: card.endTimestamp,
@@ -810,7 +897,8 @@ final class LLMService: LLMServicing {
           batchObservations: observations,
           existingCards: existingActivityCards,
           currentTime: currentTime,
-          categories: categories
+          categories: categories,
+          hasPreviousCardWithinFiveMinutes: hasPreviousCardWithinFiveMinutes
         )
 
         lastProcessingStep = .generatingCards
@@ -838,10 +926,21 @@ final class LLMService: LLMServicing {
         // Note: card generation log is not persisted per-batch yet
 
         // Replace old cards with new ones in the time range
+        let replacementStartTime = Self.cardReplacementStartTime(
+          activeProviderID: activeContext.id,
+          generatedCards: cards,
+          batchStartTime: batchStartTime,
+          windowStartTime: windowStartTime
+        )
+        let replacementEndTime = Self.cardReplacementEndTime(
+          activeProviderID: activeContext.id,
+          generatedCards: cards,
+          batchEndTime: currentTime
+        )
         let (insertedCardIds, deletedVideoPaths) = StorageManager.shared
           .replaceTimelineCardsInRange(
-            from: windowStartTime,
-            to: currentTime,
+            from: replacementStartTime,
+            to: replacementEndTime,
             with: cards.map { card in
               TimelineCardShell(
                 startTimestamp: card.startTime,
@@ -894,6 +993,11 @@ final class LLMService: LLMServicing {
         completion(.success(ProcessedBatchResult(cards: cards, cardIds: insertedCardIds)))
 
       } catch {
+        if !holdsTimelineCardGenerationGate {
+          await Self.timelineCardGenerationGate.acquire()
+          holdsTimelineCardGenerationGate = true
+        }
+
         print("Error processing batch: \(error)")
         if let ns = error as NSError?, ns.domain == "GeminiError" {
           print("🔎 GEMINI DEBUG: NSError.userInfo=\(ns.userInfo)")
