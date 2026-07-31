@@ -6,7 +6,7 @@ extension ClaudeProvider {
   static func transcriptionModelConfiguration() -> (
     model: String, reasoningEffort: String?
   ) {
-    (model: "claude-sonnet", reasoningEffort: "low")
+    (model: "sonnet", reasoningEffort: "low")
   }
 
   func transcribeScreenshots(
