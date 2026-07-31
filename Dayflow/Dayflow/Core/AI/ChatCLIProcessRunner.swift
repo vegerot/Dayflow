@@ -2,14 +2,6 @@ import AppKit
 import Darwin
 import Foundation
 
-enum ClaudeCLIWrapperMode: Sendable, Equatable {
-  case safeMode
-
-  fileprivate var commandArgument: String {
-    "--safe-mode"
-  }
-}
-
 enum ClaudeCLISessionMode: Sendable, Equatable {
   /// Run a single turn without writing a resumable Claude session to disk.
   case ephemeral
@@ -27,7 +19,6 @@ struct ClaudeCLIExecutionProfile: Sendable {
   }
 
   fileprivate let kind: Kind
-  let wrapperMode: ClaudeCLIWrapperMode
   fileprivate let allowedReadPath: String?
 
   private static let optimizedTranscriptionSystemPrompt =
@@ -38,30 +29,29 @@ struct ClaudeCLIExecutionProfile: Sendable {
 
   static let optimizedTranscription = ClaudeCLIExecutionProfile(
     kind: .optimizedTranscription,
-    wrapperMode: .safeMode,
     allowedReadPath: nil
   )
 
   static let optimizedCardGeneration = ClaudeCLIExecutionProfile(
     kind: .optimizedCardGeneration,
-    wrapperMode: .safeMode,
     allowedReadPath: nil
   )
 
   static let optimizedTranscriptionCorrection = ClaudeCLIExecutionProfile(
     kind: .optimizedTranscriptionCorrection,
-    wrapperMode: .safeMode,
     allowedReadPath: nil
   )
 
   func allowingRead(at path: String) -> ClaudeCLIExecutionProfile {
     ClaudeCLIExecutionProfile(
       kind: kind,
-      wrapperMode: wrapperMode,
       allowedReadPath: path
     )
   }
 
+  // Do not add `--safe-mode` here. Some Claude CLI versions installed by Dayflow
+  // users do not support that flag, so these profiles restrict tools and slash
+  // commands explicitly instead.
   fileprivate func commandArguments(sessionMode: ClaudeCLISessionMode) -> [String] {
     let persistenceArguments = sessionMode == .ephemeral ? ["--no-session-persistence"] : []
     switch kind {
@@ -70,7 +60,6 @@ struct ClaudeCLIExecutionProfile: Sendable {
 
     case .optimizedCardGeneration:
       return [
-        wrapperMode.commandArgument,
         "--tools", LoginShellRunner.shellEscape(""),
         "--disable-slash-commands",
         "--system-prompt",
@@ -85,7 +74,6 @@ struct ClaudeCLIExecutionProfile: Sendable {
 
   private func transcriptionCommandArguments(persistenceArguments: [String]) -> [String] {
     var arguments = [
-      wrapperMode.commandArgument,
       "--disable-slash-commands",
       "--prompt-suggestions", "false",
       "--settings",
@@ -108,7 +96,16 @@ struct ClaudeCLIExecutionProfile: Sendable {
   }
 
   fileprivate var environmentOverrides: [String: String] {
-    ["MAX_THINKING_TOKENS": "0"]
+    switch kind {
+    case .optimizedCardGeneration:
+      return [:]
+    case .optimizedTranscription, .optimizedTranscriptionCorrection:
+      return ["MAX_THINKING_TOKENS": "0"]
+    }
+  }
+
+  fileprivate var environmentKeysToRemove: Set<String> {
+    kind == .optimizedCardGeneration ? ["MAX_THINKING_TOKENS"] : []
   }
 }
 
@@ -927,6 +924,9 @@ struct ChatCLIProcessRunner {
     guard tool == .claude, let claudeProfile else { return processEnvironment }
 
     var merged = processEnvironment
+    for key in claudeProfile.environmentKeysToRemove {
+      merged.removeValue(forKey: key)
+    }
     for (key, value) in claudeProfile.environmentOverrides {
       merged[key] = value
     }

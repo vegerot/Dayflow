@@ -44,7 +44,7 @@ final class CodexClaudeProviderTests: XCTestCase {
   func testClaudeActivityCardsUseSonnetSlugAtLowEffort() {
     let configuration = ClaudeProvider.activityCardModelConfiguration()
 
-    XCTAssertEqual(configuration.model, "claude-sonnet")
+    XCTAssertEqual(configuration.model, "sonnet")
     XCTAssertEqual(configuration.reasoningEffort, "low")
   }
 
@@ -112,7 +112,7 @@ final class CodexClaudeProviderTests: XCTestCase {
   func testClaudeTranscriptionUsesSonnetSlugAtLowEffort() {
     let configuration = ClaudeProvider.transcriptionModelConfiguration()
 
-    XCTAssertEqual(configuration.model, "claude-sonnet")
+    XCTAssertEqual(configuration.model, "sonnet")
     XCTAssertEqual(configuration.reasoningEffort, "low")
   }
 
@@ -267,13 +267,64 @@ final class CodexClaudeProviderTests: XCTestCase {
     XCTAssertEqual(sanitized, "Segment end time must be after start time.")
   }
 
-  func testClaudeOptimizedProfilesUseNormalAuthSafeMode() {
-    assertWrapper(ClaudeProvider.optimizedTranscriptionCLIProfile().wrapperMode, is: .safeMode)
-    assertWrapper(ClaudeProvider.optimizedCardGenerationCLIProfile().wrapperMode, is: .safeMode)
-    assertWrapper(
-      ClaudeProvider.optimizedTranscriptionCorrectionCLIProfile().wrapperMode,
-      is: .safeMode
+  func testTelemetryFailureStdoutRemovesJSONAndKeepsCLIText() {
+    let stdout = """
+      warning: invalid model alias
+      {"type":"result","result":"customer@example.com opened Secret Project"}
+      retry with a supported model
+      """
+
+    let sanitized = TelemetryErrorSanitizer.sanitizeFailureStdout(stdout)
+
+    XCTAssertEqual(sanitized?.originalLength, stdout.count)
+    XCTAssertTrue(sanitized?.removedJSON ?? false)
+    XCTAssertEqual(
+      sanitized?.detail,
+      "warning: invalid model alias\n\nretry with a supported model"
     )
+    XCTAssertFalse(sanitized?.detail?.contains("Secret Project") ?? true)
+  }
+
+  func testTelemetryFailureStdoutRemovesFencedJSONBeforeRedactingText() {
+    let stdout = """
+      account user@example.com failed
+      ```json
+      {"output":{"title":"Private customer work"}}
+      ```
+      see /Users/jerry/private.log
+      """
+
+    let sanitized = TelemetryErrorSanitizer.sanitizeFailureStdout(stdout)
+
+    XCTAssertTrue(sanitized?.removedJSON ?? false)
+    XCTAssertEqual(
+      sanitized?.detail,
+      "account <redacted-email> failed\n\nsee <redacted-path>"
+    )
+    XCTAssertFalse(sanitized?.detail?.contains("Private customer work") ?? true)
+  }
+
+  func testTelemetryFailureStdoutRemovesNonJSONBracesConservatively() {
+    let stdout = "error: expected {model-name} after --model"
+
+    let sanitized = TelemetryErrorSanitizer.sanitizeFailureStdout(stdout)
+
+    XCTAssertTrue(sanitized?.removedJSON ?? false)
+    XCTAssertEqual(sanitized?.detail, "error: expected after --model")
+  }
+
+  func testTelemetryFailureStdoutDropsTruncatedJSONLine() {
+    let stdout = """
+      warning before payload
+      {"cards":[{"title":"Private customer work"
+      retry after payload
+      """
+
+    let sanitized = TelemetryErrorSanitizer.sanitizeFailureStdout(stdout)
+
+    XCTAssertTrue(sanitized?.removedJSON ?? false)
+    XCTAssertEqual(sanitized?.detail, "warning before payload\n\nretry after payload")
+    XCTAssertFalse(sanitized?.detail?.contains("Private customer work") ?? true)
   }
 
   func testClaudeSessionCleanupRemovesOnlyItsSessionTranscript() throws {
@@ -299,15 +350,6 @@ final class CodexClaudeProviderTests: XCTestCase {
 
     XCTAssertFalse(fileManager.fileExists(atPath: sessionTranscript.path))
     XCTAssertTrue(fileManager.fileExists(atPath: unrelatedTranscript.path))
-  }
-
-  private func assertWrapper(
-    _ actual: ClaudeCLIWrapperMode,
-    is expected: ClaudeCLIWrapperMode,
-    file: StaticString = #filePath,
-    line: UInt = #line
-  ) {
-    XCTAssertEqual(actual, expected, "Unexpected Claude CLI wrapper", file: file, line: line)
   }
 
   private func card(

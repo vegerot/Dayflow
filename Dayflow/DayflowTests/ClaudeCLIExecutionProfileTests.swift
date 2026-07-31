@@ -5,11 +5,11 @@ import XCTest
 final class ClaudeCLIExecutionProfileTests: XCTestCase {
   private let runner = ChatCLIProcessRunner()
 
-  func testOptimizedTranscriptionUsesRestrictedSafeModeAndExplicitLowEffort() throws {
+  func testOptimizedTranscriptionUsesRestrictedToolsAndExplicitLowEffort() throws {
     let parts = runner.buildClaudeCommandParts(
       prompt: "Transcribe the contact sheet",
       imagePaths: ["/tmp/contact-sheet.jpg"],
-      model: "claude-sonnet",
+      model: "sonnet",
       reasoningEffort: "low",
       disableTools: false,
       profile: ClaudeCLIExecutionProfile.optimizedTranscription.allowingRead(
@@ -18,10 +18,10 @@ final class ClaudeCLIExecutionProfileTests: XCTestCase {
     )
 
     XCTAssertEqual(
-      Array(parts.prefix(6)),
-      ["claude", "-p", "--output-format", "json", "--verbose", "--safe-mode"]
+      Array(parts.prefix(5)),
+      ["claude", "-p", "--output-format", "json", "--verbose"]
     )
-    XCTAssertEqual(try argument(after: "--model", in: parts), "claude-sonnet")
+    XCTAssertEqual(try argument(after: "--model", in: parts), "sonnet")
     XCTAssertEqual(try argument(after: "--effort", in: parts), "low")
     XCTAssertEqual(try argument(after: "--tools", in: parts), "Read")
     XCTAssertEqual(
@@ -35,6 +35,7 @@ final class ClaudeCLIExecutionProfileTests: XCTestCase {
     )
     XCTAssertTrue(parts.contains("--disable-slash-commands"))
     XCTAssertTrue(parts.contains("--no-session-persistence"))
+    XCTAssertFalse(parts.contains("--safe-mode"))
     XCTAssertFalse(parts.contains("--dangerously-skip-permissions"))
     XCTAssertFalse(parts.joined(separator: " ").contains("Transcribe the contact sheet"))
     let payload = try XCTUnwrap(
@@ -52,7 +53,7 @@ final class ClaudeCLIExecutionProfileTests: XCTestCase {
     let parts = runner.buildClaudeCommandParts(
       prompt: "Transcribe",
       imagePaths: [],
-      model: "claude-sonnet",
+      model: "sonnet",
       reasoningEffort: "low",
       disableTools: false,
       profile: .optimizedTranscription
@@ -63,21 +64,21 @@ final class ClaudeCLIExecutionProfileTests: XCTestCase {
     XCTAssertFalse(parts.contains("--dangerously-skip-permissions"))
   }
 
-  func testOptimizedCardsDisableToolsAndUseNormalAuthSafeMode() throws {
-    let safeParts = runner.buildClaudeCommandParts(
+  func testOptimizedCardsDisableToolsAndUseNormalPermissions() throws {
+    let parts = runner.buildClaudeCommandParts(
       prompt: "Generate cards",
       imagePaths: [],
-      model: "claude-sonnet",
+      model: "sonnet",
       reasoningEffort: "low",
       disableTools: false,
       profile: .optimizedCardGeneration
     )
-    XCTAssertTrue(safeParts.contains("--safe-mode"))
-    XCTAssertFalse(safeParts.contains("--bare"))
-    XCTAssertEqual(try argument(after: "--tools", in: safeParts), LoginShellRunner.shellEscape(""))
-    XCTAssertEqual(try argument(after: "--name", in: safeParts), "dayflow-card-generation")
-    XCTAssertFalse(safeParts.contains("--allowedTools"))
-    XCTAssertFalse(safeParts.contains("--dangerously-skip-permissions"))
+    XCTAssertFalse(parts.contains("--safe-mode"))
+    XCTAssertFalse(parts.contains("--bare"))
+    XCTAssertEqual(try argument(after: "--tools", in: parts), LoginShellRunner.shellEscape(""))
+    XCTAssertEqual(try argument(after: "--name", in: parts), "dayflow-card-generation")
+    XCTAssertFalse(parts.contains("--allowedTools"))
+    XCTAssertFalse(parts.contains("--dangerously-skip-permissions"))
   }
 
   func testResumableTurnsOmitNoPersistenceAndUseExactSession() throws {
@@ -85,7 +86,7 @@ final class ClaudeCLIExecutionProfileTests: XCTestCase {
     let initial = runner.buildClaudeCommandParts(
       prompt: "Transcribe",
       imagePaths: [],
-      model: "claude-sonnet",
+      model: "sonnet",
       reasoningEffort: "low",
       disableTools: false,
       profile: ClaudeCLIExecutionProfile.optimizedTranscription.allowingRead(
@@ -96,7 +97,7 @@ final class ClaudeCLIExecutionProfileTests: XCTestCase {
     let correction = runner.buildClaudeCommandParts(
       prompt: "Correct the JSON",
       imagePaths: [],
-      model: "claude-sonnet",
+      model: "sonnet",
       reasoningEffort: "low",
       disableTools: false,
       profile: ClaudeCLIExecutionProfile.optimizedTranscriptionCorrection.allowingRead(
@@ -180,6 +181,18 @@ final class ClaudeCLIExecutionProfileTests: XCTestCase {
         claudeProfile: .optimizedTranscription
       ),
       base
+    )
+
+    XCTAssertEqual(
+      runner.mergedProcessEnvironment(
+        tool: .claude,
+        processEnvironment: base,
+        claudeProfile: .optimizedCardGeneration
+      ),
+      [
+        "EXISTING": "value",
+        "CLAUDE_CONFIG_DIR": "/tmp/dayflow-claude-session",
+      ]
     )
   }
 
@@ -271,7 +284,7 @@ final class ClaudeCLIExecutionProfileTests: XCTestCase {
     let parts = runner.buildClaudeCommandParts(
       prompt: sensitivePrompt,
       imagePaths: [imagePath],
-      model: "claude-sonnet",
+      model: "sonnet",
       reasoningEffort: "low",
       disableTools: false,
       profile: .optimizedTranscription
