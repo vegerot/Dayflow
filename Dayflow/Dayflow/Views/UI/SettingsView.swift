@@ -14,6 +14,7 @@ struct SettingsView: View {
     case storage
     case privacy
     case providers
+    case aiTools
     case data
     case other
 
@@ -25,6 +26,7 @@ struct SettingsView: View {
       case .storage: return "Storage"
       case .privacy: return "Privacy"
       case .providers: return "Providers"
+      case .aiTools: return "MCP / CLI"
       case .data: return "Export"
       case .other: return "Other"
       }
@@ -41,6 +43,7 @@ struct SettingsView: View {
   @StateObject private var privacyViewModel = RecordingPrivacySettingsViewModel()
   @StateObject private var providersViewModel = ProvidersSettingsViewModel()
   @StateObject private var otherViewModel = OtherSettingsViewModel()
+  @StateObject private var agentAccessViewModel = AgentAccessViewModel()
 
   var body: some View {
     contentWithSheets
@@ -259,6 +262,8 @@ struct SettingsView: View {
         SettingsRecordingPrivacyTabView(viewModel: privacyViewModel)
       case .providers:
         SettingsProvidersTabView(viewModel: providersViewModel)
+      case .aiTools:
+        SettingsAgentAccessTabView(viewModel: agentAccessViewModel)
       case .data:
         SettingsDataTabView(viewModel: otherViewModel)
       case .other:
