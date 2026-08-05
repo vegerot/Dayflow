@@ -61,6 +61,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // App opened (cold start)
     AnalyticsService.shared.capture("app_opened", ["cold_start": true])
 
+    // Agent access: accept CLI/MCP writes if the user enabled edits, and fix
+    // any MCP client config whose recorded path went stale (app was moved).
+    AgentBridgeServer.shared.startIfEnabled()
+    AgentClientRegistration.repairStaleRegistrations()
+
     // Start heartbeat for DAU tracking
     appLaunchDate = Date()
     startHeartbeat()
