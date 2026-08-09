@@ -201,6 +201,16 @@ else
   cp "${ENTITLEMENTS}" "${RESOLVED_ENTS}"
 fi
 
+# Sign the bundled dayflow CLI before the app container seals over it.
+# It's a plain hardened-runtime binary with no entitlements of its own.
+CLI_BINARY="${SANITIZED_APP}/Contents/Helpers/dayflow"
+if [[ -f "${CLI_BINARY}" ]]; then
+  codesign -vvv --force -o runtime --timestamp --sign "${SIGN_ID}" "${CLI_BINARY}"
+else
+  echo "WARNING: bundled dayflow CLI not found at ${CLI_BINARY}." >&2
+  echo "         The 'Embed Dayflow CLI' build phase may not have run." >&2
+fi
+
 # Now sign the top-level app bundle (no --deep), using resolved entitlements
 codesign -vvv --force --strict \
   --options runtime \
