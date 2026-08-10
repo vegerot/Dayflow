@@ -231,7 +231,7 @@ enum ReferralOption: CaseIterable, Identifiable, Hashable {
 
   var requiresDetail: Bool {
     switch self {
-    case .youtube, .newsletterBlog, .other:
+    case .youtube, .newsletterBlog, .chatGPTClaudeAI, .other:
       return true
     default:
       return false
@@ -244,6 +244,8 @@ enum ReferralOption: CaseIterable, Identifiable, Hashable {
       return "Which newsletter or blog?"
     case .youtube:
       return "Which channel?"
+    case .chatGPTClaudeAI:
+      return "What did you ask ChatGPT or Claude that led you to Dayflow?"
     case .other:
       return "Where did you hear about Dayflow?"
     default:
