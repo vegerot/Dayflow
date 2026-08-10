@@ -111,6 +111,7 @@
 				C4C1D29D2DB56805007D5A55 /* Sources */,
 				C4C1D29E2DB56805007D5A55 /* Frameworks */,
 				C4C1D29F2DB56805007D5A55 /* Resources */,
+				C4A7E0012F1F00010000000C /* Embed Dayflow CLI */,
 			);
 			buildRules = (
 			);
@@ -248,6 +249,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		C4A7E0012F1F00010000000C /* Embed Dayflow CLI */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed Dayflow CLI";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Build the SwiftPM CLI and place it next to the app executable.\n# env -i strips Xcode's SDK/arch variables, which confuse swift-build.\nset -euo pipefail\nCLI_DIR=\"${SRCROOT}/../tools/dayflow-cli\"\nif [ \"${CONFIGURATION}\" = \"Release\" ]; then\n  env -i HOME=\"$HOME\" PATH=\"/usr/bin:/bin:/usr/sbin:/sbin\" /usr/bin/swift build -c release --package-path \"$CLI_DIR\" --arch arm64 --arch x86_64\n  BIN=\"$CLI_DIR/.build/apple/Products/Release/dayflow\"\nelse\n  env -i HOME=\"$HOME\" PATH=\"/usr/bin:/bin:/usr/sbin:/sbin\" /usr/bin/swift build -c release --package-path \"$CLI_DIR\"\n  BIN=\"$CLI_DIR/.build/release/dayflow\"\nfi\nDEST_DIR=\"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Helpers\"\nDEST=\"$DEST_DIR/dayflow\"\nmkdir -p \"$DEST_DIR\"\ncp -f \"$BIN\" \"$DEST\"\n# Nested executables must match the app's signing identity or the app's\n# seal fails validation and RunningBoard refuses to launch it. Falls back\n# to adhoc (-) when signing is disabled.\ncodesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" \"$DEST\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		C4C1D29D2DB56805007D5A55 /* Sources */ = {
@@ -422,6 +445,7 @@
 				DEVELOPMENT_TEAM = L75WYD8X4Y;
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Dayflow/Info.plist;
 				INFOPLIST_KEY_LSUIElement = NO;
@@ -457,6 +481,7 @@
 				DEVELOPMENT_TEAM = L75WYD8X4Y;
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Dayflow/Info.plist;
 				INFOPLIST_KEY_LSUIElement = NO;
