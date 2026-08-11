@@ -66,7 +66,7 @@ struct OnboardingPrototypeChooseProviderStep: View {
       providerID: .dayflow,
       title: "Dayflow Pro",
       accuracy: RatedValue(text: "Best", rating: .best),
-      subscription: "30 day free trial",
+      subscription: "7 day free trial",
       ease: RatedValue(text: "Sign in and go", rating: .best),
       notes: "Sync across devices"
     ),
