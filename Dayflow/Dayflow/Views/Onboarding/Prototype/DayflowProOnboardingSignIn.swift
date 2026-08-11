@@ -515,6 +515,8 @@ struct DayflowProOnboardingSignInPanel: View {
         Text(title)
           .font(.custom("Figtree", size: scaledText(13)))
           .fontWeight(.semibold)
+          .lineLimit(1)
+          .fixedSize(horizontal: true, vertical: false)
       },
       background: enabled ? Color(hex: "402C00") : Color(hex: "D8CCBD"),
       foreground: .white,
