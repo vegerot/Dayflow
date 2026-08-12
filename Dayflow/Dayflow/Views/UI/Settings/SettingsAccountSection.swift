@@ -140,7 +140,7 @@ struct SettingsAccountSection: View {
 
         HStack(alignment: .center, spacing: 12) {
           SettingsPrimaryButton(
-            title: authManager.isSignedIn ? "Start 14-day trial" : "Sign in to upgrade",
+            title: authManager.isSignedIn ? "Continue to checkout" : "Sign in to upgrade",
             systemImage: authManager.isSignedIn ? "creditcard" : "person.crop.circle",
             isLoading: authManager.isBusy,
             action: upgradeAction
