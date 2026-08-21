@@ -166,7 +166,11 @@ extension MainView {
       timelineTimeLabelFrames = frames
     }
     .onPreferenceChange(WeeklyHoursFramePreferenceKey.self) { frame in
-      weeklyHoursFrame = frame
+      // Deferred for the same reason as the cards-layer frame in
+      // CanvasTimelineDataView: avoid state writes during the layout pass.
+      DispatchQueue.main.async {
+        weeklyHoursFrame = frame
+      }
     }
   }
 
