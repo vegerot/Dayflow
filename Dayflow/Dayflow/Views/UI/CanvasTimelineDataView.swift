@@ -148,8 +148,12 @@ struct CanvasTimelineDataView: View {
         handleDayTimelineDidBecomeActive()
       }
       .onPreferenceChange(TimelineCardsLayerFramePreferenceKey.self) { frame in
-        cardsLayerFrame = frame
-        updateWeeklyHoursIntersection()
+        // Preference callbacks fire mid-layout; writing state that feeds the
+        // card ForEach from here can trip AttributeGraph. Defer one turn.
+        DispatchQueue.main.async {
+          cardsLayerFrame = frame
+          updateWeeklyHoursIntersection()
+        }
       }
       .onChange(of: weeklyHoursFrame) {
         updateWeeklyHoursIntersection()
