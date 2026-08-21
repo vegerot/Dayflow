@@ -121,6 +121,11 @@ struct DayflowApp: App {
   @StateObject private var journalCoordinator = JournalCoordinator()
 
   init() {
+    // Writing to stdout after its reader has gone away (app launched from a
+    // terminal or wrapper that exited) raises SIGPIPE and kills the process.
+    // Ignore it so the write simply fails with EPIPE instead.
+    signal(SIGPIPE, SIG_IGN)
+
     // Comment out for production - only use for testing onboarding
     // UserDefaults.standard.set(false, forKey: "didOnboard")
   }
