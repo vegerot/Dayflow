@@ -69,6 +69,59 @@ final class SentryHelper {
       options.enableAutoSessionTracking = true
     }
     isEnabled = true
+    uploadAppleCrashReportIfCrashedLastRun()
+  }
+
+  // MARK: - Apple crash report upload
+
+  private static var didUploadCrashReport = false
+
+  /// Sentry's own crash capture sometimes loses the crashed thread on Swift
+  /// concurrency threads, leaving an undiagnosable event grouped on `main`.
+  /// macOS still writes Apple's full `.ips` report for the same crash, so after
+  /// a crash we send the newest one as an attachment on a small info event.
+  private static func uploadAppleCrashReportIfCrashedLastRun() {
+    guard !didUploadCrashReport, SentrySDK.crashedLastRun else { return }
+    didUploadCrashReport = true
+
+    DispatchQueue.global(qos: .utility).async {
+      guard let report = newestAppleCrashReport() else { return }
+      let attachment = Attachment(
+        path: report.path,
+        filename: report.lastPathComponent,
+        contentType: "application/json"
+      )
+      let event = Event(level: .info)
+      event.message = SentryMessage(formatted: "Apple crash report from previous launch")
+      SentrySDK.capture(event: event) { scope in
+        scope.addAttachment(attachment)
+      }
+    }
+  }
+
+  /// Newest `Dayflow-*.ips` in the user's DiagnosticReports, if written recently.
+  private static func newestAppleCrashReport() -> URL? {
+    let reportsDir = FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent("Library/Logs/DiagnosticReports")
+    guard
+      let files = try? FileManager.default.contentsOfDirectory(
+        at: reportsDir,
+        includingPropertiesForKeys: [.contentModificationDateKey],
+        options: [.skipsHiddenFiles]
+      )
+    else { return nil }
+
+    let sevenDaysAgo = Date().addingTimeInterval(-7 * 24 * 60 * 60)
+    let candidates = files.compactMap { url -> (url: URL, modified: Date)? in
+      guard url.lastPathComponent.hasPrefix("Dayflow-"),
+        url.pathExtension == "ips",
+        let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+          .contentModificationDate,
+        modified > sevenDaysAgo
+      else { return nil }
+      return (url, modified)
+    }
+    return candidates.max(by: { $0.modified < $1.modified })?.url
   }
 
   /// Safely adds a breadcrumb to Sentry, only if the SDK is initialized.
