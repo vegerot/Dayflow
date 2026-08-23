@@ -2,14 +2,25 @@ import AppKit
 import Foundation
 
 enum RecordingPrivacyPlaceholder {
+  /// Renders a redaction card at exactly `width` x `height` pixels so it slots into
+  /// the current segment without forcing a resolution change.
   @MainActor
-  static func jpegData(
-    size: CGSize,
-    quality: CGFloat,
+  static func image(
+    width: Int,
+    height: Int,
     applicationName: String = "Private app"
-  ) -> Data? {
-    let image = NSImage(size: size)
-    image.lockFocus()
+  ) -> CGImage? {
+    guard
+      let context = CGContext(
+        data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue)
+    else { return nil }
+
+    let size = CGSize(width: width, height: height)
+    NSGraphicsContext.saveGraphicsState()
+    defer { NSGraphicsContext.restoreGraphicsState() }
+    NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
 
     NSColor(calibratedWhite: 0.08, alpha: 1).setFill()
     NSBezierPath(rect: NSRect(origin: .zero, size: size)).fill()
@@ -31,15 +42,8 @@ enum RecordingPrivacyPlaceholder {
       maxWidth: maxTextWidth
     )
 
-    image.unlockFocus()
-
-    guard let tiffData = image.tiffRepresentation,
-      let bitmap = NSBitmapImageRep(data: tiffData)
-    else {
-      return nil
-    }
-
-    return bitmap.representation(using: .jpeg, properties: [.compressionFactor: quality])
+    NSGraphicsContext.current?.flushGraphics()
+    return context.makeImage()
   }
 
   private static func drawCenteredText(

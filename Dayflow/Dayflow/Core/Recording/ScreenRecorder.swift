@@ -11,31 +11,11 @@ import AppKit
 import Combine
 import CoreGraphics
 import Foundation
-import ImageIO
 @preconcurrency import ScreenCaptureKit
 import Sentry
 
 // MARK: - Configuration
-
-/// Global screenshot configuration accessible throughout the app
-enum ScreenshotConfig {
-  /// Screenshot interval in seconds. Can be changed via UserDefaults.
-  /// Used by: ScreenRecorder (capture), VideoProcessingService (compression), LLM providers (timestamp expansion)
-  static var interval: TimeInterval {
-    let stored = UserDefaults.standard.double(forKey: "screenshotIntervalSeconds")
-    return stored > 0 ? stored : 10.0  // Default: 10 seconds
-  }
-}
-
-private enum Config {
-  static let targetHeight: CGFloat = 1080  // Scale screenshots to ~1080p
-  static let jpegQuality: CGFloat = 0.85  // Balance quality vs file size
-
-  /// Screenshot interval - references the global config
-  static var screenshotInterval: TimeInterval {
-    ScreenshotConfig.interval
-  }
-}
+// Capture interval and resolution live in `ScreenshotConfig` (RecordingPreferences.swift).
 
 private enum InputIdleSnapshot {
   // Bridge kCGAnyInputEventType into Swift without relying on a generated symbol name.
@@ -138,6 +118,8 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     if autoStart, AppState.shared.isRecording { start() }
 
     registerForSleepAndLock()
+    registerForCaptureSettingChanges()
+    FrameStore.shared.reconcileAfterLaunch()
   }
 
   deinit {
@@ -158,9 +140,23 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
   private var currentDisplayID: CGDirectDisplayID?
   private var requestedDisplayID: CGDirectDisplayID?
 
-  // ScreenCaptureKit objects (refreshed on each capture cycle)
-  private var cachedContent: SCShareableContent?
-  private var cachedDisplay: SCDisplay?
+  // ScreenCaptureKit objects (refreshed on each capture cycle).
+  // Written on `q` (stop/permission loss) and from async setup/refresh tasks,
+  // read from capture tasks on the cooperative pool. Guard them with a lock so a
+  // reader never retains a reference that another thread is releasing.
+  private let displayLock = NSLock()
+  private var _cachedContent: SCShareableContent?
+  private var _cachedDisplay: SCDisplay?
+
+  private var cachedContent: SCShareableContent? {
+    get { displayLock.withLock { _cachedContent } }
+    set { displayLock.withLock { _cachedContent = newValue } }
+  }
+
+  private var cachedDisplay: SCDisplay? {
+    get { displayLock.withLock { _cachedDisplay } }
+    set { displayLock.withLock { _cachedDisplay = newValue } }
+  }
 
   // MARK: - State Transitions
 
@@ -211,6 +207,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       self.cachedContent = nil
       self.cachedDisplay = nil
       self.currentDisplayID = nil
+      FrameStore.shared.finishCurrentSegment()
 
       if self.state != .paused {
         self.transition(to: .idle, context: "stopped")
@@ -247,7 +244,9 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         display = displaysByID[pid]
         if display == nil {
           requestedDisplayID = pid
-          dbg("setupCapture: preferred display \(pid) not in snapshot (count=\(content.displays.count)); deferring")
+          dbg(
+            "setupCapture: preferred display \(pid) not in snapshot (count=\(content.displays.count)); deferring"
+          )
         } else {
           requestedDisplayID = nil
         }
@@ -325,7 +324,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
   private func startCaptureTimer() {
     stopCaptureTimer()
 
-    let interval = Config.screenshotInterval
+    let interval = ScreenshotConfig.interval
     let timer = DispatchSource.makeTimerSource(queue: q)
     timer.schedule(deadline: .now() + interval, repeating: interval)
     timer.setEventHandler { [weak self] in
@@ -367,21 +366,18 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         RecordingPrivacyPreferences.frontmostBlockedApplication()
       }) {
         guard
-          let jpegData = await MainActor.run(body: {
-            RecordingPrivacyPlaceholder.jpegData(
-              size: CGSize(width: captureSize.width, height: captureSize.height),
-              quality: Config.jpegQuality,
+          let placeholder = await MainActor.run(body: {
+            RecordingPrivacyPlaceholder.image(
+              width: captureSize.width,
+              height: captureSize.height,
               applicationName: blockedApplication.name
             )
           })
         else {
           throw ScreenRecorderError.imageConversionFailed
         }
-        _ = try saveScreenshotData(
-          jpegData,
-          capturedAt: captureTime,
-          idleSecondsAtCapture: idleSecondsAtCapture
-        )
+        try appendFrame(
+          placeholder, capturedAt: captureTime, idleSecondsAtCapture: idleSecondsAtCapture)
         dbg("🔒 Screenshot redacted for blocked foreground application")
         return
       }
@@ -414,19 +410,9 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         configuration: config
       )
 
-      // 4. Convert to JPEG
-      guard let jpegData = jpegData(from: image, quality: Config.jpegQuality) else {
-        throw ScreenRecorderError.imageConversionFailed
-      }
-
-      // 5. Save to disk and register in the database
-      let fileURL = try saveScreenshotData(
-        jpegData,
-        capturedAt: captureTime,
-        idleSecondsAtCapture: idleSecondsAtCapture
-      )
-
-      dbg("📸 Screenshot saved: \(fileURL.lastPathComponent) (\(jpegData.count / 1024)KB)")
+      // 4. Encode into the current HEVC segment and register in the database
+      try appendFrame(image, capturedAt: captureTime, idleSecondsAtCapture: idleSecondsAtCapture)
+      dbg("📸 Frame appended (\(image.width)x\(image.height))")
 
     } catch {
       dbg("❌ Screenshot capture failed: \(error.localizedDescription)")
@@ -444,29 +430,28 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     }
   }
 
-  private func scaledCaptureSize(for display: SCDisplay) -> (width: Int, height: Int) {
-    let aspectRatio = Double(display.width) / Double(display.height)
-    var targetWidth = Int(Double(Config.targetHeight) * aspectRatio)
-    if targetWidth % 2 != 0 { targetWidth += 1 }
-    var targetHeight = Int(Config.targetHeight)
-    if targetHeight % 2 != 0 { targetHeight += 1 }
-    return (targetWidth, targetHeight)
+  /// Re-checks state right before writing so a capture that was in flight during
+  /// `stop()` does not reopen a segment that would then sit open through sleep.
+  private func appendFrame(_ image: CGImage, capturedAt: Date, idleSecondsAtCapture: Int?) throws {
+    guard state == .capturing else {
+      dbg("frame dropped - recorder stopped mid-capture")
+      return
+    }
+    let screenshotId = FrameStore.shared.append(
+      image, capturedAt: capturedAt, idleSecondsAtCapture: idleSecondsAtCapture)
+    guard screenshotId != nil else {
+      throw ScreenRecorderError.imageConversionFailed
+    }
   }
 
-  private func saveScreenshotData(
-    _ jpegData: Data,
-    capturedAt: Date,
-    idleSecondsAtCapture: Int?
-  ) throws -> URL {
-    let fileURL = StorageManager.shared.nextScreenshotURL()
-    try jpegData.write(to: fileURL)
-
-    _ = StorageManager.shared.saveScreenshot(
-      url: fileURL,
-      capturedAt: capturedAt,
-      idleSecondsAtCapture: idleSecondsAtCapture
-    )
-    return fileURL
+  private func scaledCaptureSize(for display: SCDisplay) -> (width: Int, height: Int) {
+    let targetHeight = Double(ScreenshotConfig.captureHeight)
+    let aspectRatio = Double(display.width) / Double(display.height)
+    var width = Int(targetHeight * aspectRatio)
+    if width % 2 != 0 { width += 1 }
+    var height = Int(targetHeight)
+    if height % 2 != 0 { height += 1 }
+    return (width, height)
   }
 
   private func refreshDisplay() async {
@@ -490,7 +475,9 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
           if requestedDisplayID == id { requestedDisplayID = nil }
           dbg("Switched to display \(id)")
         } else {
-          dbg("refreshDisplay: target \(id) not in snapshot (count=\(content.displays.count)); keeping current")
+          dbg(
+            "refreshDisplay: target \(id) not in snapshot (count=\(content.displays.count)); keeping current"
+          )
         }
       } else if let first = content.displays.first, cachedDisplay == nil {
         cachedDisplay = first
@@ -531,21 +518,29 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     }
   }
 
-  // MARK: - Image Conversion
+  // MARK: - Capture Setting Changes
 
-  private func jpegData(from cgImage: CGImage, quality: CGFloat) -> Data? {
-    let data = NSMutableData()
-    guard
-      let destination = CGImageDestinationCreateWithData(
-        data as CFMutableData, "public.jpeg" as CFString, 1, nil)
-    else {
-      return nil
+  private func registerForCaptureSettingChanges() {
+    // Interval changes restart the timer; resolution changes take effect on the
+    // next capture because FrameStore rotates segments when frame size changes.
+    NotificationCenter.default.addObserver(
+      forName: ScreenshotConfig.didChange,
+      object: nil, queue: nil
+    ) { [weak self] _ in
+      self?.q.async { [weak self] in
+        guard let self, self.state == .capturing else { return }
+        dbg("capture settings changed – restarting timer")
+        self.startCaptureTimer()
+      }
     }
-    CGImageDestinationAddImage(
-      destination, cgImage,
-      [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
-    guard CGImageDestinationFinalize(destination) else { return nil }
-    return data as Data
+
+    // Finalize the open segment so a clean quit never loses the last few minutes.
+    NotificationCenter.default.addObserver(
+      forName: NSApplication.willTerminateNotification,
+      object: nil, queue: nil
+    ) { _ in
+      FrameStore.shared.finishCurrentSegment()
+    }
   }
 
   // MARK: - Display Change Handling
