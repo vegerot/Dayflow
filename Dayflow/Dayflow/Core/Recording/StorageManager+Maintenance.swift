@@ -439,69 +439,43 @@ extension StorageManager {
       // Check current size after cleaning orphans
       let currentSize = try fileMgr.allocatedSizeOfDirectory(at: root)
 
-      // Clean up if above limit
+      // Soft-delete whole segments, oldest first, until the estimated size fits.
+      // Files are removed by cleanupRecordingStragglers once none of their frames are live.
       if currentSize > limit {
+        let activeSegmentPath = FrameStore.shared.activeSegmentPath
         var freedSpace: Int64 = 0
         var passCount = 0
 
         while currentSize - freedSpace > limit {
-          var deletedThisPass = 0
           var freedThisPass: Int64 = 0
+          var markedThisPass = 0
 
           try timedWrite("purgeScreenshots") { db in
-            // Get oldest active screenshots
-            let oldScreenshots = try Row.fetchAll(
+            let oldSegments = try Row.fetchAll(
               db,
               sql: """
-                    SELECT id, file_path, file_size
+                    SELECT file_path, SUM(file_size) AS bytes
                     FROM screenshots
                     WHERE is_deleted = 0
-                    ORDER BY captured_at ASC
-                    LIMIT 500
+                    GROUP BY file_path
+                    ORDER BY MIN(captured_at) ASC
+                    LIMIT 20
                 """)
 
-            guard !oldScreenshots.isEmpty else { return }
-
-            for screenshot in oldScreenshots {
-              guard let id: Int64 = screenshot["id"],
-                let path: String = screenshot["file_path"]
-              else { continue }
-
-              // Mark as deleted in DB first (safer ordering)
-              try db.execute(
-                sql: """
-                      UPDATE screenshots
-                      SET is_deleted = 1
-                      WHERE id = ?
-                  """, arguments: [id])
-
-              // Then delete physical file
-              if fileMgr.fileExists(atPath: path) {
-                var fileSize: Int64 = 0
-                if let storedSize: Int64 = screenshot["file_size"] {
-                  fileSize = storedSize
-                }
-                if fileSize == 0,
-                  let attrs = try? fileMgr.attributesOfItem(atPath: path),
-                  let size = attrs[.size] as? NSNumber
-                {
-                  fileSize = size.int64Value
-                }
-
-                do {
-                  try fileMgr.removeItem(atPath: path)
-                  freedThisPass += fileSize
-                  deletedThisPass += 1
-                } catch {
-                  print("⚠️ Failed to delete screenshot at \(path): \(error)")
-                }
-              } else {
-                deletedThisPass += 1
+            for segment in oldSegments {
+              guard let path: String = segment["file_path"], path != activeSegmentPath else {
+                continue
               }
+              let bytes: Int64? = segment["bytes"]
+              try db.execute(
+                sql: "UPDATE screenshots SET is_deleted = 1 WHERE file_path = ? AND is_deleted = 0",
+                arguments: [path])
+              freedThisPass += bytes ?? 0
+              markedThisPass += 1
             }
           }
 
-          if deletedThisPass == 0 {
+          if markedThisPass == 0 {
             break
           }
 
@@ -522,6 +496,8 @@ extension StorageManager {
 
   func cleanupRecordingStragglers() {
     // Delete any recordings that are not referenced by active screenshots.
+    // Read the active segment before the row snapshot so a segment opened in between is covered.
+    let activeSegmentPath = FrameStore.shared.activeSegmentPath
     let activeScreenshotPaths: Set<String> = Set(
       (try? timedRead("activeScreenshotPaths") { db in
         try Row.fetchAll(
@@ -538,17 +514,25 @@ extension StorageManager {
     guard
       let enumerator = fileMgr.enumerator(
         at: root,
-        includingPropertiesForKeys: [.isDirectoryKey],
+        includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
         options: [.skipsHiddenFiles]
       )
     else { return }
 
     let deleteAll = activeScreenshotPaths.isEmpty
+    // A segment written after the row snapshot has no rows yet; never touch anything that young.
+    let youngestDeletableDate = Date().addingTimeInterval(-(FrameStore.segmentDuration + 60))
 
     for case let fileURL as URL in enumerator {
       do {
-        let values = try fileURL.resourceValues(forKeys: [.isDirectoryKey])
+        let values = try fileURL.resourceValues(forKeys: [
+          .isDirectoryKey, .contentModificationDateKey,
+        ])
         if values.isDirectory == true { continue }
+        if fileURL.path == activeSegmentPath { continue }
+        if let modified = values.contentModificationDate, modified > youngestDeletableDate {
+          continue
+        }
 
         if deleteAll || !activeScreenshotPaths.contains(fileURL.path) {
           try fileMgr.removeItem(at: fileURL)
