@@ -6,7 +6,7 @@ import XCTest
 final class ClaudeTranscriptionInputBuilderTests: XCTestCase {
   private final class MockRecognizer: ClaudeFrameTextRecognizing, @unchecked Sendable {
     private let lock = NSLock()
-    private var recognizedPaths: [String] = []
+    private var recognizedSizes: [CGSize] = []
     let blocks: [ClaudeRecognizedTextBlock]
     let throwingCallIndex: Int?
 
@@ -15,10 +15,10 @@ final class ClaudeTranscriptionInputBuilderTests: XCTestCase {
       self.throwingCallIndex = throwingCallIndex
     }
 
-    func recognizeText(in imageURL: URL) throws -> [ClaudeRecognizedTextBlock] {
+    func recognizeText(in image: CGImage) throws -> [ClaudeRecognizedTextBlock] {
       lock.lock()
-      recognizedPaths.append(imageURL.path)
-      let callIndex = recognizedPaths.count - 1
+      recognizedSizes.append(CGSize(width: image.width, height: image.height))
+      let callIndex = recognizedSizes.count - 1
       lock.unlock()
       if callIndex == throwingCallIndex {
         throw MockRecognizerError.recognitionFailed
@@ -26,10 +26,10 @@ final class ClaudeTranscriptionInputBuilderTests: XCTestCase {
       return blocks
     }
 
-    func paths() -> [String] {
+    func sizes() -> [CGSize] {
       lock.lock()
       defer { lock.unlock() }
-      return recognizedPaths
+      return recognizedSizes
     }
   }
 
@@ -147,9 +147,8 @@ final class ClaudeTranscriptionInputBuilderTests: XCTestCase {
     XCTAssertTrue(prepared.tiles.allSatisfy { $0.app == "Google Chrome" })
     XCTAssertTrue(prepared.tiles.allSatisfy { ($0.ocr?.count ?? 0) <= 300 })
 
-    let expectedPaths = prepared.selectedScreenshots.map(\.filePath)
-    XCTAssertEqual(recognizer.paths(), expectedPaths)
-    XCTAssertTrue(recognizer.paths().allSatisfy { $0.hasPrefix(sourceDirectory.path) })
+    XCTAssertEqual(recognizer.sizes().count, prepared.selectedScreenshots.count)
+    XCTAssertTrue(recognizer.sizes().allSatisfy { $0 == CGSize(width: 640, height: 360) })
 
     let jpegData = try Data(contentsOf: prepared.contactSheetURL)
     XCTAssertGreaterThan(jpegData.count, 2)
@@ -213,7 +212,7 @@ final class ClaudeTranscriptionInputBuilderTests: XCTestCase {
     defer { prepared.cleanup() }
 
     XCTAssertEqual(prepared.tiles.count, 15)
-    XCTAssertEqual(recognizer.paths(), screenshots.map(\.filePath))
+    XCTAssertEqual(recognizer.sizes().count, screenshots.count)
     XCTAssertNil(prepared.tiles[failedFrameIndex].app)
     XCTAssertNil(prepared.tiles[failedFrameIndex].ocr)
     XCTAssertTrue(

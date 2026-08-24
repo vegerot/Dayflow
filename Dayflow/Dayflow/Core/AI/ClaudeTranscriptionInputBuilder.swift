@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ImageIO
 import Vision
 
 struct ClaudeRecognizedTextBlock: Equatable, Sendable {
@@ -30,7 +31,7 @@ struct ClaudeRecognizedTextBlock: Equatable, Sendable {
 }
 
 protocol ClaudeFrameTextRecognizing: Sendable {
-  func recognizeText(in imageURL: URL) throws -> [ClaudeRecognizedTextBlock]
+  func recognizeText(in image: CGImage) throws -> [ClaudeRecognizedTextBlock]
 }
 
 struct AppleVisionClaudeFrameTextRecognizer: ClaudeFrameTextRecognizing {
@@ -44,9 +45,19 @@ struct AppleVisionClaudeFrameTextRecognizer: ClaudeFrameTextRecognizing {
     return request
   }
 
+  /// Convenience for callers that already have an image file on disk.
   func recognizeText(in imageURL: URL) throws -> [ClaudeRecognizedTextBlock] {
+    guard let source = CGImageSourceCreateWithURL(imageURL as CFURL, nil),
+      let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+    else {
+      throw ClaudeTranscriptionInputBuilderError.cannotLoadImage(imageURL.path)
+    }
+    return try recognizeText(in: image)
+  }
+
+  func recognizeText(in image: CGImage) throws -> [ClaudeRecognizedTextBlock] {
     let request = Self.makeRequest()
-    let handler = VNImageRequestHandler(url: imageURL, options: [:])
+    let handler = VNImageRequestHandler(cgImage: image, options: [:])
     try handler.perform([request])
 
     return (request.results ?? [])
@@ -325,10 +336,16 @@ struct ClaudeTranscriptionInputBuilder: Sendable {
     let indices = evenlySpacedIndices(itemCount: sortedScreenshots.count)
     let selectedScreenshots = indices.map { sortedScreenshots[$0] }
 
+    // Decode each selected frame once; OCR and the contact sheet both use it.
+    var images: [CGImage] = []
     for screenshot in selectedScreenshots {
-      guard FileManager.default.fileExists(atPath: screenshot.filePath) else {
+      guard screenshot.isAvailable else {
         throw ClaudeTranscriptionInputBuilderError.missingImage(screenshot.filePath)
       }
+      guard let image = screenshot.loadCGImage(), image.width > 0, image.height > 0 else {
+        throw ClaudeTranscriptionInputBuilderError.cannotLoadImage(screenshot.filePath)
+      }
+      images.append(image)
     }
 
     try FileManager.default.createDirectory(
@@ -347,7 +364,7 @@ struct ClaudeTranscriptionInputBuilder: Sendable {
     let firstTimestamp = sortedScreenshots[0].capturedAt
     var tiles: [ClaudeTranscriptionTileMetadata] = []
     for (index, screenshot) in selectedScreenshots.enumerated() {
-      let blocks = (try? recognizer.recognizeText(in: screenshot.fileURL)) ?? []
+      let blocks = (try? recognizer.recognizeText(in: images[index])) ?? []
       let appHint = conservativeAppHint(from: blocks.first?.text)
       let ocr = selectedOCRText(from: blocks, appHint: appHint)
       tiles.append(
@@ -361,7 +378,7 @@ struct ClaudeTranscriptionInputBuilder: Sendable {
 
     let contactSheetURL = temporaryDirectoryURL.appendingPathComponent(
       "contact_sheet_5x3_2560x864.jpg")
-    try renderContactSheet(from: selectedScreenshots, to: contactSheetURL)
+    try renderContactSheet(from: images, to: contactSheetURL)
 
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -381,7 +398,7 @@ struct ClaudeTranscriptionInputBuilder: Sendable {
     return result
   }
 
-  private static func renderContactSheet(from screenshots: [Screenshot], to outputURL: URL) throws {
+  private static func renderContactSheet(from images: [CGImage], to outputURL: URL) throws {
     guard
       let bitmap = NSBitmapImageRep(
         bitmapDataPlanes: nil,
@@ -416,14 +433,9 @@ struct ClaudeTranscriptionInputBuilder: Sendable {
       .foregroundColor: NSColor.white,
     ]
 
-    for (index, screenshot) in screenshots.enumerated() {
-      guard let image = NSImage(contentsOf: screenshot.fileURL) else {
-        throw ClaudeTranscriptionInputBuilderError.cannotLoadImage(screenshot.filePath)
-      }
-      let pixelSize = imagePixelSize(image)
-      guard pixelSize.width > 0, pixelSize.height > 0 else {
-        throw ClaudeTranscriptionInputBuilderError.cannotLoadImage(screenshot.filePath)
-      }
+    for (index, cgImage) in images.enumerated() {
+      let pixelSize = NSSize(width: cgImage.width, height: cgImage.height)
+      let image = NSImage(cgImage: cgImage, size: pixelSize)
 
       let column = index % contactSheetColumns
       let row = index / contactSheetColumns
@@ -476,15 +488,6 @@ struct ClaudeTranscriptionInputBuilder: Sendable {
       throw ClaudeTranscriptionInputBuilderError.cannotEncodeContactSheet
     }
     try data.write(to: outputURL, options: .atomic)
-  }
-
-  private static func imagePixelSize(_ image: NSImage) -> NSSize {
-    if let representation = image.representations.max(by: {
-      $0.pixelsWide * $0.pixelsHigh < $1.pixelsWide * $1.pixelsHigh
-    }) {
-      return NSSize(width: representation.pixelsWide, height: representation.pixelsHigh)
-    }
-    return image.size
   }
 
   private static func formatTimestamp(_ seconds: Int) -> String {
