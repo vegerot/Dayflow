@@ -38,13 +38,21 @@ extension CodexProvider {
     let durationSeconds = TimeInterval(lastTs - firstTs)
     let durationString = formatSeconds(durationSeconds)
 
-    let imagePaths: [String] = sampledScreenshots.compactMap { screenshot in
-      guard FileManager.default.fileExists(atPath: screenshot.filePath) else {
-        print("[ChatCLI] ⚠️ Screenshot file not found: \(screenshot.filePath)")
+    // The CLI needs files on disk, so decode each sampled frame to a temp JPEG.
+    let imageDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("DayflowCodexFrames-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: imageDirectory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: imageDirectory) }
+
+    let imagePaths: [String] = sampledScreenshots.enumerated().compactMap { index, screenshot in
+      let url = imageDirectory.appendingPathComponent(String(format: "frame_%02d.jpg", index))
+      do {
+        try screenshot.writeJPEG(to: url, maxHeight: 720, quality: 0.85)
+        return url.path
+      } catch {
+        print("[ChatCLI] ⚠️ Could not decode screenshot \(screenshot.id): \(error)")
         return nil
       }
-
-      return screenshot.filePath
     }
 
     guard !imagePaths.isEmpty else {
