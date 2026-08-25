@@ -197,69 +197,6 @@ final class DayflowBackendProvider {
     return formatter.string(from: date)
   }
 
-  private static func jpegData(
-    for screenshot: Screenshot,
-    maxHeight: CGFloat = 720,
-    quality: CGFloat = 0.85
-  ) -> Data? {
-    let url = URL(fileURLWithPath: screenshot.filePath)
-    guard let image = NSImage(contentsOf: url) else {
-      return try? Data(contentsOf: url)
-    }
-
-    let rep =
-      image.representations.compactMap { $0 as? NSBitmapImageRep }.first
-      ?? image.representations.first
-    let pixelsWide = rep?.pixelsWide ?? Int(image.size.width)
-    let pixelsHigh = rep?.pixelsHigh ?? Int(image.size.height)
-
-    if pixelsHigh <= Int(maxHeight) {
-      return try? Data(contentsOf: url)
-    }
-
-    let scale = maxHeight / CGFloat(pixelsHigh)
-    let targetWidth = max(2, Int((CGFloat(pixelsWide) * scale).rounded(.toNearestOrAwayFromZero)))
-    let targetHeight = Int(maxHeight)
-
-    guard
-      let bitmap = NSBitmapImageRep(
-        bitmapDataPlanes: nil,
-        pixelsWide: targetWidth,
-        pixelsHigh: targetHeight,
-        bitsPerSample: 8,
-        samplesPerPixel: 4,
-        hasAlpha: true,
-        isPlanar: false,
-        colorSpaceName: .calibratedRGB,
-        bytesPerRow: 0,
-        bitsPerPixel: 0
-      )
-    else {
-      return nil
-    }
-
-    bitmap.size = NSSize(width: targetWidth, height: targetHeight)
-    NSGraphicsContext.saveGraphicsState()
-    defer { NSGraphicsContext.restoreGraphicsState() }
-
-    guard let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
-      return nil
-    }
-
-    NSGraphicsContext.current = context
-    image.draw(
-      in: NSRect(x: 0, y: 0, width: CGFloat(targetWidth), height: CGFloat(targetHeight)),
-      from: NSRect(origin: .zero, size: image.size),
-      operation: .copy,
-      fraction: 1,
-      respectFlipped: true,
-      hints: [.interpolation: NSImageInterpolation.high]
-    )
-    context.flushGraphics()
-
-    return bitmap.representation(using: .jpeg, properties: [.compressionFactor: quality])
-  }
-
   func generateDaily(_ request: DayflowDailyGenerationRequest) async throws
     -> DayflowDailyGenerationResponse
   {
@@ -396,6 +333,18 @@ final class DayflowBackendProvider {
     }
   }
 
+  /// Matches the server's MAX_SCREENSHOTS_PER_REQUEST so we never upload frames it would discard.
+  private static let maxFramesPerBatch = 15
+
+  /// Picks `maxCount` evenly spaced frames, the same way the backend samples them.
+  private static func evenlySampled(_ screenshots: [Screenshot], maxCount: Int) -> [Screenshot] {
+    guard screenshots.count > maxCount, maxCount > 0 else { return screenshots }
+    let step = Double(screenshots.count) / Double(maxCount)
+    return (0..<maxCount).map { i in
+      screenshots[min(Int(Double(i) * step), screenshots.count - 1)]
+    }
+  }
+
   func transcribeScreenshots(_ screenshots: [Screenshot], batchStartTime: Date, batchId: Int64?)
     async throws -> (observations: [Observation], log: LLMCall)
   {
@@ -411,9 +360,10 @@ final class DayflowBackendProvider {
     }
 
     let sortedScreenshots = screenshots.sorted { $0.capturedAt < $1.capturedAt }
-    let screenshotPayloads = sortedScreenshots.compactMap {
+    let sampledScreenshots = Self.evenlySampled(sortedScreenshots, maxCount: Self.maxFramesPerBatch)
+    let screenshotPayloads = sampledScreenshots.compactMap {
       screenshot -> DayflowScreenshotPayload? in
-      guard let data = Self.jpegData(for: screenshot) else { return nil }
+      guard let data = screenshot.jpegData(maxHeight: 720, quality: 0.85) else { return nil }
       return DayflowScreenshotPayload(
         capturedAt: screenshot.capturedAt,
         imageBase64: data.base64EncodedString()
