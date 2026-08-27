@@ -524,7 +524,7 @@ extension OllamaProvider {
   private func loadScreenshotAsFrameData(_ screenshot: Screenshot, relativeTo baseTimestamp: Int)
     -> FrameData?
   {
-    guard let imageData = loadScreenshotDataForOllama(screenshot) else {
+    guard let imageData = screenshot.jpegData(maxHeight: 720, quality: 0.85) else {
       return nil
     }
 
@@ -533,67 +533,5 @@ extension OllamaProvider {
     let relativeTimestamp = TimeInterval(screenshot.capturedAt - baseTimestamp)
 
     return FrameData(image: base64Data, timestamp: relativeTimestamp)
-  }
-
-  private func loadScreenshotDataForOllama(
-    _ screenshot: Screenshot, maxHeight: Double = 720, jpegQuality: CGFloat = 0.85
-  ) -> Data? {
-    let url = URL(fileURLWithPath: screenshot.filePath)
-
-    guard let image = NSImage(contentsOf: url) else {
-      return try? Data(contentsOf: url)
-    }
-
-    let rep =
-      image.representations.compactMap { $0 as? NSBitmapImageRep }.first
-      ?? image.representations.first
-    let pixelsWide = rep?.pixelsWide ?? Int(image.size.width)
-    let pixelsHigh = rep?.pixelsHigh ?? Int(image.size.height)
-
-    if pixelsHigh <= Int(maxHeight) {
-      return try? Data(contentsOf: url)
-    }
-
-    let scale = maxHeight / Double(pixelsHigh)
-    let targetW = max(2, Int((Double(pixelsWide) * scale).rounded(.toNearestOrAwayFromZero)))
-    let targetH = Int(maxHeight)
-
-    guard
-      let bitmap = NSBitmapImageRep(
-        bitmapDataPlanes: nil,
-        pixelsWide: targetW,
-        pixelsHigh: targetH,
-        bitsPerSample: 8,
-        samplesPerPixel: 4,
-        hasAlpha: true,
-        isPlanar: false,
-        colorSpaceName: .calibratedRGB,
-        bytesPerRow: 0,
-        bitsPerPixel: 0
-      )
-    else {
-      return nil
-    }
-
-    bitmap.size = NSSize(width: targetW, height: targetH)
-    NSGraphicsContext.saveGraphicsState()
-    guard let ctx = NSGraphicsContext(bitmapImageRep: bitmap) else {
-      NSGraphicsContext.restoreGraphicsState()
-      return nil
-    }
-    NSGraphicsContext.current = ctx
-    image.draw(
-      in: NSRect(x: 0, y: 0, width: CGFloat(targetW), height: CGFloat(targetH)),
-      from: NSRect(origin: .zero, size: image.size),
-      operation: .copy,
-      fraction: 1.0,
-      respectFlipped: true,
-      hints: [.interpolation: NSImageInterpolation.high]
-    )
-    ctx.flushGraphics()
-    NSGraphicsContext.restoreGraphicsState()
-
-    let props: [NSBitmapImageRep.PropertyKey: Any] = [.compressionFactor: jpegQuality]
-    return bitmap.representation(using: NSBitmapImageRep.FileType.jpeg, properties: props)
   }
 }
