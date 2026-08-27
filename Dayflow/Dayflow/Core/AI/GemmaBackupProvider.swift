@@ -41,7 +41,7 @@ final class GemmaBackupProvider {
       .map { sortedScreenshots[$0] }
 
     let frameData = sampledScreenshots.enumerated().compactMap { index, screenshot -> FrameData? in
-      guard let imageData = loadScreenshotData(screenshot) else { return nil }
+      guard let imageData = screenshot.jpegData(maxHeight: 720, quality: 0.7) else { return nil }
       let base64String = imageData.base64EncodedString()
       let relativeTimestamp = TimeInterval(screenshot.capturedAt - firstTs)
       return FrameData(index: index + 1, base64Image: base64String, timestamp: relativeTimestamp)

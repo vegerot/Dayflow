@@ -141,8 +141,11 @@ extension GemmaBackupProvider {
       guard let responseString = String(data: data, encoding: .utf8) else {
         throw error
       }
+      // A garbled reply can put its last "}" before its first "{"; slicing that
+      // range traps at runtime, so only slice when the bounds are ordered.
       if let startIndex = responseString.firstIndex(of: "{"),
-        let endIndex = responseString.lastIndex(of: "}")
+        let endIndex = responseString.lastIndex(of: "}"),
+        startIndex <= endIndex
       {
         let jsonSubstring = responseString[startIndex...endIndex]
         if let jsonData = jsonSubstring.data(using: .utf8) {
@@ -304,31 +307,5 @@ extension GemmaBackupProvider {
     }
 
     return Int(duration / 60)
-  }
-
-  func loadScreenshotData(
-    _ screenshot: Screenshot, maxDimension: CGFloat = 1280, compression: CGFloat = 0.7
-  ) -> Data? {
-    let url = URL(fileURLWithPath: screenshot.filePath)
-    guard let image = NSImage(contentsOf: url) else { return nil }
-
-    let originalSize = image.size
-    let maxSide = max(originalSize.width, originalSize.height)
-    let scale = maxSide > maxDimension ? (maxDimension / maxSide) : 1.0
-    let targetSize = NSSize(width: originalSize.width * scale, height: originalSize.height * scale)
-
-    let resized = NSImage(size: targetSize)
-    resized.lockFocus()
-    image.draw(
-      in: NSRect(origin: .zero, size: targetSize), from: NSRect(origin: .zero, size: originalSize),
-      operation: .copy, fraction: 1.0)
-    resized.unlockFocus()
-
-    guard let tiff = resized.tiffRepresentation,
-      let rep = NSBitmapImageRep(data: tiff)
-    else { return nil }
-
-    let jpegData = rep.representation(using: .jpeg, properties: [.compressionFactor: compression])
-    return jpegData
   }
 }
