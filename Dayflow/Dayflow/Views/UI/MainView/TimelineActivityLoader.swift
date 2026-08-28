@@ -88,9 +88,7 @@ enum TimelineActivityLoader {
     for batchId: Int64,
     storageManager: StorageManaging
   ) -> Bool {
-    storageManager.screenshotsForBatch(batchId).contains { screenshot in
-      FileManager.default.fileExists(atPath: screenshot.filePath)
-    }
+    storageManager.screenshotsForBatch(batchId).contains(where: \.isAvailable)
   }
 
   static func buildActivities(from cards: [TimelineCard]) -> [TimelineActivity] {
