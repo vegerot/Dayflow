@@ -653,17 +653,17 @@ struct ActivityCard: View {
     let targetSize = CGSize(width: max(1, size.width), height: max(1, size.height))
 
     Task {
-      let screenshotURL = await ActivityCardTimelapseGenerator.shared.middleScreenshotURL(
+      let screenshot = await ActivityCardTimelapseGenerator.shared.middleScreenshot(
         forCardId: cardId)
       await MainActor.run {
         guard requestID == timelapsePreviewRequestID else { return }
-        guard let screenshotURL else {
+        guard let screenshot else {
           timelapsePreviewThumbnail = nil
           return
         }
 
         ScreenshotThumbnailCache.shared.fetchThumbnail(
-          fileURL: screenshotURL, targetSize: targetSize
+          screenshot: screenshot, targetSize: targetSize
         ) { image in
           guard requestID == timelapsePreviewRequestID else { return }
           timelapsePreviewThumbnail = image
@@ -711,11 +711,10 @@ private actor ActivityCardTimelapseGenerator {
     return screenshots
   }
 
-  func middleScreenshotURL(forCardId cardId: Int64) -> URL? {
+  func middleScreenshot(forCardId cardId: Int64) -> Screenshot? {
     guard let screenshots = try? screenshots(forCardId: cardId), !screenshots.isEmpty else {
       return nil
     }
-    let middleIndex = screenshots.count / 2
-    return screenshots[middleIndex].fileURL
+    return screenshots[screenshots.count / 2]
   }
 }

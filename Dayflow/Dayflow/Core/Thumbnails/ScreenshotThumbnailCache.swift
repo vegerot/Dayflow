@@ -7,7 +7,6 @@
 
 import AppKit
 import Foundation
-import ImageIO
 
 final class ScreenshotThumbnailCache {
   static let shared = ScreenshotThumbnailCache()
@@ -27,8 +26,10 @@ final class ScreenshotThumbnailCache {
     cache.countLimit = 64
   }
 
-  func fetchThumbnail(fileURL: URL, targetSize: CGSize, completion: @escaping (NSImage?) -> Void) {
-    let key = cacheKey(fileURL: fileURL, targetSize: targetSize)
+  func fetchThumbnail(
+    screenshot: Screenshot, targetSize: CGSize, completion: @escaping (NSImage?) -> Void
+  ) {
+    let key = cacheKey(screenshot: screenshot, targetSize: targetSize)
 
     if let cached = cache.object(forKey: key as NSString) {
       completion(cached)
@@ -50,7 +51,7 @@ final class ScreenshotThumbnailCache {
 
     queue.addOperation { [weak self] in
       guard let self else { return }
-      let image = self.generateThumbnail(url: fileURL, targetSize: targetSize)
+      let image = self.generateThumbnail(screenshot: screenshot, targetSize: targetSize)
       if let image {
         self.cache.setObject(image, forKey: key as NSString)
       }
@@ -58,22 +59,13 @@ final class ScreenshotThumbnailCache {
     }
   }
 
-  private func generateThumbnail(url: URL, targetSize: CGSize) -> NSImage? {
-    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+  private func generateThumbnail(screenshot: Screenshot, targetSize: CGSize) -> NSImage? {
+    guard screenshot.isAvailable else { return nil }
     let targetMaxDimension = max(targetSize.width, targetSize.height)
     let scale = NSScreen.main?.backingScaleFactor ?? 2.0
     let maxPixel = max(64, Int(targetMaxDimension * scale))
 
-    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-    let options: [CFString: Any] = [
-      kCGImageSourceCreateThumbnailFromImageAlways: true,
-      kCGImageSourceShouldCacheImmediately: true,
-      kCGImageSourceCreateThumbnailWithTransform: true,
-      kCGImageSourceThumbnailMaxPixelSize: maxPixel,
-    ]
-    guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-      return nil
-    }
+    guard let cg = screenshot.loadCGImage(maxPixelSize: maxPixel) else { return nil }
     return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
   }
 
@@ -89,9 +81,9 @@ final class ScreenshotThumbnailCache {
     }
   }
 
-  private func cacheKey(fileURL: URL, targetSize: CGSize) -> String {
+  private func cacheKey(screenshot: Screenshot, targetSize: CGSize) -> String {
     let width = Int(targetSize.width.rounded())
     let height = Int(targetSize.height.rounded())
-    return "\(fileURL.path)|\(width)x\(height)"
+    return "\(screenshot.filePath)#\(screenshot.frameIndex ?? -1)|\(width)x\(height)"
   }
 }
