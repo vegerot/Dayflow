@@ -1,7 +1,6 @@
 @preconcurrency import AVFoundation
 import CoreGraphics
 import Foundation
-import ImageIO
 
 enum VideoProcessingError: Error {
   case invalidInputURL
@@ -63,12 +62,6 @@ actor VideoProcessingService {
     f.dateFormat = "yyyy-MM-dd"
     return f
   }()
-  private let dateFormatter_filenameTimestamp: DateFormatter = {
-    let f = DateFormatter()
-    f.dateFormat = "yyyyMMdd_HHmmssSSS"
-    return f
-  }()
-
   init() {
     // Create a persistent directory for timelapses within Application Support
     let appSupportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -220,8 +213,8 @@ actor VideoProcessingService {
     let pixelBufferPool = adaptor.pixelBufferPool
 
     for screenshot in selectedScreenshots {
-      guard let cgImage = loadCGImage(from: screenshot.fileURL) else {
-        print("⚠️ Skipping invalid image: \(screenshot.fileURL.lastPathComponent)")
+      guard let cgImage = screenshot.loadCGImage() else {
+        print("⚠️ Skipping undecodable screenshot \(screenshot.id)")
         skippedFrames += 1
         continue
       }
@@ -231,7 +224,7 @@ actor VideoProcessingService {
         let pixelBuffer = createPixelBuffer(
           from: cgImage, canvasWidth: width, canvasHeight: height, pixelBufferPool: pixelBufferPool)
       else {
-        print("⚠️ Failed to create pixel buffer for: \(screenshot.fileURL.lastPathComponent)")
+        print("⚠️ Failed to create pixel buffer for screenshot \(screenshot.id)")
         skippedFrames += 1
         continue
       }
@@ -311,41 +304,6 @@ actor VideoProcessingService {
     print(timingSummary)
   }
 
-  /// Overload that accepts file URLs directly (convenience for legacy code paths)
-  func generateVideoFromScreenshots(
-    screenshotURLs: [URL],
-    outputURL: URL,
-    fps: Int = 10
-  ) async throws {
-    // Convert URLs to Screenshot-like objects with estimated timestamps
-    // This is less accurate but works for cases where we only have URLs
-    var screenshots: [Screenshot] = []
-    let baseTimestamp = Int(Date().timeIntervalSince1970) - (screenshotURLs.count * 10)  // Estimate
-
-    for (index, url) in screenshotURLs.enumerated() {
-      // Try to parse timestamp from filename (YYYYMMDD_HHmmssSSS.jpg)
-      let filename = url.deletingPathExtension().lastPathComponent
-      let timestamp: Int
-      if let parsed = parseTimestampFromFilename(filename) {
-        timestamp = parsed
-      } else {
-        timestamp = baseTimestamp + (index * 10)  // Fall back to estimated
-      }
-
-      screenshots.append(
-        Screenshot(
-          id: Int64(index),
-          capturedAt: timestamp,
-          filePath: url.path,
-          fileSize: nil,
-          idleSecondsAtCapture: nil,
-          isDeleted: false
-        ))
-    }
-
-    try await generateVideoFromScreenshots(screenshots: screenshots, outputURL: outputURL, fps: fps)
-  }
-
   private func sampleScreenshots(_ screenshots: [Screenshot], stride: Int) -> [Screenshot] {
     let safeStride = max(1, stride)
     guard safeStride > 1 else { return screenshots }
@@ -362,24 +320,11 @@ actor VideoProcessingService {
 
   private func firstValidImageSize(in screenshots: [Screenshot]) -> (width: Int, height: Int)? {
     for screenshot in screenshots {
-      if let size = imageSize(at: screenshot.fileURL) {
-        return size
+      if let image = screenshot.loadCGImage(), image.width > 0, image.height > 0 {
+        return (image.width, image.height)
       }
     }
     return nil
-  }
-
-  private func imageSize(at url: URL) -> (width: Int, height: Int)? {
-    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-      let width = properties[kCGImagePropertyPixelWidth] as? Int,
-      let height = properties[kCGImagePropertyPixelHeight] as? Int,
-      width > 0,
-      height > 0
-    else {
-      return nil
-    }
-    return (width, height)
   }
 
   private func resolvedCanvasSize(sourceWidth: Int, sourceHeight: Int, maxOutputHeight: Int?) -> (
@@ -399,24 +344,6 @@ actor VideoProcessingService {
     let scale = Double(maxOutputHeight) / Double(safeSourceHeight)
     let scaledWidth = Int((Double(safeSourceWidth) * scale).rounded())
     return (makeEven(max(2, scaledWidth)), makeEven(maxOutputHeight))
-  }
-
-  private func loadCGImage(from url: URL) -> CGImage? {
-    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
-      return nil
-    }
-    let fullDecodeOptions: [CFString: Any] = [
-      kCGImageSourceShouldCacheImmediately: true,
-      kCGImageSourceShouldCache: true,
-    ]
-    return CGImageSourceCreateImageAtIndex(source, 0, fullDecodeOptions as CFDictionary)
-  }
-
-  private func parseTimestampFromFilename(_ filename: String) -> Int? {
-    if let date = dateFormatter_filenameTimestamp.date(from: filename) {
-      return Int(date.timeIntervalSince1970)
-    }
-    return nil
   }
 
   /// Creates a pixel buffer with the image composited onto a canvas using aspect-fit.
