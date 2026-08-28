@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-import ImageIO
 import QuartzCore
 import SwiftUI
 
@@ -419,8 +418,8 @@ private final class ScreenshotFilmstripGenerator {
       generated.reserveCapacity(sampled.count)
 
       for index in sampled {
-        let url = screenshots[index].fileURL
-        if let image = self.decodeThumbnail(url: url, targetHeight: targetHeight) {
+        let screenshot = screenshots[index]
+        if let image = self.decodeThumbnail(screenshot: screenshot, targetHeight: targetHeight) {
           generated.append(image)
         } else {
           generated.append(self.placeholderImage(width: targetWidth, height: targetHeight))
@@ -445,23 +444,13 @@ private final class ScreenshotFilmstripGenerator {
     }
   }
 
-  private func decodeThumbnail(url: URL, targetHeight: CGFloat) -> NSImage? {
-    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+  private func decodeThumbnail(screenshot: Screenshot, targetHeight: CGFloat) -> NSImage? {
+    guard screenshot.isAvailable else { return nil }
 
     let scale = NSScreen.main?.backingScaleFactor ?? 2.0
     let targetWidth = targetHeight * 16.0 / 9.0
     let maxPixel = max(64, Int(max(targetHeight, targetWidth) * scale))
-    let options: [CFString: Any] = [
-      kCGImageSourceCreateThumbnailFromImageAlways: true,
-      kCGImageSourceShouldCacheImmediately: true,
-      kCGImageSourceCreateThumbnailWithTransform: true,
-      kCGImageSourceThumbnailMaxPixelSize: maxPixel,
-    ]
-    guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-    else {
-      return nil
-    }
+    guard let cgImage = screenshot.loadCGImage(maxPixelSize: maxPixel) else { return nil }
     return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
   }
 
@@ -477,12 +466,12 @@ private final class ScreenshotFilmstripGenerator {
   private static func cacheKey(
     for screenshots: [Screenshot], frameCount: Int, targetHeight: CGFloat
   ) -> String {
-    let firstPath = screenshots.first?.filePath ?? "-"
-    let lastPath = screenshots.last?.filePath ?? "-"
+    let firstId = screenshots.first?.id ?? -1
+    let lastId = screenshots.last?.id ?? -1
     let firstTs = screenshots.first?.capturedAt ?? 0
     let lastTs = screenshots.last?.capturedAt ?? 0
     return
-      "\(screenshots.count)|\(firstTs)|\(lastTs)|\(firstPath)|\(lastPath)|n:\(frameCount)|h:\(Int(targetHeight.rounded()))"
+      "\(screenshots.count)|\(firstTs)|\(lastTs)|\(firstId)|\(lastId)|n:\(frameCount)|h:\(Int(targetHeight.rounded()))"
   }
 
   private static func sampledIndices(total: Int, count: Int) -> [Int] {
