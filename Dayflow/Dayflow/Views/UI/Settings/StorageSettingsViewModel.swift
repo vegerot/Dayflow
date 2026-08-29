@@ -16,6 +16,10 @@ final class StorageSettingsViewModel: ObservableObject {
   @Published var timelapsesLimitIndex: Int
   @Published var showLimitConfirmation = false
   @Published var pendingLimit: PendingLimit?
+  @Published var captureHeight: Int = ScreenshotConfig.captureHeight
+  @Published var captureInterval: TimeInterval = ScreenshotConfig.interval
+  /// Measured from the last hour of finalized segments; nil until enough has been recorded.
+  @Published var observedBytesPerHour: Int64?
 
   let usageFormatter: ByteCountFormatter = {
     let formatter = ByteCountFormatter()
@@ -72,12 +76,15 @@ final class StorageSettingsViewModel: ObservableObject {
 
       let recordingsSize = StorageSettingsViewModel.directorySize(at: recordingsURL)
       let timelapseSize = TimelapseStorageManager.shared.currentUsageBytes()
+      let observedRate = StorageManager.shared.observedRecordingBytesPerHour(
+        since: Date().addingTimeInterval(-3600))
 
       await MainActor.run {
         guard let self else { return }
         self.storagePermissionGranted = permission
         self.recordingsUsageBytes = recordingsSize
         self.timelapseUsageBytes = timelapseSize
+        self.observedBytesPerHour = observedRate
         self.lastStorageCheck = Date()
         self.isRefreshingStorage = false
 
@@ -89,6 +96,37 @@ final class StorageSettingsViewModel: ObservableObject {
         self.timelapsesLimitIndex = Self.indexForLimit(timelapseLimit)
       }
     }
+  }
+
+  // MARK: - Recording quality
+
+  func setCaptureHeight(_ height: Int) {
+    guard height != captureHeight else { return }
+    ScreenshotConfig.captureHeight = height
+    captureHeight = height
+    AnalyticsService.shared.capture("capture_height_changed", ["height": height])
+  }
+
+  func setCaptureInterval(_ interval: TimeInterval) {
+    guard interval != captureInterval else { return }
+    ScreenshotConfig.interval = interval
+    captureInterval = interval
+    AnalyticsService.shared.capture("capture_interval_changed", ["interval_seconds": interval])
+  }
+
+  /// "≈ 10 MB per hour · ≈ 2.5 GB per month at 8 h/day"
+  func recordingEstimateText() -> String {
+    let perHour = ScreenshotConfig.estimatedBytesPerHour(
+      height: captureHeight, interval: captureInterval)
+    let perMonth = perHour * 8 * 30
+    return
+      "≈ \(usageFormatter.string(fromByteCount: perHour)) per hour · ≈ \(usageFormatter.string(fromByteCount: perMonth)) per month at 8 h/day"
+  }
+
+  func observedRateText() -> String? {
+    guard let observedBytesPerHour else { return nil }
+    return
+      "Measured over the last hour: \(usageFormatter.string(fromByteCount: observedBytesPerHour)) per hour"
   }
 
   func storageFooterText() -> String {

@@ -6,6 +6,7 @@ struct SettingsStorageTabView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: SettingsStyle.sectionSpacing) {
       recordingStatusSection
+      recordingQualitySection
       diskUsageSection
     }
     .alert(isPresented: $viewModel.showLimitConfirmation) {
@@ -76,6 +77,79 @@ struct SettingsStorageTabView: View {
         .padding(.top, 18)
       }
     }
+  }
+
+  // MARK: - Recording quality
+
+  private var recordingQualitySection: some View {
+    SettingsSection(
+      title: "Recording quality",
+      subtitle: "Higher resolution and more frequent captures use more disk."
+    ) {
+      VStack(alignment: .leading, spacing: 0) {
+        SettingsRow(label: "Resolution", subtitle: "Height each frame is scaled to") {
+          settingsMenu(
+            selected: ScreenshotConfig.label(forHeight: viewModel.captureHeight),
+            options: ScreenshotConfig.heightOptions.map {
+              ($0, ScreenshotConfig.label(forHeight: $0))
+            },
+            onSelect: viewModel.setCaptureHeight
+          )
+        }
+
+        SettingsRow(
+          label: "Capture frequency", subtitle: "How often a frame is taken", showsDivider: false
+        ) {
+          settingsMenu(
+            selected: ScreenshotConfig.label(forInterval: viewModel.captureInterval),
+            options: ScreenshotConfig.intervalOptions.map {
+              ($0, ScreenshotConfig.label(forInterval: $0))
+            },
+            onSelect: viewModel.setCaptureInterval
+          )
+        }
+
+        VStack(alignment: .leading, spacing: 4) {
+          SettingsMetadata(text: viewModel.recordingEstimateText())
+          if let observed = viewModel.observedRateText() {
+            SettingsMetadata(text: observed)
+          }
+        }
+        .padding(.top, 18)
+      }
+    }
+  }
+
+  /// Compact dropdown matching the storage-limit picker below.
+  private func settingsMenu<Value: Hashable>(
+    selected: String,
+    options: [(value: Value, label: String)],
+    onSelect: @escaping (Value) -> Void
+  ) -> some View {
+    Menu {
+      ForEach(options, id: \.value) { option in
+        Button(option.label) { onSelect(option.value) }
+      }
+    } label: {
+      HStack(spacing: 5) {
+        Text(selected)
+          .font(.custom("Figtree", size: 13))
+          .fontWeight(.semibold)
+        Image(systemName: "chevron.down")
+          .font(.system(size: 10, weight: .semibold))
+      }
+      .foregroundColor(SettingsStyle.ink)
+      .padding(.horizontal, 12)
+      .padding(.vertical, 7)
+      .background(
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+          .fill(Color.black.opacity(0.05))
+      )
+    }
+    .menuStyle(BorderlessButtonMenuStyle())
+    .menuIndicator(.hidden)
+    .fixedSize()
+    .pointingHandCursor()
   }
 
   // MARK: - Disk usage
