@@ -1,6 +1,5 @@
 import AVFoundation
 import AppKit
-import ImageIO
 import QuartzCore
 import SwiftUI
 
@@ -25,10 +24,10 @@ actor TimelineReviewScreenshotSource {
     return storage.fetchScreenshotsInTimeRange(startTs: startTs, endTs: endTs)
   }
 
-  func previewScreenshotURL(for activity: TimelineActivity) -> URL? {
+  func previewScreenshot(for activity: TimelineActivity) -> Screenshot? {
     let screenshots = screenshots(for: activity)
     guard screenshots.isEmpty == false else { return nil }
-    return screenshots[screenshots.count / 2].fileURL
+    return screenshots[screenshots.count / 2]
   }
 }
 
@@ -170,20 +169,6 @@ final class TimelineReviewFrameLoader: @unchecked Sendable {
 
   private func decodeImage(at index: Int) -> CGImage? {
     guard screenshots.indices.contains(index) else { return nil }
-    let url = screenshots[index].fileURL
-    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-    let options: [CFString: Any] = [
-      kCGImageSourceCreateThumbnailFromImageAlways: true,
-      kCGImageSourceShouldCacheImmediately: true,
-      kCGImageSourceCreateThumbnailWithTransform: true,
-      kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
-    ]
-    // Silently requests the machine's Hardware Media Engines (M1/M2) to bypass the CPU for JPEG operations.
-    var finalOptions = options
-    finalOptions["kCGImageSourceUseHardwareAcceleration" as CFString] = true
-
-    guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, finalOptions as CFDictionary)
-    else { return nil }
-    return cgImage
+    return screenshots[index].loadCGImage(maxPixelSize: maxPixelSize)
   }
 }
