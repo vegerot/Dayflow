@@ -343,6 +343,11 @@ final class AnalyticsService {
   }
 
   func postHogDistinctIdForAppcast() -> String? {
+    currentDistinctId()
+  }
+
+  /// The PostHog distinct ID, or nil when analytics are opted out or the SDK has no identity yet.
+  func currentDistinctId() -> String? {
     guard isOptedIn else { return nil }
     let distinctId = PostHogSDK.shared.getDistinctId().trimmingCharacters(
       in: .whitespacesAndNewlines)
