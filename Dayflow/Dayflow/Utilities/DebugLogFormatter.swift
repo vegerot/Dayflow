@@ -1,5 +1,42 @@
 import Foundation
 
+/// A freshly built debug log plus the counts we report to analytics.
+struct DebugLogSnapshot {
+  let text: String
+  let analyticsProperties: [String: Any]
+
+  /// Pulls the latest timeline cards, LLM calls, and batches from storage and formats them.
+  /// Runs storage reads, so call it off the main thread.
+  static func makeCurrent() -> DebugLogSnapshot {
+    let timeline = StorageManager.shared.fetchRecentTimelineCardsForDebug(limit: 5)
+    let batchIds = Array(Set(timeline.compactMap { $0.batchId }))
+
+    // Fall back to the global recent calls when no timeline batches exist yet.
+    let llmCalls: [LLMCallDebugEntry]
+    let llmCallSource: String
+    if batchIds.isEmpty {
+      llmCalls = StorageManager.shared.fetchRecentLLMCallsForDebug(limit: 20)
+      llmCallSource = "global"
+    } else {
+      llmCalls = StorageManager.shared.fetchLLMCallsForBatches(batchIds: batchIds, limit: 100)
+      llmCallSource = "timeline_batches"
+    }
+
+    let batches = StorageManager.shared.fetchRecentAnalysisBatchesForDebug(limit: 5)
+    let text = DebugLogFormatter.makeLog(timeline: timeline, llmCalls: llmCalls, batches: batches)
+
+    return DebugLogSnapshot(
+      text: text,
+      analyticsProperties: [
+        "timeline_count": timeline.count,
+        "llm_call_count": llmCalls.count,
+        "llm_call_source": llmCallSource,
+        "batch_count": batches.count,
+      ]
+    )
+  }
+}
+
 struct DebugLogFormatter {
   static func makeLog(
     timeline: [TimelineCardDebugEntry], llmCalls: [LLMCallDebugEntry],
