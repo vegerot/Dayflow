@@ -1,162 +1,187 @@
 import AppKit
 import SwiftUI
 
+/// The "Report" tab: an in-app support chat (PostHog Support) with email,
+/// Discord, and calendar links underneath for people who prefer those.
 struct BugReportView: View {
   private let emailAddress = "jerry@dayflow.so"
   private let discordInviteURL = URL(string: "https://discord.gg/9YPAtctE6k")
   private let callBookingURL = URL(string: "https://cal.com/jerry-liu/15min")
+
+  @State private var chatState: ChatState = .loading
   @State private var didCopyEmail = false
   @State private var copyResetTask: DispatchWorkItem? = nil
   @State private var didCopyDebugLogs = false
   @State private var isCopyingDebugLogs = false
   @State private var debugCopyResetTask: DispatchWorkItem? = nil
 
+  /// Hard-coded light colors until the theming work lands.
+  private enum Palette {
+    static let textPrimary = Color(hex: "333333")
+    static let textSecondary = Color(hex: "707070")
+    static let textMuted = Color(hex: "979797")
+    static let rightPanelFill = Color.white.opacity(0.3)
+    static let rightPanelBorder = Color(hex: "ECECEC")
+    static let rightPanelShadow = Color.black.opacity(0.05)
+    static let secondaryButtonFill = Color(hex: "FCF9F7")
+    static let secondaryButtonBorder = Color(hex: "D0D0D0")
+  }
+
+  private enum ChatState {
+    case loading
+    case ready
+    case unavailable
+  }
+
   var body: some View {
-    VStack(spacing: 36) {
-      VStack(spacing: 16) {
+    VStack(spacing: 24) {
+      VStack(spacing: 10) {
         Text("Thanks for using Dayflow")
           .font(.custom("InstrumentSerif-Regular", size: 40))
-          .foregroundColor(.black.opacity(0.9))
+          .foregroundColor(Palette.textPrimary)
 
         Text(
-          "Email works great if you want to drop a quick note, Discord if you want to join the community, and if you’d prefer to chat, find some time on my calendar - I’d love to dig into why Dayflow is or isn’t working well for you."
+          "Bugs, feedback, questions, anything. Send a note below and we'll reply right here. Debug logs come along by default so we can actually fix things; uncheck the box if you'd rather not."
         )
-        .font(.custom("Figtree", size: 16))
-        .foregroundColor(.black.opacity(0.65))
+        .font(.custom("Figtree", size: 15))
+        .foregroundColor(Palette.textSecondary)
         .multilineTextAlignment(.center)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: 520)
       }
-      VStack(spacing: 24) {
-        VStack(spacing: 12) {
-          Text("Reach out")
-            .font(.custom("Figtree", size: 14).weight(.medium))
-            .foregroundColor(.black.opacity(0.55))
-            .textCase(.uppercase)
-            .tracking(0.75)
 
-          HStack(spacing: 16) {
-            DayflowSurfaceButton(
-              action: composeEmail,
-              content: {
-                HStack(spacing: 12) {
-                  Image(systemName: "envelope.fill")
-                    .font(.system(size: 18, weight: .semibold))
-                  Text("Email")
-                    .font(.custom("Figtree", size: 16).weight(.semibold))
-                }
-              },
-              background: Color.white,
-              foreground: Color.black,
-              borderColor: Color.black.opacity(0.12),
-              cornerRadius: 18,
-              horizontalPadding: 28,
-              verticalPadding: 16,
-              showShadow: true
-            )
+      chatCard
+        .frame(maxWidth: 680, maxHeight: .infinity)
 
-            DayflowSurfaceButton(
-              action: openDiscord,
-              content: {
-                HStack(spacing: 12) {
-                  Image("DiscordGlyph")
-                    .resizable()
-                    .renderingMode(.original)
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 22, height: 18)
-                  Text("Join Discord")
-                    .font(.custom("Figtree", size: 16).weight(.semibold))
-                }
-              },
-              background: Color.white,
-              foreground: Color.black,
-              borderColor: Color.black.opacity(0.12),
-              cornerRadius: 18,
-              horizontalPadding: 28,
-              verticalPadding: 16,
-              showShadow: true
-            )
-
-            DayflowSurfaceButton(
-              action: bookCall,
-              content: {
-                HStack(spacing: 12) {
-                  Image(systemName: "calendar.badge.clock")
-                    .font(.system(size: 18, weight: .semibold))
-                  Text("Calendar")
-                    .font(.custom("Figtree", size: 16).weight(.semibold))
-                }
-              },
-              background: Color.white,
-              foreground: Color.black,
-              borderColor: Color.black.opacity(0.12),
-              cornerRadius: 18,
-              horizontalPadding: 28,
-              verticalPadding: 16,
-              showShadow: true
-            )
-          }
-        }
-
-        VStack(spacing: 12) {
-          Text("Quick utilities")
-            .font(.custom("Figtree", size: 14).weight(.medium))
-            .foregroundColor(.black.opacity(0.55))
-            .textCase(.uppercase)
-            .tracking(0.75)
-
-          HStack(spacing: 16) {
-            DayflowSurfaceButton(
-              action: copyEmail,
-              content: {
-                HStack(spacing: 10) {
-                  Image(systemName: "doc.on.doc")
-                    .font(.system(size: 16, weight: .semibold))
-                  Text(didCopyEmail ? "Copied!" : "Copy email")
-                    .font(.custom("Figtree", size: 15).weight(.semibold))
-                }
-              },
-              background: Color.white,
-              foreground: Color.black,
-              borderColor: Color.black.opacity(0.12),
-              cornerRadius: 14,
-              horizontalPadding: 22,
-              verticalPadding: 14,
-              showShadow: true
-            )
-            .opacity(didCopyEmail ? 0.85 : 1.0)
-
-            DayflowSurfaceButton(
-              action: copyDebugLogs,
-              content: {
-                HStack(spacing: 10) {
-                  Image(systemName: "ladybug.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                  Text(
-                    didCopyDebugLogs
-                      ? "Copied!" : (isCopyingDebugLogs ? "Preparing..." : "Copy debug logs")
-                  )
-                  .font(.custom("Figtree", size: 15).weight(.semibold))
-                }
-              },
-              background: Color.white,
-              foreground: Color.black,
-              borderColor: Color.black.opacity(0.12),
-              cornerRadius: 14,
-              horizontalPadding: 20,
-              verticalPadding: 14,
-              showShadow: true
-            )
-            .opacity(didCopyDebugLogs ? 0.85 : 1.0)
-          }
-        }
-      }
-      .padding(.horizontal, 8)
+      contactLinks
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .padding(.top, 100)
+    .padding(.top, 48)
+    .padding(.bottom, 28)
     .padding(.horizontal, 48)
+    .onAppear {
+      AnalyticsService.shared.screen("support_chat")
+    }
   }
+
+  // MARK: Chat
+
+  private var chatCard: some View {
+    let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+    return ZStack {
+      SupportChatWebView(palette: SupportChatPalette.light) { event in
+        switch event {
+        case .ready:
+          chatState = .ready
+        case .unavailable:
+          chatState = .unavailable
+        }
+      }
+      .opacity(chatState == .unavailable ? 0 : 1)
+
+      if chatState == .unavailable {
+        unavailableNotice
+      }
+    }
+    .background(shape.fill(Palette.rightPanelFill))
+    .overlay(shape.strokeBorder(Palette.rightPanelBorder, lineWidth: 1))
+    .clipShape(shape)
+    .shadow(color: Palette.rightPanelShadow, radius: 12, x: 0, y: 4)
+  }
+
+  private var unavailableNotice: some View {
+    VStack(spacing: 14) {
+      Image(systemName: "wifi.exclamationmark")
+        .font(.system(size: 28, weight: .medium))
+        .foregroundColor(Palette.textMuted)
+      Text("Chat isn't reachable right now")
+        .font(.custom("Figtree", size: 17).weight(.semibold))
+        .foregroundColor(Palette.textPrimary)
+      Text("Email works just as well. Copy the debug logs below and paste them in if you can.")
+        .font(.custom("Figtree", size: 14))
+        .foregroundColor(Palette.textSecondary)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 360)
+    }
+    .padding(32)
+  }
+
+  // MARK: Links
+
+  private var contactLinks: some View {
+    HStack(spacing: 12) {
+      linkButton(title: "Email", systemImage: "envelope.fill", action: composeEmail)
+
+      DayflowSurfaceButton(
+        action: openDiscord,
+        content: {
+          HStack(spacing: 9) {
+            Image("DiscordGlyph")
+              .resizable()
+              .renderingMode(.original)
+              .aspectRatio(contentMode: .fit)
+              .frame(width: 18, height: 14)
+            Text("Join Discord")
+              .font(.custom("Figtree", size: 14).weight(.semibold))
+          }
+        },
+        background: Palette.secondaryButtonFill,
+        foreground: Palette.textPrimary,
+        borderColor: Palette.secondaryButtonBorder,
+        cornerRadius: 14,
+        horizontalPadding: 18,
+        verticalPadding: 11,
+        showShadow: true
+      )
+
+      linkButton(title: "Book a call", systemImage: "calendar.badge.clock", action: bookCall)
+
+      Spacer(minLength: 0)
+
+      textButton(didCopyEmail ? "Copied!" : "Copy email", action: copyEmail)
+      textButton(
+        didCopyDebugLogs ? "Copied!" : (isCopyingDebugLogs ? "Preparing…" : "Copy debug logs"),
+        action: copyDebugLogs
+      )
+    }
+    .frame(maxWidth: 680)
+  }
+
+  private func linkButton(title: String, systemImage: String, action: @escaping () -> Void)
+    -> some View
+  {
+    DayflowSurfaceButton(
+      action: action,
+      content: {
+        HStack(spacing: 9) {
+          Image(systemName: systemImage)
+            .font(.system(size: 15, weight: .semibold))
+          Text(title)
+            .font(.custom("Figtree", size: 14).weight(.semibold))
+        }
+      },
+      background: Palette.secondaryButtonFill,
+      foreground: Palette.textPrimary,
+      borderColor: Palette.secondaryButtonBorder,
+      cornerRadius: 14,
+      horizontalPadding: 18,
+      verticalPadding: 11,
+      showShadow: true
+    )
+  }
+
+  private func textButton(_ title: String, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      Text(title)
+        .font(.custom("Figtree", size: 13).weight(.medium))
+        .foregroundColor(Palette.textMuted)
+        .underline()
+    }
+    .buttonStyle(.plain)
+    .pointingHandCursor()
+  }
+
+  // MARK: Actions
 
   private func composeEmail() {
     AnalyticsService.shared.capture("bug_report_email_tapped", ["destination": emailAddress])
@@ -212,43 +237,16 @@ struct BugReportView: View {
 
     isCopyingDebugLogs = true
 
-    Task {
-      // Fetch recent timeline cards first
-      let timeline = StorageManager.shared.fetchRecentTimelineCardsForDebug(limit: 5)
-
-      // Extract unique batch IDs from timeline cards
-      let batchIds = Array(Set(timeline.compactMap { $0.batchId }))
-
-      // Fetch LLM calls, falling back to global recent calls if we have no timeline batches
-      let llmCalls: [LLMCallDebugEntry]
-      let llmCallSource: String
-      if batchIds.isEmpty {
-        llmCalls = StorageManager.shared.fetchRecentLLMCallsForDebug(limit: 20)
-        llmCallSource = "global"
-      } else {
-        llmCalls = StorageManager.shared.fetchLLMCallsForBatches(batchIds: batchIds, limit: 100)
-        llmCallSource = "timeline_batches"
-      }
-
-      let batches = StorageManager.shared.fetchRecentAnalysisBatchesForDebug(limit: 5)
-
-      let logString = DebugLogFormatter.makeLog(
-        timeline: timeline, llmCalls: llmCalls, batches: batches)
+    Task.detached(priority: .userInitiated) {
+      let snapshot = DebugLogSnapshot.makeCurrent()
 
       await MainActor.run {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(logString, forType: .string)
+        pasteboard.setString(snapshot.text, forType: .string)
 
         AnalyticsService.shared.capture(
-          "bug_report_debug_logs_copied",
-          [
-            "timeline_count": timeline.count,
-            "llm_call_count": llmCalls.count,
-            "llm_call_source": llmCallSource,
-            "batch_count": batches.count,
-          ]
-        )
+          "bug_report_debug_logs_copied", snapshot.analyticsProperties)
 
         withAnimation(.easeOut(duration: 0.2)) {
           didCopyDebugLogs = true
