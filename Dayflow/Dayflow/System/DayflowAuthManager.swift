@@ -258,6 +258,7 @@ final class DayflowAuthManager: ObservableObject {
   nonisolated private static let sessionAccount = "session_token"
   private static let rememberedEmailKey = "dayflowAccountEmail"
   private static let pendingReferralCodeKey = "dayflowPendingReferralCode"
+  private static let aliasedUserIdKey = "dayflowAnalyticsAliasedUserId"
 
   @Published private(set) var user: DayflowAuthUser?
   @Published private(set) var entitlements = DayflowEntitlement.free
@@ -369,6 +370,7 @@ final class DayflowAuthManager: ObservableObject {
       }
 
       user = response.user
+      linkAnalyticsIdentity(to: response.user)
       entitlements = response.entitlements
       flowEnabled = response.flowEnabled ?? false
       pendingEmail = nil
@@ -424,6 +426,7 @@ final class DayflowAuthManager: ObservableObject {
 
       let response: MeResponse = try await send(request)
       user = response.user
+      linkAnalyticsIdentity(to: response.user)
       entitlements = response.entitlements
       flowEnabled = response.flowEnabled ?? false
       referralSummary = try? await fetchReferralSummary(token: token)
@@ -634,6 +637,16 @@ final class DayflowAuthManager: ObservableObject {
 
   func sessionToken() -> String? {
     Self.storedSessionToken()
+  }
+
+  /// Aliases the Dayflow account id onto this install's PostHog person, once per account.
+  /// Every Mac signed into the same account merges into one PostHog person, so support
+  /// tickets and analytics show one history per account.
+  private func linkAnalyticsIdentity(to user: DayflowAuthUser) {
+    let defaults = UserDefaults.standard
+    guard defaults.string(forKey: Self.aliasedUserIdKey) != user.id else { return }
+    AnalyticsService.shared.alias(user.id)
+    defaults.set(user.id, forKey: Self.aliasedUserIdKey)
   }
 
   nonisolated static func storedSessionToken() -> String? {
