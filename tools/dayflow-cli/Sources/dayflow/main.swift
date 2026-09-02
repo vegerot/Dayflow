@@ -474,6 +474,8 @@ let helpText = """
 
 // MARK: - Dispatch
 
+AgentUsageTelemetry.beginCLI(operation: AgentUsageTelemetry.operation(for: positional))
+
 switch positional.first {
 case nil, "help":
   print(helpText)
@@ -519,3 +521,5 @@ case "mcp":
 case let command?:
   fail("Unknown command \"\(command)\". Run `dayflow help`.", code: 2)
 }
+
+AgentUsageTelemetry.finishCLI(outcome: "success")
