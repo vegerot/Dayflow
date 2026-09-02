@@ -32,6 +32,10 @@ func printJSON(_ object: [String: Any]) {
 }
 
 func failJSON(_ code: String, _ message: String, exitCode: Int32) -> Never {
+  AgentUsageTelemetry.finishCLI(
+    outcome: "failure",
+    failureCategory: AgentUsageTelemetry.failureCategory(forExitCode: exitCode)
+  )
   let error: [String: Any] = [
     "schema_version": schemaVersion,
     "error": ["code": code, "message": message],
@@ -74,6 +78,7 @@ func timelineEnvelope(
     "detail_available": !detailed,
     "hint": detailed
       ? ""
-      : "Summaries are abbreviated. Use `dayflow card <record_id>` for the full write-up of a specific activity.",
+      : "Summaries are abbreviated. Use `dayflow card <record_id>` for the full write-up of a specific activity."
+      ,
   ]
 }
