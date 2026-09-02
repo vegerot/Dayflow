@@ -47,7 +47,17 @@ func runMCPServer() -> Never {
       let params = message["params"] as? [String: Any] ?? [:]
       let name = params["name"] as? String ?? ""
       let toolArguments = params["arguments"] as? [String: Any] ?? [:]
-      reply(id: id, result: callTool(name: name, arguments: toolArguments))
+      let startedAt = ProcessInfo.processInfo.systemUptime
+      var result = callTool(name: name, arguments: toolArguments)
+      let failureCategory = result.removeValue(forKey: "_telemetry_failure_category") as? String
+      let isError = result["isError"] as? Bool == true
+      AgentUsageTelemetry.recordMCP(
+        operation: name,
+        outcome: isError ? "failure" : "success",
+        failureCategory: failureCategory,
+        duration: ProcessInfo.processInfo.systemUptime - startedAt
+      )
+      reply(id: id, result: result)
     default:
       if id != nil {
         replyError(id: id, code: -32601, message: "Method not found: \(method)")
@@ -254,8 +264,13 @@ private func toolResult(_ payload: [String: Any], isError: Bool = false) -> [Str
   return result
 }
 
-private func toolError(_ message: String) -> [String: Any] {
-  toolResult(["error": message], isError: true)
+private func toolError(
+  _ message: String,
+  failureCategory: String = "tool_error"
+) -> [String: Any] {
+  var result = toolResult(["error": message], isError: true)
+  result["_telemetry_failure_category"] = failureCategory
+  return result
 }
 
 private func callTool(name: String, arguments: [String: Any]) -> [String: Any] {
@@ -288,12 +303,15 @@ private func callTool(name: String, arguments: [String: Any]) -> [String: Any] {
       "update_activity", "delete_activity", "set_day_goal":
       return runWriteTool(name: name, arguments: arguments)
     default:
-      return toolError("Unknown tool: \(name)")
+      return toolError("Unknown tool: \(name)", failureCategory: "invalid_input")
     }
   } catch DatabaseError.notFound {
-    return toolError("No Dayflow data found. The user needs to open Dayflow and record first.")
+    return toolError(
+      "No Dayflow data found. The user needs to open Dayflow and record first.",
+      failureCategory: "unavailable"
+    )
   } catch {
-    return toolError("Query failed: \(error)")
+    return toolError("Query failed: \(error)", failureCategory: "execution_error")
   }
 }
 
@@ -310,7 +328,7 @@ private func resolveWindow(_ arguments: [String: Any]) -> DayWindow? {
 
 private func runTimelineTool(_ arguments: [String: Any]) throws -> [String: Any] {
   guard let window = resolveWindow(arguments) else {
-    return toolError("Invalid date. Use YYYY-MM-DD.")
+    return toolError("Invalid date. Use YYYY-MM-DD.", failureCategory: "invalid_input")
   }
   let activities = try fetchActivities(db: openDB(), window: window)
   return toolResult(timelineEnvelope(activities, dayKey: window.dayKey, detailed: false))
@@ -318,17 +336,17 @@ private func runTimelineTool(_ arguments: [String: Any]) throws -> [String: Any]
 
 private func runActivityDetailTool(_ arguments: [String: Any]) throws -> [String: Any] {
   guard let recordId = arguments["record_id"] as? Int else {
-    return toolError("record_id is required.")
+    return toolError("record_id is required.", failureCategory: "invalid_input")
   }
   guard let activity = try fetchActivity(db: openDB(), recordId: recordId) else {
-    return toolError("No activity with ID \(recordId).")
+    return toolError("No activity with ID \(recordId).", failureCategory: "not_found")
   }
   return toolResult(json(for: activity, detailed: true))
 }
 
 private func runSearchTool(_ arguments: [String: Any]) throws -> [String: Any] {
   guard let query = arguments["query"] as? String, !query.isEmpty else {
-    return toolError("query is required.")
+    return toolError("query is required.", failureCategory: "invalid_input")
   }
   let matches = try searchActivities(db: openDB(), text: query)
   return toolResult([
@@ -344,7 +362,10 @@ private func runTimeBreakdownTool(_ arguments: [String: Any]) throws -> [String:
     let toWindow = dayWindow(forKey: toKey),
     fromWindow.start <= toWindow.start
   else {
-    return toolError("from and to are required as YYYY-MM-DD, with from first.")
+    return toolError(
+      "from and to are required as YYYY-MM-DD, with from first.",
+      failureCategory: "invalid_input"
+    )
   }
 
   let activities = try fetchActivities(db: openDB(), from: fromWindow.start, to: toWindow.end)
@@ -377,7 +398,9 @@ private func runDailyTool(_ arguments: [String: Any]) throws -> [String: Any] {
   }
   guard let standup = try fetchStandup(db: openDB(), day: key) else {
     return toolError(
-      "No Daily for \(key). Dayflow generates one after a day with enough activity.")
+      "No Daily for \(key). Dayflow generates one after a day with enough activity.",
+      failureCategory: "not_found"
+    )
   }
   return toolResult([
     "date": standup.day,
@@ -391,7 +414,7 @@ private func runWeeklyTool(_ arguments: [String: Any]) throws -> [String: Any] {
   let anchor: Date
   if let date = arguments["date"] as? String {
     guard let window = dayWindow(forKey: date) else {
-      return toolError("Invalid date. Use YYYY-MM-DD.")
+      return toolError("Invalid date. Use YYYY-MM-DD.", failureCategory: "invalid_input")
     }
     anchor = window.start
   } else {
@@ -439,7 +462,9 @@ private func runStatusTool() throws -> [String: Any] {
 private func runWriteTool(name: String, arguments: [String: Any]) -> [String: Any] {
   guard AgentBridge.editsEnabled else {
     return toolError(
-      "Edits are turned off. The user can enable them in Dayflow → Settings → AI Tools.")
+      "Edits are turned off. The user can enable them in Dayflow → Settings → AI Tools.",
+      failureCategory: "edits_disabled"
+    )
   }
   // Tool names map 1:1 onto bridge operations.
   let operation: String
@@ -450,14 +475,17 @@ private func runWriteTool(name: String, arguments: [String: Any]) -> [String: An
   case "update_activity": operation = "activity_update"
   case "delete_activity": operation = "activity_delete"
   case "set_day_goal": operation = "goal_set"
-  default: return toolError("Unknown write tool: \(name)")
+  default: return toolError("Unknown write tool: \(name)", failureCategory: "invalid_input")
   }
   do {
     let data = try AgentBridge.send(operation: operation, arguments: arguments)
     return toolResult(data.isEmpty ? ["ok": true] : data)
   } catch let error as AgentBridge.BridgeError {
-    return toolError(error.message)
+    return toolError(
+      error.message,
+      failureCategory: error.code == "app_not_running" ? "unavailable" : "execution_error"
+    )
   } catch {
-    return toolError("Write failed: \(error)")
+    return toolError("Write failed: \(error)", failureCategory: "execution_error")
   }
 }
