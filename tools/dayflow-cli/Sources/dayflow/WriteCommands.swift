@@ -52,6 +52,7 @@ private func confirmDestructive(_ prompt: String) {
   print("\(prompt) [y/N] ", terminator: "")
   let answer = readLine()?.lowercased() ?? ""
   guard answer == "y" || answer == "yes" else {
+    AgentUsageTelemetry.finishCLI(outcome: "cancelled")
     print("Cancelled.")
     exit(0)
   }
