@@ -30,6 +30,10 @@ let headerDayFormatter: DateFormatter = {
 }()
 
 func fail(_ message: String, code: Int32) -> Never {
+  AgentUsageTelemetry.finishCLI(
+    outcome: "failure",
+    failureCategory: AgentUsageTelemetry.failureCategory(forExitCode: code)
+  )
   FileHandle.standardError.write(Data((message + "\n").utf8))
   exit(code)
 }
@@ -44,7 +48,9 @@ func renderTimeline(_ activities: [Activity], window: DayWindow, detail: Timelin
 
   let tracked = activities.reduce(0) { $0 + $1.durationMinutes }
   let title = headerDayFormatter.string(from: window.start)
-  print("\(Style.bold)\(title)\(Style.reset)  \(Style.dim)\(formatDuration(minutes: tracked)) tracked\(Style.reset)")
+  print(
+    "\(Style.bold)\(title)\(Style.reset)  \(Style.dim)\(formatDuration(minutes: tracked)) tracked\(Style.reset)"
+  )
   print("")
 
   let idWidth = activities.map { String($0.recordId).count }.max() ?? 4
@@ -59,8 +65,11 @@ func renderTimeline(_ activities: [Activity], window: DayWindow, detail: Timelin
       let name = activity.title.padded(to: 44)
       print("  \(Style.dim)\(id)\(Style.reset)  \(time)  \(name)  \(activity.category)")
     case .summary, .detailed:
-      print("  \(Style.dim)\(id)\(Style.reset)  \(time)  \(Style.bold)\(activity.title)\(Style.reset)  \(Style.dim)\(activity.category)\(Style.reset)")
-      let body = detail == .detailed && !activity.detailedSummary.isEmpty
+      print(
+        "  \(Style.dim)\(id)\(Style.reset)  \(time)  \(Style.bold)\(activity.title)\(Style.reset)  \(Style.dim)\(activity.category)\(Style.reset)"
+      )
+      let body =
+        detail == .detailed && !activity.detailedSummary.isEmpty
         ? activity.detailedSummary
         : activity.summary
       for line in wrap(body, width: 68) {
@@ -74,7 +83,9 @@ func renderTimeline(_ activities: [Activity], window: DayWindow, detail: Timelin
     print("")
     printCategoryTotals(activities)
     print("")
-    print("  \(Style.dim)\(activities.count) activities · dayflow timeline --summary for descriptions\(Style.reset)")
+    print(
+      "  \(Style.dim)\(activities.count) activities · dayflow timeline --summary for descriptions\(Style.reset)"
+    )
   }
 }
 
@@ -124,7 +135,8 @@ func renderWeekly(_ activities: [Activity], window: WeekWindow) {
   let rangeFormatter = DateFormatter()
   rangeFormatter.dateFormat = "EEE MMM d"
   let displayEnd = Calendar.current.date(byAdding: .day, value: 6, to: window.start)!
-  let header = "\(rangeFormatter.string(from: window.start)) – \(rangeFormatter.string(from: displayEnd))"
+  let header =
+    "\(rangeFormatter.string(from: window.start)) – \(rangeFormatter.string(from: displayEnd))"
 
   var totals: [String: Int] = [:]
   for activity in activities where activity.category != "System" {
@@ -133,7 +145,9 @@ func renderWeekly(_ activities: [Activity], window: WeekWindow) {
   let tracked = totals.values.reduce(0, +)
   let focus = totals.filter { $0.key != "Idle" }.values.reduce(0, +)
 
-  print("\(Style.bold)\(header)\(Style.reset)  \(Style.dim)Tracked \(formatDuration(minutes: tracked)) · Focus \(formatDuration(minutes: focus))\(Style.reset)")
+  print(
+    "\(Style.bold)\(header)\(Style.reset)  \(Style.dim)Tracked \(formatDuration(minutes: tracked)) · Focus \(formatDuration(minutes: focus))\(Style.reset)"
+  )
   print("")
 
   guard tracked > 0 else {
