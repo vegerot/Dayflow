@@ -68,8 +68,23 @@ This document lists manual events, properties, and code locations. All events re
   - props: `last_step: string`
   - file: App/AppDelegate.swift (willTerminate)
 - terminal_command_copied
-  - props: `title: string`
-  - file: Views/Onboarding/TerminalCommandView.swift
+  - props: `title?: string`, `source?: settings`
+  - files: Views/Onboarding/TerminalCommandView.swift, Views/UI/Settings/SettingsAgentAccessTabView.swift
+
+## Agent Access
+- agent_client_connected
+  - props: `client: codex|claudeCode|claudeDesktop`
+  - file: Views/UI/Settings/SettingsAgentAccessTabView.swift
+- agent_client_deeplink
+  - props: `client: cursor|vsCode`
+  - file: Views/UI/Settings/SettingsAgentAccessTabView.swift
+- agent_edits_toggled
+  - props: `enabled: bool`
+  - file: Views/UI/Settings/SettingsAgentAccessTabView.swift
+- agent_command_executed
+  - props: `schema_version: int`, `interface: cli|mcp`, allowlisted `operation: string`, `outcome: success|failure|cancelled`, `failure_category?: invalid_input|not_found|edits_disabled|unavailable|execution_error|tool_error`, `duration_bucket: under_100ms|100_to_499ms|500_to_1999ms|2_to_9s|10s_plus`, `cli_version: string`
+  - privacy: locally queued and uploaded only through the opted-in app; never includes arguments, dates, search text, record IDs, paths, command lines, error text, or returned content
+  - files: tools/dayflow-cli/Sources/dayflow/AgentUsageTelemetry.swift, Core/AgentAccess/AgentUsageTelemetryQueue.swift
 
 ## Settings & Privacy
 - settings_opened
