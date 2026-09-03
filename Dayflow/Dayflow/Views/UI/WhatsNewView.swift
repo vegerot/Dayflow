@@ -18,6 +18,13 @@ struct ReleaseNoteCTA {
   let url: String
 }
 
+/// Asks the user to star Dayflow on GitHub. Stars in place through `gh` when it's
+/// installed and logged in, otherwise opens the repo in the browser.
+struct ReleaseNoteGitHubStar {
+  let title: String
+  let description: String
+}
+
 struct ReleaseNoteSocialPreview {
   let authorName: String
   let authorHandle: String
@@ -42,6 +49,7 @@ struct ReleaseNote: Identifiable {
   let previewImageNames: [String]
   let betaSignup: ReleaseNoteBetaSignup?
   let cta: ReleaseNoteCTA?
+  let githubStar: ReleaseNoteGitHubStar?
   let showsWeeklyFeedbackSurvey: Bool
 
   // Helper to compare semantic versions
@@ -89,23 +97,28 @@ enum WhatsNewConfiguration {
   private static let seenKey = "lastSeenWhatsNewVersion"
 
   /// Override with the specific release number you want to show.
-  private static let versionOverride: String? = "2.1.0"
+  private static let versionOverride: String? = "2.2.0"
 
   /// Update this content before shipping each release. Return nil to disable the modal entirely.
   static var configuredRelease: ReleaseNote? {
     ReleaseNote(
       version: targetVersion,
-      title: "MCP and CLI support is finally here",
+      title: "Recordings are now 30x more efficient",
       highlights: [
-        "Connect Claude, Cursor, or any MCP client to Dayflow and ask about your day in plain English: what you worked on, where your time went, and more. Set it up in Settings → MCP / CLI with one click.",
-        "New `dayflow` terminal command lets you check your timeline from any terminal. It links to the CLI bundled inside the app and stays in sync automatically whenever Dayflow updates.",
-        "AI tools get read-only access unless you turn on edits in Settings. Everything runs locally against your own data, so nothing new leaves your Mac.",
+        "Recordings are 30x more space efficient with no loss in quality. Expect roughly 10 MB per hour at 1080p or 5 MB per hour at 720p.",
+        "New recording quality controls in Settings → Storage. Pick 720p or 1080p and how often frames are captured, and see the estimated disk usage before you commit.",
+        "The Report tab now opens a live support chat, so you can send logs and get a reply without leaving the app.",
       ],
       socialPreview: nil,
       previewIntro: nil,
       previewImageNames: [],
       betaSignup: nil,
       cta: nil,
+      githubStar: ReleaseNoteGitHubStar(
+        title: "Enjoying Dayflow?",
+        description:
+          "If Dayflow has been useful and you'd like to help more people find it, a star on GitHub goes a long way."
+      ),
       showsWeeklyFeedbackSurvey: false
     )
   }
@@ -182,6 +195,18 @@ struct WhatsNewView: View {
   @State private var agentsBetaErrorText: String?
   @State private var tweetEmbedState: TweetEmbedState = .loading
   @State private var tweetEmbedHeight: CGFloat = 0
+  @State private var githubStarState: GitHubStarState = .checking
+  /// What happened with the star prompt by the time the modal closes; sent on dismiss.
+  @State private var githubStarOutcome = "check_pending"
+
+  private enum GitHubStarState {
+    case checking
+    /// `gh` isn't usable; the button opens the repo in the browser.
+    case browser
+    case readyToStar
+    case starring
+    case starred
+  }
 
   private enum TweetEmbedState {
     case loading
@@ -222,6 +247,10 @@ struct WhatsNewView: View {
           .pointingHandCursor()
           .accessibilityLabel("Close")
           .keyboardShortcut(.cancelAction)
+        }
+
+        if let githubStar = releaseNote.githubStar {
+          githubStarSection(githubStar)
         }
 
         if !releaseNote.highlights.isEmpty {
@@ -322,6 +351,10 @@ struct WhatsNewView: View {
         agentsBetaResponseID = loadResponseID(for: agentsBetaSurveyKey)
       }
     }
+    .task {
+      guard releaseNote.githubStar != nil else { return }
+      await checkGitHubStarStatus()
+    }
     .environment(\.colorScheme, .light)
     .preferredColorScheme(.light)
   }
@@ -332,6 +365,7 @@ struct WhatsNewView: View {
       [
         "version": releaseNote.version,
         "provider_label": currentProviderLabel,
+        "github_star_outcome": releaseNote.githubStar == nil ? "no_prompt" : githubStarOutcome,
       ])
 
     onDismiss()
@@ -662,6 +696,151 @@ struct WhatsNewView: View {
       .pointingHandCursor()
     }
     .padding(.top, 6)
+  }
+
+  // MARK: - GitHub star prompt
+
+  /// Hidden once we know the user already starred the repo; nothing to ask for.
+  @ViewBuilder
+  private func githubStarSection(_ prompt: ReleaseNoteGitHubStar) -> some View {
+    if githubStarState != .checking {
+      VStack(alignment: .leading, spacing: 16) {
+        HStack(alignment: .top, spacing: 14) {
+          Image(systemName: "star.fill")
+            .font(.system(size: 22, weight: .semibold))
+            .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
+            .padding(.top, 2)
+
+          VStack(alignment: .leading, spacing: 6) {
+            Text(prompt.title)
+              .font(.custom("InstrumentSerif-Regular", size: 26))
+              .foregroundColor(.black.opacity(0.9))
+
+            Text(prompt.description)
+              .font(.custom("Figtree", size: 15))
+              .foregroundColor(.black.opacity(0.72))
+              .fixedSize(horizontal: false, vertical: true)
+          }
+        }
+
+        if githubStarState == .starred {
+          Label("Starred. Thank you!", systemImage: "checkmark.circle.fill")
+            .font(.custom("Figtree", size: 16))
+            .fontWeight(.semibold)
+            .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
+        } else {
+          DayflowSurfaceButton(
+            action: handleGitHubStarTap,
+            content: {
+              HStack(spacing: 10) {
+                Image(systemName: "star.fill")
+                  .font(.system(size: 14, weight: .semibold))
+                Text(githubStarState == .starring ? "Starring..." : "Star on GitHub")
+                  .font(.custom("Figtree", size: 16))
+                  .fontWeight(.semibold)
+              }
+            },
+            background: Color(red: 0.25, green: 0.17, blue: 0),
+            foreground: .white,
+            borderColor: .clear,
+            cornerRadius: 10,
+            horizontalPadding: 22,
+            verticalPadding: 13,
+            showOverlayStroke: true
+          )
+          .disabled(githubStarState == .starring)
+          .opacity(githubStarState == .starring ? 0.72 : 1)
+          .pointingHandCursor()
+        }
+      }
+      .padding(22)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .fill(Color(red: 0.985, green: 0.975, blue: 0.955))
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .stroke(Color(red: 0.25, green: 0.17, blue: 0).opacity(0.14), lineWidth: 1)
+      )
+      .padding(.top, 8)
+    }
+  }
+
+  private func checkGitHubStarStatus() async {
+    let check = await Task.detached(priority: .utility) {
+      GitHubStarPrompt.check()
+    }.value
+
+    switch check.status {
+    case .starred:
+      githubStarState = .starred
+      githubStarOutcome = "already_starred"
+    case .notStarred:
+      githubStarState = .readyToStar
+      githubStarOutcome = "shown_not_clicked"
+    case .unavailable:
+      githubStarState = .browser
+      githubStarOutcome = "shown_not_clicked"
+    }
+
+    var props = check.analyticsProperties
+    props["version"] = releaseNote.version
+    props["prompt_shown"] = check.status != .starred
+    props["provider_label"] = currentProviderLabel
+    AnalyticsService.shared.capture("whats_new_github_star_checked", props)
+  }
+
+  private func handleGitHubStarTap() {
+    switch githubStarState {
+    case .readyToStar:
+      captureGitHubStarClick(method: "gh")
+      starViaGitHubCLI()
+    case .browser:
+      captureGitHubStarClick(method: "browser")
+      openGitHubRepoInBrowser(outcome: "browser_opened")
+    case .checking, .starring, .starred:
+      break
+    }
+  }
+
+  private func captureGitHubStarClick(method: String) {
+    AnalyticsService.shared.capture(
+      "whats_new_github_star_clicked",
+      [
+        "version": releaseNote.version,
+        "method": method,
+        "provider_label": currentProviderLabel,
+      ])
+  }
+
+  private func starViaGitHubCLI() {
+    githubStarState = .starring
+
+    Task {
+      let result = await Task.detached(priority: .userInitiated) {
+        GitHubStarPrompt.starAll()
+      }.value
+
+      var props = result.analyticsProperties
+      props["version"] = releaseNote.version
+      props["provider_label"] = currentProviderLabel
+      AnalyticsService.shared.capture("whats_new_github_star_result", props)
+
+      if result.primaryStarred {
+        githubStarState = .starred
+        githubStarOutcome = "starred_via_gh"
+      } else {
+        // The click shouldn't be wasted: fall back to the browser.
+        githubStarState = .browser
+        openGitHubRepoInBrowser(outcome: "gh_failed_browser_opened")
+      }
+    }
+  }
+
+  private func openGitHubRepoInBrowser(outcome: String) {
+    githubStarOutcome = outcome
+    openURL(GitHubStarPrompt.primaryRepoURL)
   }
 
   /// Shows the live X embed, with the hand-drawn card as a fallback if the
