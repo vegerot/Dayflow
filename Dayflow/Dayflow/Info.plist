@@ -5,7 +5,7 @@
 	<key>ATSApplicationFontsPath</key>
 	<string>.</string>
 	<key>CFBundleShortVersionString</key>
-	<string>2.1.1</string>
+	<string>2.2.0</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -18,15 +18,15 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>120</string>
+	<string>121</string>
 	<key>DayflowBackendURL</key>
 	<string>$(DAYFLOW_BACKEND_URL)</string>
-	<key>PHPostHogApiKey</key>
-	<string>$(POSTHOG_API_KEY)</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Dayflow uses Automation to focus or reopen your agent sessions in the terminal.</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>Dayflow uses screen access to create your timeline. Recordings stay on your Mac and you can pause or delete them anytime.</string>
+	<key>PHPostHogApiKey</key>
+	<string>$(POSTHOG_API_KEY)</string>
 	<key>SUAllowsAutomaticUpdates</key>
 	<true/>
 	<key>SUAutomaticallyUpdate</key>
