@@ -74,6 +74,14 @@ private enum ScreenRecorderError: Error {
   case imageConversionFailed
 }
 
+/// What happened on one capture tick. Drives the failure backoff.
+private enum CaptureOutcome {
+  case succeeded
+  case skipped  // Not capturing, permission gone, or a frame-store error
+  case missingDisplay
+  case captureKitFailed(Error)
+}
+
 // MARK: - ScreenRecorder
 
 final class ScreenRecorder: NSObject, @unchecked Sendable {
@@ -117,6 +125,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     // Honor the current flag once (after subscriptions exist)
     if autoStart, AppState.shared.isRecording { start() }
 
+    ScreenCaptureMonitor.shared.startObserving()
     registerForSleepAndLock()
     registerForCaptureSettingChanges()
     FrameStore.shared.reconcileAfterLaunch()
@@ -158,6 +167,36 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     set { displayLock.withLock { _cachedDisplay = newValue } }
   }
 
+  // Throttling (issue #381): every ScreenCaptureKit request makes macOS re-check
+  // the Screen Recording grant, and a burst of them can make it show the
+  // permission prompt even though access is on. All of these live on `q`.
+  private let monitor = ScreenCaptureMonitor.shared
+  private let displayRefreshDelay: TimeInterval = 2
+  private var displayRefreshWorkItem: DispatchWorkItem?
+  private var displayRefreshInFlight = false
+  private var displayRefreshPending = false
+  private var captureInFlight = false
+  private var captureFailureCount = 0
+  private var firstCaptureFailureAt: Date?
+  private var lastCaptureFailureReason: String?
+  private var setupRetryWorkItem: DispatchWorkItem?
+  private var setupFailureCount = 0
+
+  // When ScreenCaptureKit started failing while macOS still reports access as
+  // granted. After `giveUpAfter` of that, recording turns off and the
+  // permission notice shows instead of retrying forever.
+  private var setupFailingSince: Date?
+  private var captureFailingSince: Date?
+  private static let giveUpAfter: TimeInterval = 10 * 60
+
+  private static let captureBackoffDelays: [TimeInterval] = [60, 120, 300, 600]
+  private static let setupRetryDelays: [TimeInterval] = [5, 30, 60, 120, 300, 600]
+
+  /// The delay for the Nth consecutive failure, capped at the last entry.
+  private static func backoffDelay(_ delays: [TimeInterval], failureCount: Int) -> TimeInterval {
+    delays[min(max(failureCount - 1, 0), delays.count - 1)]
+  }
+
   // MARK: - State Transitions
 
   private func transition(to newState: RecorderState, context: String? = nil) {
@@ -195,6 +234,12 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         return
       }
 
+      self.setupRetryWorkItem?.cancel()
+      self.setupRetryWorkItem = nil
+      self.captureFailureCount = 0
+      self.firstCaptureFailureAt = nil
+      self.lastCaptureFailureReason = nil
+      self.captureFailingSince = nil
       self.transition(to: .starting, context: "user/system start")
       Task { await self.setupCapture() }
     }
@@ -204,6 +249,12 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     q.async { [weak self] in
       guard let self else { return }
       self.stopCaptureTimer()
+      self.setupRetryWorkItem?.cancel()
+      self.setupRetryWorkItem = nil
+      self.displayRefreshWorkItem?.cancel()
+      self.displayRefreshWorkItem = nil
+      self.displayRefreshPending = false
+      self.setupFailingSince = nil
       self.cachedContent = nil
       self.cachedDisplay = nil
       self.currentDisplayID = nil
@@ -218,7 +269,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
   // MARK: - Capture Setup
 
-  private func setupCapture(attempt: Int = 1, maxAttempts: Int = 4) async {
+  private func setupCapture() async {
     guard ScreenRecordingPermissionNotice.isGranted else {
       handleMissingScreenRecordingPermission(reason: "setupCapture")
       return
@@ -226,6 +277,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
     do {
       // 1. Get shareable content (requires screen recording permission)
+      monitor.recordRequest(.shareableContent, source: .recorderSetup)
       let content = try await SCShareableContent.excludingDesktopWindows(
         false, onScreenWindowsOnly: true)
       cachedContent = content
@@ -273,11 +325,13 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
           dbg("setupCapture completed but state changed to \(self.state.description), ignoring")
           return
         }
+        self.setupFailureCount = 0
+        self.setupFailingSince = nil
         self.startCaptureTimer()
         self.transition(to: .capturing, context: "capture started")
 
         // Take first screenshot immediately
-        Task { await self.captureScreenshot() }
+        self.captureTick()
       }
 
       Task { @MainActor in
@@ -287,36 +341,80 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       }
 
     } catch {
-      dbg("setupCapture failed [attempt \(attempt)] – \(error.localizedDescription)")
+      dbg("setupCapture failed – \(error.localizedDescription)")
 
       if !ScreenRecordingPermissionNotice.isGranted {
         handleMissingScreenRecordingPermission(reason: "setupCapture_failed_permission")
         return
       }
 
-      q.async { [weak self] in
-        self?.transition(to: .idle, context: "setupCapture failed")
+      // A missing display isn't ScreenCaptureKit refusing us; keep waiting for one.
+      let isCaptureKitFailure = !(error is ScreenRecorderError)
+      if isCaptureKitFailure {
+        monitor.recordFailure(error, source: .recorderSetup)
       }
 
       let nsError = error as NSError
-      let isNoDisplay = (error as? ScreenRecorderError) == .noDisplay
+      q.async { [weak self] in
+        guard let self else { return }
+        // stop() or a sleep/lock pause may have landed while we were waiting.
+        guard self.state == .starting else { return }
+        self.transition(to: .idle, context: "setupCapture failed")
+        self.setupFailureCount += 1
 
-      if isNoDisplay && attempt < maxAttempts {
-        let delay = Double(attempt)
-        dbg("retrying in \(delay)s")
-        q.asyncAfter(deadline: .now() + delay) { [weak self] in self?.start() }
-      } else {
-        Task { @MainActor in
+        if self.setupFailureCount == 1 {
           AnalyticsService.shared.capture(
             "recording_startup_failed",
             [
-              "attempt": attempt,
+              "attempt": self.setupFailureCount,
               "error_domain": nsError.domain,
               "error_code": nsError.code,
             ])
         }
+        guard isCaptureKitFailure else {
+          self.scheduleSetupRetry()
+          return
+        }
+        let failingSince = self.setupFailingSince ?? Date()
+        self.setupFailingSince = failingSince
+        let timeLeft = Self.giveUpAfter - Date().timeIntervalSince(failingSince)
+        guard timeLeft > 0 else {
+          self.giveUpCapturing()
+          return
+        }
+        self.scheduleSetupRetry(maxDelay: timeLeft)
       }
     }
+  }
+
+  /// Runs on `q`. ScreenCaptureKit has refused every request for `giveUpAfter`
+  /// even though macOS reports access as granted: turn recording off and show
+  /// the permission notice, the same as when access is really missing.
+  private func giveUpCapturing() {
+    setupFailureCount = 0
+    setupFailingSince = nil
+    captureFailingSince = nil
+    AnalyticsService.shared.capture("recording_gave_up_while_granted")
+    handleMissingScreenRecordingPermission(
+      reason: ScreenRecordingPermissionNotice.captureFailingReason)
+  }
+
+  /// Runs on `q`. Keeps retrying a failed start with growing delays so recording
+  /// never stays silently off while the app shows it as on. `start()` and
+  /// `stop()` cancel a pending retry.
+  private func scheduleSetupRetry(maxDelay: TimeInterval = .infinity) {
+    let delay = min(
+      Self.backoffDelay(Self.setupRetryDelays, failureCount: setupFailureCount), maxDelay)
+    dbg("setupCapture retry #\(setupFailureCount) in \(delay)s")
+
+    setupRetryWorkItem?.cancel()
+    let retry = DispatchWorkItem { [weak self] in
+      guard let self else { return }
+      self.setupRetryWorkItem = nil
+      self.start()
+    }
+    setupRetryWorkItem = retry
+    q.asyncAfter(deadline: .now() + delay, execute: retry)
   }
 
   // MARK: - Capture Timer
@@ -328,7 +426,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     let timer = DispatchSource.makeTimerSource(queue: q)
     timer.schedule(deadline: .now() + interval, repeating: interval)
     timer.setEventHandler { [weak self] in
-      Task { await self?.captureScreenshot() }
+      self?.captureTick()
     }
     timer.resume()
     captureTimer = timer
@@ -341,20 +439,113 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     captureTimer = nil
   }
 
+  // MARK: - Capture Tick & Backoff
+
+  /// Runs on `q`. Skips the tick while the previous capture is still waiting on
+  /// ScreenCaptureKit, so requests can't pile up when macOS is slow to answer.
+  private func captureTick() {
+    guard !captureInFlight else {
+      dbg("capture tick skipped - previous capture still in flight")
+      return
+    }
+    captureInFlight = true
+
+    Task { [weak self] in
+      guard let self else { return }
+      let outcome = await self.captureScreenshot()
+      self.q.async { [weak self] in
+        guard let self else { return }
+        self.captureInFlight = false
+        self.handleCaptureOutcome(outcome)
+      }
+    }
+  }
+
+  /// Runs on `q`.
+  private func handleCaptureOutcome(_ outcome: CaptureOutcome) {
+    guard state == .capturing else { return }
+
+    switch outcome {
+    case .skipped:
+      return
+
+    case .succeeded:
+      guard captureFailureCount > 0 else { return }
+      let downSeconds = firstCaptureFailureAt.map { Date().timeIntervalSince($0) } ?? 0
+      AnalyticsService.shared.capture(
+        "recording_capture_recovered",
+        [
+          "failure_count": captureFailureCount,
+          "down_duration_bucket": AnalyticsService.shared.secondsBucket(downSeconds),
+        ])
+      captureFailureCount = 0
+      firstCaptureFailureAt = nil
+      lastCaptureFailureReason = nil
+      captureFailingSince = nil
+
+    case .missingDisplay:
+      backOffCapture(reason: "no_display", error: nil)
+      requestDisplayRefresh()
+
+    case .captureKitFailed(let error):
+      let failingSince = captureFailingSince ?? Date()
+      captureFailingSince = failingSince
+      let timeLeft = Self.giveUpAfter - Date().timeIntervalSince(failingSince)
+      guard timeLeft > 0 else {
+        giveUpCapturing()
+        return
+      }
+      backOffCapture(reason: "capture_error", error: error, maxDelay: timeLeft)
+      requestDisplayRefresh()
+    }
+  }
+
+  /// Runs on `q`. Pushes the next capture out (1, 2, 5, then every 10 minutes)
+  /// instead of hitting ScreenCaptureKit again on every tick. The timer goes
+  /// back to the normal interval after that one delayed tick, and any success
+  /// clears the streak.
+  private func backOffCapture(reason: String, error: Error?, maxDelay: TimeInterval = .infinity) {
+    captureFailureCount += 1
+    lastCaptureFailureReason = reason
+    if captureFailureCount == 1 {
+      firstCaptureFailureAt = Date()
+    }
+
+    let delay = min(
+      Self.backoffDelay(Self.captureBackoffDelays, failureCount: captureFailureCount), maxDelay)
+    captureTimer?.schedule(deadline: .now() + delay, repeating: ScreenshotConfig.interval)
+    dbg("capture failed (\(reason)) #\(captureFailureCount) – next attempt in \(delay)s")
+
+    // One event per step while the delay is still growing, so a Mac that stays
+    // broken all day doesn't send one every 10 minutes.
+    guard captureFailureCount <= Self.captureBackoffDelays.count else { return }
+    var props: [String: Any] = [
+      "reason": reason,
+      "failure_count": captureFailureCount,
+      "delay_s": Int(delay),
+    ]
+    if let error {
+      let nsError = error as NSError
+      props["error_domain"] = nsError.domain
+      props["error_code"] = nsError.code
+    }
+    AnalyticsService.shared.capture("recording_capture_backoff", props)
+  }
+
   // MARK: - Screenshot Capture
 
-  private func captureScreenshot() async {
+  private func captureScreenshot() async -> CaptureOutcome {
     guard state == .capturing else {
       dbg("captureScreenshot skipped - state: \(state.description)")
-      return
+      return .skipped
     }
     guard let display = cachedDisplay else {
       dbg("captureScreenshot skipped - no display")
-      return
+      return .missingDisplay
     }
     guard ScreenRecordingPermissionNotice.isGranted else {
       handleMissingScreenRecordingPermission(reason: "captureScreenshot")
-      return
+      return .skipped
     }
 
     let captureTime = Date()
@@ -379,7 +570,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         try appendFrame(
           placeholder, capturedAt: captureTime, idleSecondsAtCapture: idleSecondsAtCapture)
         dbg("🔒 Screenshot redacted for blocked foreground application")
-        return
+        return .succeeded
       }
 
       // 1. Create content filter for the display
@@ -405,6 +596,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       config.showsCursor = true
 
       // 3. Capture screenshot
+      monitor.recordRequest(.screenshot, source: .recorderCapture)
       let image = try await SCScreenshotManager.captureImage(
         contentFilter: filter,
         configuration: config
@@ -413,20 +605,23 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       // 4. Encode into the current HEVC segment and register in the database
       try appendFrame(image, capturedAt: captureTime, idleSecondsAtCapture: idleSecondsAtCapture)
       dbg("📸 Frame appended (\(image.width)x\(image.height))")
+      return .succeeded
 
     } catch {
       dbg("❌ Screenshot capture failed: \(error.localizedDescription)")
 
       if !ScreenRecordingPermissionNotice.isGranted {
         handleMissingScreenRecordingPermission(reason: "captureScreenshot_failed_permission")
-        return
+        return .skipped
       }
 
-      // If display became unavailable, try to refresh
-      if (error as NSError).domain == SCStreamErrorDomain {
-        dbg("SCStream error - will refresh display on next capture")
-        Task { await refreshDisplay() }
+      // Frame-store and placeholder errors aren't ScreenCaptureKit's fault; don't back off.
+      if error is ScreenRecorderError {
+        return .skipped
       }
+
+      monitor.recordFailure(error, source: .recorderCapture)
+      return .captureKitFailed(error)
     }
   }
 
@@ -454,6 +649,58 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     return (width, height)
   }
 
+  /// Runs on `q`. Every display refresh goes through here. Requests that arrive
+  /// within `displayRefreshDelay` of each other share one fetch, and a request
+  /// that arrives mid-fetch queues exactly one follow-up, so a storm of
+  /// screen-change notifications can't turn into a storm of ScreenCaptureKit calls.
+  private func requestDisplayRefresh() {
+    guard displayRefreshWorkItem == nil else { return }
+
+    let refresh = DispatchWorkItem { [weak self] in
+      guard let self else { return }
+      self.displayRefreshWorkItem = nil
+      self.runDisplayRefresh()
+    }
+    displayRefreshWorkItem = refresh
+    q.asyncAfter(deadline: .now() + displayRefreshDelay, execute: refresh)
+  }
+
+  /// Runs on `q`.
+  private func runDisplayRefresh() {
+    guard state == .capturing else { return }
+    guard !displayRefreshInFlight else {
+      displayRefreshPending = true
+      return
+    }
+    displayRefreshInFlight = true
+
+    Task { [weak self] in
+      guard let self else { return }
+      await self.refreshDisplay()
+      self.q.async { [weak self] in
+        guard let self else { return }
+        self.displayRefreshInFlight = false
+        self.endNoDisplayBackoffIfResolved()
+        if self.displayRefreshPending {
+          self.displayRefreshPending = false
+          self.requestDisplayRefresh()
+        }
+      }
+    }
+  }
+
+  /// Runs on `q`. A "no display" backoff only waited for a display to show up,
+  /// so once a refresh finds one, capture right away instead of waiting out
+  /// the delay (e.g. right after plugging in a monitor).
+  private func endNoDisplayBackoffIfResolved() {
+    guard state == .capturing,
+      lastCaptureFailureReason == "no_display",
+      cachedDisplay != nil
+    else { return }
+    captureTimer?.schedule(deadline: .now(), repeating: ScreenshotConfig.interval)
+  }
+
+  /// Only call through `runDisplayRefresh()`.
   private func refreshDisplay() async {
     guard ScreenRecordingPermissionNotice.isGranted else {
       handleMissingScreenRecordingPermission(reason: "refreshDisplay")
@@ -461,6 +708,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     }
 
     do {
+      monitor.recordRequest(.shareableContent, source: .recorderRefresh)
       let content = try await SCShareableContent.excludingDesktopWindows(
         false, onScreenWindowsOnly: true)
       cachedContent = content
@@ -489,6 +737,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         return
       }
 
+      monitor.recordFailure(error, source: .recorderRefresh)
       dbg("Failed to refresh display: \(error)")
     }
   }
@@ -562,7 +811,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     dbg("Active display changed → switching: \(String(describing: currentDisplayID)) → \(newID)")
 
     // Refresh display for next screenshot
-    Task { await refreshDisplay() }
+    requestDisplayRefresh()
   }
 
   // MARK: - System Events (Sleep/Lock)
@@ -579,7 +828,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       self?.q.async { [weak self] in
         guard let self, self.state == .capturing else { return }
         dbg("didChangeScreenParameters – refreshing display selection")
-        Task { await self.refreshDisplay() }
+        self.requestDisplayRefresh()
       }
     }
 
@@ -661,7 +910,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       self.q.async { [weak self] in
         guard let self else { return }
         guard self.state == .paused else { return }
-        self.resumeRecording(after: 0.5, context: "screen unlock")
+        self.resumeRecording(after: 5, context: "screen unlock")
       }
     }
 
@@ -702,14 +951,23 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       self.q.async { [weak self] in
         guard let self else { return }
         guard self.state == .paused else { return }
-        self.resumeRecording(after: 0.5, context: "screensaver stop")
+        self.resumeRecording(after: 5, context: "screensaver stop")
       }
     }
   }
 
+  /// Waits a few seconds before resuming: right after wake/unlock macOS is busy,
+  /// and ScreenCaptureKit requests then are the ones that trigger the spurious
+  /// permission prompt (issue #381).
   private func resumeRecording(after delay: TimeInterval, context: String) {
     q.asyncAfter(deadline: .now() + delay) { [weak self] in
       guard let self else { return }
+      // The screen may have locked again while we waited, or the Mac woke to
+      // the lock screen. The unlock handler resumes once it's really back.
+      guard !self.monitor.isCaptureBlocked else {
+        dbg("\(context) – skip auto-resume (screen locked or asleep)")
+        return
+      }
       Task { @MainActor in
         guard AppState.shared.isRecording else {
           dbg("\(context) – skip auto-resume (recording disabled)")
