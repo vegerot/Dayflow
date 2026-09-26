@@ -54,6 +54,19 @@ struct ChatCLIRunResult {
   let startedAt: Date
   let finishedAt: Date
   let usage: TokenUsage?
+
+  /// The CLI's own explanation of a failed run. Claude and Codex often print
+  /// the real reason ("OAuth session expired", "usage limit") to stdout and
+  /// leave stderr empty, so fall back to stdout before the bare exit code.
+  func failureMessage(toolName: String) -> String {
+    let trimmedStderr = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !trimmedStderr.isEmpty { return trimmedStderr }
+
+    let trimmedStdout = stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !trimmedStdout.isEmpty { return String(trimmedStdout.prefix(1_000)) }
+
+    return "\(toolName) exited with code \(exitCode)"
+  }
 }
 
 struct TokenUsage: Sendable {
