@@ -82,7 +82,7 @@ extension ClaudeProvider {
     }
 
     guard run.exitCode == 0 else {
-      let errorMessage = run.stderr.isEmpty ? "CLI exited with code \(run.exitCode)" : run.stderr
+      let errorMessage = run.failureMessage(toolName: "Claude CLI")
       let error = NSError(
         domain: "ClaudeProvider", code: Int(run.exitCode),
         userInfo: [NSLocalizedDescriptionKey: errorMessage])
