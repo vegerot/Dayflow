@@ -6,7 +6,7 @@ extension CodexProvider {
   static func transcriptionModelConfiguration() -> (
     model: String, reasoningEffort: String?
   ) {
-    return (model: "gpt-5.6-luna", reasoningEffort: "low")
+    return (model: "gpt-6-luna", reasoningEffort: "low")
   }
 
   func transcribeScreenshots(
@@ -58,7 +58,7 @@ extension CodexProvider {
     }
 
     let modelConfiguration = Self.transcriptionModelConfiguration()
-    let model = modelConfiguration.model
+    var model = modelConfiguration.model
     let effort = modelConfiguration.reasoningEffort
 
     let basePrompt = buildScreenshotTranscriptionPrompt(
@@ -77,6 +77,19 @@ extension CodexProvider {
         let run = try runAndScrub(
           prompt: actualPrompt, imagePaths: imagePaths, model: model, reasoningEffort: effort)
         lastRun = run
+        if run.exitCode != 0 || run.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          let reportedError = run.rawStdout.split(separator: "\n").compactMap { line -> String? in
+            if case .error(let message) = runner.parseCodexEvent(Data(line.utf8)) { return message }
+            return nil
+          }.last
+          if run.exitCode != 0 || reportedError != nil {
+            throw NSError(
+              domain: "ChatCLI", code: Int(run.exitCode),
+              userInfo: [
+                NSLocalizedDescriptionKey: reportedError ?? (run.stderr + "\n" + run.stdout)
+              ])
+          }
+        }
 
         let segments: [SegmentMergeResponse.Segment]
         do {
@@ -178,6 +191,14 @@ extension CodexProvider {
           }
         }
       } catch {
+        if error is CancellationError { throw error }
+        if attempt < 3,
+          let fallback = Self.availabilityFallback(
+            for: model, error: error, stderr: lastRun?.stderr)
+        {
+          Self.recordModelFallback(from: model, to: fallback, operation: "transcribe_screenshots")
+          model = fallback
+        }
         lastError = error
         if attempt < maxTranscribeAttempts {
           print(
