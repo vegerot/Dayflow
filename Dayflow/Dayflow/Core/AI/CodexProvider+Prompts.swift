@@ -109,9 +109,15 @@ extension ChatGPTTimelinePromptSupporting {
       Bad: "Working on code"
       Good: "VS Code: Editing StorageManager.swift - fixed type error on line 47, changed String to String?"
 
-      3-8 segments total.
-      Exception: You may use 1 segment only if the user appears idle for most of the recording.
-      Group by GOAL not app (debugging across IDE+Terminal+Browser = 1 segment).
+      Use as many concise segments as needed to preserve distinct activities.
+      Keep brief interruptions and returns to earlier tasks. Do not force unrelated activities together.
+      Frame times are elapsed recording times, not clock times. Preserve their order.
+      Distinguish the user's actions from content inside videos, screenshots, articles, and assistant replies.
+      Watching gameplay is not playing; reading a proposed fix is not implementing or verifying it.
+      Attribute an assistant's claimed changes to the assistant. Preserve visible errors, contradictions,
+      and unanswered questions; never turn them into successful outcomes.
+      Prefer a concrete app, topic, and observed action over incidental details or long quotations.
+      Infer transitions only between adjacent sampled frames. Do not invent activity beyond the recording.
 
       Timestamps must start at \(startTime) and end at \(endTime). No gaps.
 
