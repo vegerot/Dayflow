@@ -146,6 +146,43 @@ final class DailyRecapGenerator {
 
   private init() {}
 
+  // Evidence and selection rules validated in the Daily prompt benchmark.
+  // Keep the cards-only input and done/next contract used by local providers.
+  private static let evidencePrompt = """
+    Write a short end-of-day Daily recap for your future self from the supplied timeline cards. Report what actually changed today, not everything that appeared on screen.
+
+    Evidence rules:
+    - Timeline titles and summaries are fallible descriptions. Prefer specific actions in the summaries over broad titles or optimistic narration. If later evidence shows the same problem unresolved, do not call it fixed.
+    - Separate an action from its outcome. Editing code proves an edit, not a working fix. Running a test proves a test was run, not that it passed. Configuring an integration does not prove it connected. Deployment activity does not prove successful deployment.
+    - A bounded artifact change can count: a document updated with named content, a created/shared deck, a changed setting, a submitted assignment, a posted message, or an implemented code change. State that exact change without upgrading it to successful operation.
+    - General descriptions such as working on a report, coding, researching or troubleshooting do not establish a completed milestone. Omit them when no concrete change or finding is supported.
+
+    Selection:
+    - Put 0 to 3 distinct, meaningful completed items by default. A fourth or fifth is allowed only for equally strong separate outcomes; never fill slots. An empty array is correct when evidence is too weak.
+    - Prefer the strongest meaningful accomplishments in work, school, or personal projects. Exclude routine errands, browsing, videos, background pages and low-signal process details.
+    - Rank by evidence strength and meaningful change, not by time spent or technical complexity. Prefer a specific completed configuration change, submission, publication, or shared artifact over a list of generic code edits.
+    - Combine changes to the same document or feature into one bullet. Do not split a weekly update into its progress and to-do additions.
+    - An unfinished assignment, exercise, or presentation belongs in next steps, not accomplishments, unless a separately useful milestone was completed (for example creating and sharing a deck). Merely reaching a later question is not a completed milestone.
+    - Do not turn source-log mistakes or screen-description failures into user work. Personal projects can count when a meaningful, concrete milestone is supported.
+    - A finding needs a concrete supported conclusion; 'researched X' or 'understood X' is not a finding.
+
+    Writing:
+    - One short sentence per item, normally 8–18 words. Use natural concise phrasing in the requested language.
+    - Name the artifact or change. Keep useful numbers. Do not mention commits, pushing, pull requests, filenames, implementation class names or lists of libraries. Say what was changed, without claiming an unverified fix. Omit AI tool names unless the work itself is about that tool.
+    - No hype, em dashes or filler. Do not use 'fixed', 'finished', 'working', 'deployed', 'approved', or equivalent wording unless the evidence supports that exact state.
+
+    Next step ("next"):
+    - Return a single specific unfinished task only if today's evidence clearly establishes it was started and remains unfinished, or explicitly planned.
+    - Do not invent what ought to happen next. Pending approval does not imply a promised release after approval. A document being open does not imply a commitment to finish it tomorrow.
+    - Otherwise use null.
+    """
+
+  private static let solEvidenceRules = """
+    - Treat visual-access refusals, processing failures and generic scene descriptions as missing evidence. A vague report/document description among failed descriptions is not enough to establish an accomplishment; use an empty array if that is all the day supports.
+    - Do not infer a submitted artifact's topic from nearby reading or unrelated coursework. If its title and submission are confirmed but its subject is ambiguous, report the title and submission only.
+    - A long coding session does not outrank a definite smaller change: check for explicit settings/permission changes, submitted work, and published messages before selecting ongoing code edits.
+    """
+
   func selectedProvider(from defaults: UserDefaults = .standard) -> DailyRecapProvider {
     DailyRecapProvider.load(from: defaults)
   }
@@ -412,7 +449,8 @@ final class DailyRecapGenerator {
     }
 
     let provider = CodexProvider()
-    let prompt = Self.makeLocalPrompt(day: context.sourceDayString, cards: context.cards)
+    let prompt = Self.makeLocalPrompt(
+      day: context.sourceDayString, cards: context.cards, provider: .chatgpt)
     func generate(model: String) async throws -> DailyStandupDraft {
       try Task.checkCancellation()
       let (rawText, _) = try await provider.generateText(
@@ -429,7 +467,7 @@ final class DailyRecapGenerator {
     }
 
     do {
-      return try await generate(model: "gpt-6-astra")
+      return try await generate(model: "gpt-6.1-sol")
     } catch {
       if error is CancellationError { throw error }
       try Task.checkCancellation()
@@ -439,7 +477,7 @@ final class DailyRecapGenerator {
           "provider": "chat_cli",
           "provider_id": LLMProviderID.chatGPT.rawValue,
           "operation": "daily_recap",
-          "from_model": "gpt-6-astra",
+          "from_model": "gpt-6.1-sol",
           "to_model": "gpt-5.6-sol",
           "reason": "generation_failed",
         ])
@@ -456,7 +494,8 @@ final class DailyRecapGenerator {
     }
 
     let provider = ClaudeProvider()
-    let prompt = Self.makeLocalPrompt(day: context.sourceDayString, cards: context.cards)
+    let prompt = Self.makeLocalPrompt(
+      day: context.sourceDayString, cards: context.cards, provider: .claude)
     let (rawText, _) = try await provider.generateText(
       prompt: prompt,
       model: "opus",
@@ -539,12 +578,23 @@ final class DailyRecapGenerator {
     return draft
   }
 
-  static func makeLocalPrompt(day: String, cards: [TimelineCard]) -> String {
+  static func makeLocalPrompt(
+    day: String, cards: [TimelineCard], provider: DailyRecapProvider? = nil
+  ) -> String {
     let cardsText = makeCardsText(day: day, cards: cards)
     let languageSection = makeLocalPromptLanguageSection()
+    let instructions: String
+    switch provider {
+    case .claude:
+      instructions = evidencePrompt
+    case .chatgpt:
+      instructions = evidencePrompt + "\n\nAdditional evidence checks:\n" + solEvidenceRules
+    default:
+      instructions = localPrompt
+    }
 
     return """
-      \(localPrompt)
+      \(instructions)
 
       You only have timeline cards for this day. The log is incomplete by nature, so prefer omission over guessing.
 
