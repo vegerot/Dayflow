@@ -29,7 +29,7 @@ extension CodexProvider {
     var actualPromptUsed = basePrompt
 
     let modelConfiguration = Self.activityCardModelConfiguration()
-    let model = modelConfiguration.model
+    var model = modelConfiguration.model
     let effort = modelConfiguration.reasoningEffort
 
     var lastError: Error?
@@ -110,6 +110,14 @@ extension CodexProvider {
           "[ChatCLI] generate_cards validation failed (attempt " + String(attempt) + "): "
             + combinedError)
       } catch {
+        if error is CancellationError { throw error }
+        if attempt < 3,
+          let fallback = Self.availabilityFallback(
+            for: model, error: error, stderr: lastRun?.stderr)
+        {
+          Self.recordModelFallback(from: model, to: fallback, operation: "generate_cards")
+          model = fallback
+        }
         lastError = error
         // Capture partial output from timeout errors for logging
         if let partialOut = (error as NSError).userInfo["partialStdout"] as? String,
@@ -150,7 +158,7 @@ extension CodexProvider {
   static func activityCardModelConfiguration() -> (
     model: String, reasoningEffort: String?
   ) {
-    return (model: "gpt-5.6-sol", reasoningEffort: "low")
+    return (model: "gpt-6.1-sol", reasoningEffort: "low")
   }
 
   private func codexRunResultFromStreamingError(
