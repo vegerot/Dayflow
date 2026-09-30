@@ -49,6 +49,35 @@ final class AnalysisManager: AnalysisManaging {
   private var isProcessing = false
   private let queue = DispatchQueue(label: "com.dayflow.geminianalysis.queue", qos: .utility)
 
+  // Automatic catch-up: after any batch succeeds, failed batches from the last
+  // 24 hours are retried one at a time. The three properties below are only
+  // touched on `queue`.
+  private let maxAutomaticRetriesPerBatch = 3
+  private var automaticRetryCounts: [Int64: Int] = [:]
+  private var isCatchingUpFailedBatches = false
+  private var isManualRetryRunning = false
+
+  // Batches the LLM is working on right now. The saved "processing" status
+  // can't answer that: it is left behind when the app quits mid-run.
+  private let inFlightLock = NSLock()
+  private var inFlightBatchIds = Set<Int64>()
+
+  func isBatchInFlight(_ batchId: Int64) -> Bool {
+    inFlightLock.lock()
+    defer { inFlightLock.unlock() }
+    return inFlightBatchIds.contains(batchId)
+  }
+
+  private func setBatchInFlight(_ batchId: Int64, _ isInFlight: Bool) {
+    inFlightLock.lock()
+    defer { inFlightLock.unlock() }
+    if isInFlight {
+      inFlightBatchIds.insert(batchId)
+    } else {
+      inFlightBatchIds.remove(batchId)
+    }
+  }
+
   func startAnalysisJob() {
     stopAnalysisJob()  // ensure single timer
     DispatchQueue.main.async { [weak self] in
@@ -381,7 +410,110 @@ final class AnalysisManager: AnalysisManaging {
     }
   }
 
+  /// The Retry button's queue calls this so the automatic catch-up never
+  /// reprocesses batches at the same time as a manual retry.
+  func setManualRetryRunning(_ isRunning: Bool) {
+    queue.async { [weak self] in
+      self?.isManualRetryRunning = isRunning
+    }
+  }
+
   @objc private func timerFired() { triggerAnalysisNow() }
+
+  // MARK: - Automatic catch-up of failed batches
+
+  /// A batch just succeeded, so the provider works again. Retry what failed
+  /// earlier so the user doesn't have to press Retry.
+  private func catchUpFailedBatchesAfterSuccess() {
+    queue.async { [weak self] in
+      guard let self else { return }
+      guard !self.isCatchingUpFailedBatches, !self.isManualRetryRunning else { return }
+
+      let batchIds = self.failedBatchIdsToRetryAutomatically()
+      guard !batchIds.isEmpty else { return }
+
+      self.isCatchingUpFailedBatches = true
+      print("🔁 [AnalysisManager] Catching up \(batchIds.count) failed batches: \(batchIds)")
+      self.retryFailedBatch(at: 0, in: batchIds)
+    }
+  }
+
+  /// Runs on `queue`. Retries one batch, then the next, and stops at the first
+  /// failure: if one fails the provider is likely broken again, so the rest wait
+  /// for the next success.
+  private func retryFailedBatch(at index: Int, in batchIds: [Int64]) {
+    guard index < batchIds.count, !isManualRetryRunning else {
+      isCatchingUpFailedBatches = false
+      return
+    }
+
+    // Re-check each batch: while the chain runs, newer batches can succeed and
+    // replace this batch's failed card, and retrying it would then write
+    // overlapping cards.
+    let batchId = batchIds[index]
+    guard failedBatchIdsToRetryAutomatically().contains(batchId) else {
+      retryFailedBatch(at: index + 1, in: batchIds)
+      return
+    }
+    automaticRetryCounts[batchId, default: 0] += 1
+    let attempt = automaticRetryCounts[batchId, default: 0]
+
+    reprocessBatch(batchId, stepHandler: { _ in }) { [weak self] result in
+      guard let self else { return }
+      let succeeded: Bool
+      if case .success = result { succeeded = true } else { succeeded = false }
+
+      AnalyticsService.shared.capture(
+        "analysis_batch_auto_retried",
+        [
+          "batch_id": batchId,
+          "attempt": attempt,
+          "succeeded": succeeded,
+        ])
+
+      self.queue.async {
+        if succeeded {
+          self.automaticRetryCounts[batchId] = nil
+          self.retryFailedBatch(at: index + 1, in: batchIds)
+        } else {
+          self.isCatchingUpFailedBatches = false
+        }
+      }
+    }
+  }
+
+  /// Failed batches from the last 24 hours that still show a failed card with
+  /// recordings behind it, oldest first, skipping any that already used up
+  /// their automatic tries. A batch left in "processing" by a quit mid-retry
+  /// counts as failed; one the LLM is working on right now does not.
+  private func failedBatchIdsToRetryAutomatically(now: Date = Date()) -> [Int64] {
+    let cutoff = Int(now.timeIntervalSince1970 - maxLookback)
+    let recentFailedBatches = store.allBatches()
+      .filter { $0.status == "failed" || $0.status == "processing" }
+      .filter { $0.start >= cutoff && !isBatchInFlight($0.id) }
+      .filter { automaticRetryCounts[$0.id, default: 0] < maxAutomaticRetriesPerBatch }
+      .sorted { $0.start < $1.start }
+    guard !recentFailedBatches.isEmpty else { return [] }
+
+    // Only batches whose failed card is still on the timeline. A later batch's
+    // cards can replace an older failed card, and retrying that batch would
+    // write overlapping cards.
+    let days = Set([
+      now.getDayInfoFor4AMBoundary().dayString,
+      now.addingTimeInterval(-maxLookback).getDayInfoFor4AMBoundary().dayString,
+    ])
+    var retryableBatchIds = Set<Int64>()
+    for day in days {
+      for card in store.fetchTimelineCards(forDay: day)
+      where TimelineActivityLoader.isRetryableFailedCard(card, storageManager: store) {
+        if let batchId = card.batchId {
+          retryableBatchIds.insert(batchId)
+        }
+      }
+    }
+
+    return recentFailedBatches.map(\.id).filter { retryableBatchIds.contains($0) }
+  }
 
   private func processRecordings() {
     guard !isProcessing else { return }
@@ -471,11 +603,13 @@ final class AnalysisManager: AnalysisManaging {
     ]
     SentryHelper.addBreadcrumb(breadcrumb)
 
+    setBatchInFlight(batchId, true)
     updateBatchStatus(batchId: batchId, status: "processing")
 
     llmService.processBatch(batchId, progressHandler: progressHandler) {
       [weak self] (result: Result<ProcessedBatchResult, Error>) in
       guard let self else { return }
+      self.setBatchInFlight(batchId, false)
 
       let now = Date()
       let currentDayInfo = now.getDayInfoFor4AMBoundary()
@@ -517,6 +651,7 @@ final class AnalysisManager: AnalysisManaging {
         )
 
         completion?(.success(()))
+        self.catchUpFailedBatchesAfterSuccess()
 
       case .failure(let err):
         print(
