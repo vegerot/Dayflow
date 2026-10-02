@@ -11,9 +11,11 @@ struct TabFilterBar: View {
   let idleCategory: TimelineCategory?
   @Binding var mutedCategoryKeys: Set<String>
   let onManageCategories: () -> Void
+  let onMoveCategory: (_ id: UUID, _ targetID: UUID) -> Void
 
   @Environment(\.dayflowTheme) private var theme
   @State private var chipRowWidth: CGFloat = 0
+  @State private var draggedCategoryID: UUID?
 
   private let editButtonSize: CGFloat = 24
   private let chipButtonSpacing: CGFloat = 8
@@ -98,7 +100,7 @@ struct TabFilterBar: View {
 
   private func visibleChipRow(width: CGFloat) -> some View {
     ScrollView(.horizontal, showsIndicators: false) {
-      chipRowContent
+      chipRowContent(isReorderable: true)
         .fixedSize(horizontal: true, vertical: false)
         .frame(height: chipRowHeight)
     }
@@ -107,7 +109,7 @@ struct TabFilterBar: View {
   }
 
   private var measuredChipRow: some View {
-    chipRowContent
+    chipRowContent(isReorderable: false)
       .fixedSize(horizontal: true, vertical: false)
       .background(
         GeometryReader { proxy in
@@ -116,10 +118,16 @@ struct TabFilterBar: View {
       )
   }
 
-  private var chipRowContent: some View {
+  /// The hidden measuring copy passes `isReorderable: false` so only the
+  /// visible row registers drag sources and drop targets.
+  private func chipRowContent(isReorderable: Bool) -> some View {
     HStack(spacing: 5) {
       ForEach(categories) { category in
-        chip(for: category, isIdle: false)
+        if isReorderable {
+          reorderableChip(for: category)
+        } else {
+          chip(for: category, isIdle: false)
+        }
       }
 
       if let idleCategory {
@@ -137,6 +145,23 @@ struct TabFilterBar: View {
       isMuted: mutedCategoryKeys.contains(key),
       onTap: { toggleMuted(key) }
     )
+  }
+
+  private func reorderableChip(for category: TimelineCategory) -> some View {
+    let categoryID = category.id
+    return chip(for: category, isIdle: false)
+      .onDrag {
+        draggedCategoryID = categoryID
+        return NSItemProvider(object: categoryID.uuidString as NSString)
+      }
+      .onDrop(
+        of: ["public.text"],
+        delegate: CategoryChipDropDelegate(
+          targetCategoryID: categoryID,
+          draggedCategoryID: $draggedCategoryID,
+          onMoveCategory: onMoveCategory
+        )
+      )
   }
 
   private func toggleMuted(_ key: String) {
@@ -162,6 +187,28 @@ struct TabFilterBar: View {
     )
     .frame(width: 40)
     .allowsHitTesting(false)
+  }
+
+  private struct CategoryChipDropDelegate: DropDelegate {
+    let targetCategoryID: UUID
+    @Binding var draggedCategoryID: UUID?
+    let onMoveCategory: (_ id: UUID, _ targetID: UUID) -> Void
+
+    func dropEntered(info: DropInfo) {
+      guard let draggedID = draggedCategoryID, draggedID != targetCategoryID else { return }
+      withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+        onMoveCategory(draggedID, targetCategoryID)
+      }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+      DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+      draggedCategoryID = nil
+      return true
+    }
   }
 
   private struct ChipRowWidthPreferenceKey: PreferenceKey {
