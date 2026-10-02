@@ -166,7 +166,10 @@ extension MainView {
         categories: categoryStore.editableCategories,
         idleCategory: categoryStore.idleCategory,
         mutedCategoryKeys: $mutedCategoryKeys,
-        onManageCategories: { showCategoryEditor = true }
+        onManageCategories: { showCategoryEditor = true },
+        onMoveCategory: { id, targetID in
+          categoryStore.moveCategory(id: id, toPositionOf: targetID)
+        }
       )
       .padding(.leading, 10 + TimelineAlignment.categoryRowInset)
       .opacity(contentOpacity)
@@ -313,35 +316,47 @@ extension MainView {
       timelineActivityInspector(activity: activity, geo: geo)
         .transition(.opacity.combined(with: .scale(scale: 0.98)))
     } else {
-      DaySummaryView(
-        selectedDate: selectedDate,
-        categories: categoryStore.categories,
-        storageManager: StorageManager.shared,
-        cardsToReviewCount: reviewPromptCount,
-        reviewRefreshToken: reviewSummaryRefreshToken,
-        recordingControlMode: RecordingControl.currentMode(
-          appState: appState,
-          pauseManager: pauseManager
-        ),
-        goalPromptDay: pendingGoalPromptDay,
-        onGoalPromptHandled: { day in
-          markDailyGoalPromptHandled(day: day)
-        },
-        onReviewTap: {
-          guard reviewPromptCount > 0 else { return }
-          withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-            showTimelineReview = true
+      VStack(spacing: 0) {
+        GettingStartedChecklistCard(onOpenTab: { tab in
+          withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
+            selectedIcon = tab
           }
-        },
-        onShowGoalFlow: { presentation in
-          withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
-            goalFlowPresentation = presentation
-          }
-        }
-      )
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
+        })
+
+        daySummary(reviewPromptCount: reviewPromptCount)
+      }
       .transition(.opacity.combined(with: .scale(scale: 0.98)))
     }
+  }
+
+  private func daySummary(reviewPromptCount: Int) -> some View {
+    DaySummaryView(
+      selectedDate: selectedDate,
+      categories: categoryStore.categories,
+      storageManager: StorageManager.shared,
+      cardsToReviewCount: reviewPromptCount,
+      reviewRefreshToken: reviewSummaryRefreshToken,
+      recordingControlMode: RecordingControl.currentMode(
+        appState: appState,
+        pauseManager: pauseManager
+      ),
+      goalPromptDay: pendingGoalPromptDay,
+      onGoalPromptHandled: { day in
+        markDailyGoalPromptHandled(day: day)
+      },
+      onReviewTap: {
+        guard reviewPromptCount > 0 else { return }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+          showTimelineReview = true
+        }
+      },
+      onShowGoalFlow: { presentation in
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
+          goalFlowPresentation = presentation
+        }
+      }
+    )
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 
   @ViewBuilder
