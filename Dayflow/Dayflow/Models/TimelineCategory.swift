@@ -192,6 +192,30 @@ final class CategoryStore: ObservableObject {
     save()
   }
 
+  /// Moves an editable category into the slot currently held by another one,
+  /// then renumbers `order` so editable categories run 0..<n and Idle stays last.
+  func moveCategory(id: UUID, toPositionOf targetID: UUID) {
+    var ordered = editableCategories
+    guard id != targetID,
+      let fromIndex = ordered.firstIndex(where: { $0.id == id }),
+      let toIndex = ordered.firstIndex(where: { $0.id == targetID })
+    else { return }
+
+    ordered.move(
+      fromOffsets: IndexSet(integer: fromIndex),
+      toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex
+    )
+
+    for (newOrder, category) in ordered.enumerated() {
+      guard let idx = categories.firstIndex(where: { $0.id == category.id }) else { continue }
+      categories[idx].order = newOrder
+    }
+    for idx in categories.indices where categories[idx].isSystem {
+      categories[idx].order = ordered.count
+    }
+    save()
+  }
+
   func persist() {
     save()
   }
