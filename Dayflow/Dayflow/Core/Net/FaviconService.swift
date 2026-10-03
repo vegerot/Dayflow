@@ -414,27 +414,19 @@ struct FaviconImageView: View {
   }
 
   private func favicon(_ image: NSImage) -> some View {
-    let isTemplate = ["ChatGPTLogo", "GithubIcon"].contains(image.name() ?? "")
-    let backing: Color? =
-      !theme.isDark || isTemplate
-      ? nil
-      : FaviconContrast.backing(
-        for: image, background: backgroundColor ?? theme.panelSolid,
-        base: theme.panelSolid
-      )
+    let isKnownTemplate = ["ChatGPTLogo", "GithubIcon"].contains(image.name() ?? "")
+    let isTemplate =
+      isKnownTemplate
+      || (theme.isDark
+        && FaviconContrast.shouldTint(
+          image, background: backgroundColor ?? theme.panelSolid, base: theme.panelSolid
+        ))
     return Image(nsImage: image)
       .renderingMode(isTemplate ? .template : .original)
       .resizable()
       .interpolation(.high)
       .aspectRatio(contentMode: .fit)
       .foregroundStyle(theme.textPrimary)
-      .padding(backing == nil ? 0 : 1)
-      .background {
-        if let backing {
-          RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(backing)
-        }
-      }
       .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
   }
 
@@ -479,28 +471,32 @@ struct FaviconImageView: View {
 // Analyze each decoded image once. Weak keys let samples leave with the image cache.
 @MainActor
 private enum FaviconContrast {
-  private static let samples = NSMapTable<NSImage, NSArray>(
+  private final class PixelSamples {
+    let luminances: [CGFloat]
+    let isTransparentBlackSilhouette: Bool
+
+    init(luminances: [CGFloat], isTransparentBlackSilhouette: Bool) {
+      self.luminances = luminances
+      self.isTransparentBlackSilhouette = isTransparentBlackSilhouette
+    }
+  }
+
+  private static let samples = NSMapTable<NSImage, PixelSamples>(
     keyOptions: .weakMemory, valueOptions: .strongMemory
   )
 
-  static func backing(for image: NSImage, background: Color, base: Color) -> Color? {
-    guard let foreground = NSColor(background).usingColorSpace(.deviceRGB),
+  static func shouldTint(_ image: NSImage, background: Color, base: Color) -> Bool {
+    guard let pixels = pixelSamples(image), pixels.isTransparentBlackSilhouette,
+      let foreground = NSColor(background).usingColorSpace(.deviceRGB),
       let base = NSColor(base).usingColorSpace(.deviceRGB)
-    else { return nil }
+    else { return false }
     let alpha = foreground.alphaComponent
     let backgroundLuminance = luminance(
       foreground.redComponent * alpha + base.redComponent * (1 - alpha),
       foreground.greenComponent * alpha + base.greenComponent * (1 - alpha),
       foreground.blueComponent * alpha + base.blueComponent * (1 - alpha)
     )
-    let values = pixelLuminances(image)
-    guard !values.isEmpty else { return nil }
-    // Rescue only almost entirely near-black icons that disappear on the dark surface.
-    let darkPixelFraction = Double(values.filter { $0 <= 0.05 }.count) / Double(values.count)
-    guard darkPixelFraction >= 0.9,
-      readableFraction(values, against: backgroundLuminance) < 0.1
-    else { return nil }
-    return Color(white: 0.88)
+    return readableFraction(pixels.luminances, against: backgroundLuminance) < 0.1
   }
 
   private static func readableFraction(_ values: [CGFloat], against background: CGFloat) -> Double {
@@ -520,12 +516,9 @@ private enum FaviconContrast {
     return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
   }
 
-  private static func pixelLuminances(_ image: NSImage) -> [CGFloat] {
+  private static func pixelSamples(_ image: NSImage) -> PixelSamples? {
     if let cached = samples.object(forKey: image) {
-      return cached.compactMap { value in
-        guard let number = value as? NSNumber else { return nil }
-        return CGFloat(number.doubleValue)
-      }
+      return cached
     }
     guard
       let bitmap = NSBitmapImageRep(
@@ -533,7 +526,7 @@ private enum FaviconContrast {
         samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
       ), let context = NSGraphicsContext(bitmapImageRep: bitmap)
-    else { return [] }
+    else { return nil }
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = context
     image.draw(
@@ -541,15 +534,32 @@ private enum FaviconContrast {
       operation: .copy, fraction: 1)
     NSGraphicsContext.restoreGraphicsState()
     var values: [CGFloat] = []
+    var transparentPixelCount = 0
+    var allVisiblePixelsAreBlack = true
     for y in 0..<24 {
       for x in 0..<24 {
-        guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
-          color.alphaComponent >= 0.5
+        guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB)
         else { continue }
+        if color.alphaComponent <= 0.05 { transparentPixelCount += 1 }
+        guard color.alphaComponent >= 0.5 else { continue }
+
+        let brightest = max(color.redComponent, color.greenComponent, color.blueComponent)
+        let darkest = min(color.redComponent, color.greenComponent, color.blueComponent)
+        // Any visible color or light detail belongs to the artwork; preserve it.
+        if brightest > 0.25 || brightest - darkest > 0.04 {
+          allVisiblePixelsAreBlack = false
+        }
         values.append(luminance(color.redComponent, color.greenComponent, color.blueComponent))
       }
     }
-    samples.setObject(values.map { NSNumber(value: Double($0)) } as NSArray, forKey: image)
-    return values
+    // Require clear space around the mark, so finished app tiles keep their own surface.
+    let hasTransparentBackground = Double(transparentPixelCount) / (24 * 24) >= 0.2
+    let result = PixelSamples(
+      luminances: values,
+      isTransparentBlackSilhouette: !values.isEmpty && hasTransparentBackground
+        && allVisiblePixelsAreBlack
+    )
+    samples.setObject(result, forKey: image)
+    return result
   }
 }
