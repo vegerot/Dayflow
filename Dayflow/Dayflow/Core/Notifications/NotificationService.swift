@@ -47,24 +47,70 @@ final class NotificationService: NSObject, ObservableObject {
   }
 
   func notifySupportReply() {
+    notifyChatReply()
+  }
+
+  func clearFlowWaitlistReplyNotification() {
+    center.removeDeliveredNotifications(withIdentifiers: ["flow.waitlist.reply"])
+    center.removePendingNotificationRequests(withIdentifiers: ["flow.waitlist.reply"])
+  }
+
+  func notifyFlowWaitlistReply(sessionKey: String) {
+    notifyChatReply(flowSessionKey: sessionKey)
+  }
+
+  private func notifyChatReply(flowSessionKey: String? = nil) {
     Task {
       var status = await authorizationStatus()
       if status == .notDetermined {
         await requestPermission()
         status = await authorizationStatus()
       }
-      guard Self.canScheduleNotifications(for: status),
-        NotificationBadgeManager.shared.supportUnreadCount > 0
-      else { return }
+      guard Self.canScheduleNotifications(for: status) else { return }
+      let badges = NotificationBadgeManager.shared
+      if let flowSessionKey {
+        guard badges.flowWaitlistSessionKey == flowSessionKey, badges.flowWaitlistUnreadCount > 0
+        else { return }
+      } else {
+        guard badges.supportUnreadCount > 0 else { return }
+      }
+      let isFlow = flowSessionKey != nil
+      let identifier = isFlow ? "flow.waitlist.reply" : "support.reply"
       let content = UNMutableNotificationContent()
       content.title = String(localized: "New reply from Dayflow")
-      content.body = String(localized: "You have a new support reply. Open Support to read it.")
+      content.body =
+        isFlow
+        ? String(localized: "You have a new reply about Flow. Open Flow to read it.")
+        : String(localized: "You have a new support reply. Open Support to read it.")
       content.sound = .default
       do {
         try await center.add(
-          UNNotificationRequest(identifier: "support.reply", content: content, trigger: nil))
+          UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
       } catch {
-        print("[NotificationService] Support notification failed: \(error)")
+        print("[NotificationService] Chat notification failed (\(identifier)): \(error)")
+      }
+    }
+  }
+
+  /// One-time nudge after onboarding: the first real timeline cards are ready.
+  /// Never prompts for permission here; the welcome tour asks up front.
+  func notifyFirstCardsReady() {
+    Task {
+      let status = await authorizationStatus()
+      guard Self.canScheduleNotifications(for: status) else { return }
+
+      let content = UNMutableNotificationContent()
+      content.title = String(localized: "Your first Dayflow cards are ready")
+      content.body = String(
+        localized: "Take a look at what Dayflow picked up from your last few minutes of work.")
+      content.sound = .default
+      do {
+        try await center.add(
+          UNNotificationRequest(
+            identifier: "gettingStarted.firstCards", content: content, trigger: nil))
+        AnalyticsService.shared.capture("getting_started_first_cards_notification_sent")
+      } catch {
+        print("[NotificationService] First cards notification failed: \(error)")
       }
     }
   }
@@ -369,13 +415,25 @@ extension NotificationService: UNUserNotificationCenterDelegate {
     let isWeeklyUnlockNotification = identifier.hasPrefix("weekly.")
 
     let isSupportNotification = identifier.hasPrefix("support.")
-    guard isDailyRecapNotification || isWeeklyUnlockNotification || isSupportNotification else {
+    let isFlowNotification = identifier == "flow.waitlist.reply"
+    let isGettingStartedNotification = identifier.hasPrefix("gettingStarted.")
+    guard
+      isDailyRecapNotification || isWeeklyUnlockNotification || isSupportNotification
+        || isFlowNotification || isGettingStartedNotification
+    else {
       completionHandler()
       return
     }
 
     Task { @MainActor in
-      if isSupportNotification {
+      if isGettingStartedNotification {
+        AnalyticsService.shared.capture("getting_started_first_cards_notification_clicked")
+        AppDelegate.pendingNotificationNavigationDestination = .timeline
+        activateAppForNotificationTap()
+      } else if isFlowNotification {
+        AppDelegate.pendingNotificationNavigationDestination = .flow
+        activateAppForNotificationTap()
+      } else if isSupportNotification {
         AppDelegate.pendingNotificationNavigationDestination = .support
         activateAppForNotificationTap()
       } else if isDailyRecapNotification {
@@ -427,7 +485,7 @@ extension NotificationService: UNUserNotificationCenterDelegate {
       return
     }
 
-    if identifier.hasPrefix("support.") {
+    if identifier.hasPrefix("support.") || identifier == "flow.waitlist.reply" {
       completionHandler([.banner, .sound])
       return
     }
@@ -435,6 +493,12 @@ extension NotificationService: UNUserNotificationCenterDelegate {
     if identifier.hasPrefix("weekly.") {
       print("[NotificationService] willPresent options=banner,sound identifier=\(identifier)")
       completionHandler([.banner, .sound])
+      return
+    }
+
+    // Someone already looking at Dayflow sees the cards arrive; no banner needed.
+    if identifier.hasPrefix("gettingStarted.") {
+      completionHandler([])
       return
     }
 
