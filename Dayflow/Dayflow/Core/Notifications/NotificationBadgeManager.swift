@@ -28,6 +28,15 @@ final class NotificationBadgeManager: ObservableObject {
     refreshDockBadge()
   }
 
+  @Published private(set) var flowWaitlistUnreadCount = 0
+  private(set) var flowWaitlistSessionKey: String?
+
+  func setFlowWaitlistUnreadCount(_ count: Int, sessionKey: String?) {
+    flowWaitlistSessionKey = sessionKey
+    flowWaitlistUnreadCount = max(0, count)
+    refreshDockBadge()
+  }
+
   private let defaults = UserDefaults.standard
   private let pendingDailyReadyKey = "notificationBadge.pendingDailyReady"
   private let pendingDailyVisibleKey = "notificationBadge.pendingDailyVisible"
@@ -69,7 +78,7 @@ final class NotificationBadgeManager: ObservableObject {
   }
 
   private func refreshDockBadge() {
-    let count = supportUnreadCount + (hasPendingDailyRecap ? 1 : 0)
+    let count = supportUnreadCount + flowWaitlistUnreadCount + (hasPendingDailyRecap ? 1 : 0)
     NSApplication.shared.dockTile.badgeLabel = count > 0 ? String(count) : nil
   }
 
