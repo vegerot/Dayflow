@@ -104,6 +104,8 @@ struct SidebarView: View {
     switch icon {
     case .bug:
       return badgeManager.supportUnreadCount > 0
+    case .flow:
+      return badgeManager.flowWaitlistUnreadCount > 0
     case .daily:
       return badgeManager.hasPendingDailyRecap
     default:
