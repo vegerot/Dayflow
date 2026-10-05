@@ -17,8 +17,13 @@
 //  Tickets are keyed by this install's widget session, so the page asks for an
 //  email before the first message so we can still reply if the app is closed.
 //
+//  Images: PostHog messages are text-only, so pasted or dropped images are
+//  uploaded to the Dayflow backend and sent as URLs inside the message text.
+//  Any message line that is one of those URLs renders as an image.
+//
 
 import AppKit
+import Combine
 import SwiftUI
 import WebKit
 
@@ -95,6 +100,83 @@ enum SupportChatContext: Equatable {
 final class SupportChatSession {
   static let shared = SupportChatSession(context: .support)
   private static var flowWaitlistSessions: [String: SupportChatSession] = [:]
+  private static var activeFlowWaitlistSession: SupportChatSession?
+  private static var flowAccountObserver: AnyCancellable?
+
+  static func startFlowWaitlistMonitoring() {
+    guard flowAccountObserver == nil else { return }
+    // Published properties send before their values change; read the settled
+    // account on the next run-loop turn.
+    flowAccountObserver = DayflowAuthManager.shared.objectWillChange
+      .receive(on: RunLoop.main)
+      .sink { refreshFlowWaitlistMonitoring() }
+    refreshFlowWaitlistMonitoring()
+  }
+
+  static func refreshFlowWaitlistMonitoring() {
+    let auth = DayflowAuthManager.shared
+    guard auth.hasLoadedStoredSession, !auth.isRestoringStoredSession else { return }
+    let registration = FlowWaitlistRegistration()
+    let shouldMonitor =
+      !auth.flowEnabled
+      && registration.belongsTo(userID: auth.user?.id, email: auth.user?.email)
+    let nextSession =
+      shouldMonitor
+      ? flowWaitlist(email: registration.email, accountID: registration.chatContext.accountID) : nil
+    guard activeFlowWaitlistSession !== nextSession else { return }
+    if activeFlowWaitlistSession != nil || nextSession == nil {
+      NotificationService.shared.clearFlowWaitlistReplyNotification()
+    }
+    if activeFlowWaitlistSession !== flowSupportSession { activeFlowWaitlistSession?.stop() }
+    activeFlowWaitlistSession = nextSession
+    let unreadCount = nextSession?.replyState.unreadCount ?? 0
+    NotificationBadgeManager.shared.setFlowWaitlistUnreadCount(
+      unreadCount,
+      sessionKey: nextSession?.context.sessionKey
+    )
+    nextSession?.start()
+  }
+
+  // MARK: Flow support
+
+  /// The conversation behind Flow's Support button, watched while Flow is
+  /// open so the page can show a dot when a reply is waiting.
+  private static var flowSupportSession: SupportChatSession?
+
+  /// Someone who joined the waitlist on this Mac keeps the conversation they
+  /// started there; anyone else gets one keyed to their account.
+  static func flowSupportContext() -> SupportChatContext {
+    let user = DayflowAuthManager.shared.user
+    let registration = FlowWaitlistRegistration()
+    if registration.belongsTo(userID: user?.id, email: user?.email) {
+      return registration.chatContext
+    }
+    guard let user else { return .support }
+    return .flowWaitlist(email: user.email, accountID: user.id)
+  }
+
+  static func session(for context: SupportChatContext) -> SupportChatSession {
+    switch context {
+    case .support: return .shared
+    case .flowWaitlist(let email, let accountID):
+      return .flowWaitlist(email: email, accountID: accountID)
+    }
+  }
+
+  static func startFlowSupportMonitoring() {
+    let context = flowSupportContext()
+    guard context.isFlowWaitlist else { return }
+    let next = session(for: context)
+    if flowSupportSession !== next, flowSupportSession !== activeFlowWaitlistSession {
+      flowSupportSession?.stop()
+    }
+    flowSupportSession = next
+    next.start()
+  }
+
+  static var flowSupportUnreadCount: Int {
+    flowSupportSession?.replyState.unreadCount ?? 0
+  }
 
   static func flowWaitlist(email: String, accountID: String? = nil) -> SupportChatSession {
     let context = SupportChatContext.flowWaitlist(email: email, accountID: accountID)
@@ -111,6 +193,7 @@ final class SupportChatSession {
   private var timer: Timer?
   private var observers: [NSObjectProtocol] = []
   private var chatVisible = false
+  private var lastPoll = Date.distantPast
   private(set) var ready = false
   private var failed = false
   private let defaults = UserDefaults.standard
@@ -147,16 +230,9 @@ final class SupportChatSession {
     guard timer == nil else { return }
     _ = webView
     if failed { reload() }
-    let interval: TimeInterval = context.isFlowWaitlist ? 10 : 60
-    timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-      Task { @MainActor [weak self] in
-        guard let self else { return }
-        if self.ready {
-          self.updateReading()
-        } else if self.failed {
-          self.reload()
-        }
-      }
+    timer = Timer.scheduledTimer(withTimeInterval: Self.readingPollInterval, repeats: true) {
+      [weak self] _ in
+      Task { @MainActor [weak self] in self?.pollIfDue() }
     }
     guard observers.isEmpty else { return }
     for name in [
@@ -165,7 +241,10 @@ final class SupportChatSession {
       let observer = NotificationCenter.default.addObserver(
         forName: name, object: nil, queue: .main
       ) { [weak self] _ in
-        Task { @MainActor [weak self] in self?.updateReading() }
+        Task { @MainActor [weak self] in
+          guard let self, self.chatVisible else { return }
+          self.updateReading()
+        }
       }
       observers.append(observer)
     }
@@ -175,10 +254,13 @@ final class SupportChatSession {
     chatVisible = visible
     if visible { start() }
     updateReading()
-    if context.isFlowWaitlist && !visible {
-      timer?.invalidate()
-      timer = nil
-    }
+  }
+
+  private func stop() {
+    chatVisible = false
+    updateReading()
+    timer?.invalidate()
+    timer = nil
   }
 
   func didBecomeReady() {
@@ -197,26 +279,74 @@ final class SupportChatSession {
     webView.loadHTMLString(SupportChatPage.html, baseURL: pageURL)
   }
 
-  private func updateReading() {
-    guard ready else { return }
+  // Each poll asks the Dayflow backend whether the ticket has anything new;
+  // the page only fetches from PostHog when it does.
+  private static let readingPollInterval: TimeInterval = 5
+  private static let backgroundPollInterval: TimeInterval = 60
+  private static let reloadInterval: TimeInterval = 60
+
+  private var isReading: Bool {
     let windowVisible = webView.window.map { $0.isVisible && !$0.isMiniaturized } ?? false
-    coordinator.send("setReading", chatVisible && NSApp.isActive && windowVisible)
+    return chatVisible && NSApp.isActive && windowVisible
+  }
+
+  private func pollIfDue() {
+    let interval =
+      !ready
+      ? Self.reloadInterval
+      : (isReading ? Self.readingPollInterval : Self.backgroundPollInterval)
+    guard Date().timeIntervalSince(lastPoll) >= interval else { return }
+    if ready {
+      updateReading()
+    } else if failed {
+      lastPoll = Date()
+      reload()
+    }
+  }
+
+  /// Tells the page whether the chat is on screen, which also checks for new messages.
+  private func updateReading() {
+    guard ready, timer != nil else { return }
+    lastPoll = Date()
+    coordinator.send("setReading", isReading)
+  }
+
+  private var replyState: ChatReplyState {
+    ChatReplyState(
+      defaults: defaults,
+      keyPrefix: context.isFlowWaitlist ? "flowWaitlist.\(context.sessionKey)" : "support"
+    )
   }
 
   func receiveReplies(_ body: [String: Any]) {
-    // Flow has its own chat surface; its replies must not clear Support's badge
-    // or produce notifications that navigate to the Support tab.
-    guard !context.isFlowWaitlist else { return }
-    let unread = max(0, body["unread"] as? Int ?? 0)
-    NotificationBadgeManager.shared.setSupportUnreadCount(unread)
-    guard unread > 0, let latestID = body["latestID"] as? String, !latestID.isEmpty else {
-      if unread == 0 { NotificationService.shared.clearSupportReplyNotification() }
+    if Self.flowSupportSession === self, Self.activeFlowWaitlistSession !== self {
+      // Flow's own Support button: only the dot on the page, no Dock badge.
+      _ = replyState.receive(
+        unreadCount: body["unread"] as? Int ?? 0, latestReplyID: body["latestID"] as? String)
+      FlowSessionMirror.shared.webBridge?.sendEvent(
+        "supportUnread", payload: ["count": replyState.unreadCount])
       return
     }
-    let key = "support.lastNotifiedReply"
-    guard defaults.string(forKey: key) != latestID else { return }
-    defaults.set(latestID, forKey: key)
-    NotificationService.shared.notifySupportReply()
+    guard !context.isFlowWaitlist || Self.activeFlowWaitlistSession === self else { return }
+    let shouldNotify = replyState.receive(
+      unreadCount: body["unread"] as? Int ?? 0, latestReplyID: body["latestID"] as? String)
+    let unread = replyState.unreadCount
+    if context.isFlowWaitlist {
+      NotificationBadgeManager.shared.setFlowWaitlistUnreadCount(
+        unread, sessionKey: context.sessionKey)
+      if unread == 0 {
+        NotificationService.shared.clearFlowWaitlistReplyNotification()
+      } else if shouldNotify {
+        NotificationService.shared.notifyFlowWaitlistReply(sessionKey: context.sessionKey)
+      }
+      return
+    }
+    NotificationBadgeManager.shared.setSupportUnreadCount(unread)
+    if unread == 0 {
+      NotificationService.shared.clearSupportReplyNotification()
+    } else if shouldNotify {
+      NotificationService.shared.notifySupportReply()
+    }
   }
 }
 
@@ -242,13 +372,7 @@ struct SupportChatWebView: NSViewRepresentable {
     self.onEvent = onEvent
   }
 
-  private var session: SupportChatSession {
-    switch context {
-    case .support: return .shared
-    case .flowWaitlist(let email, let accountID):
-      return .flowWaitlist(email: email, accountID: accountID)
-    }
-  }
+  private var session: SupportChatSession { .session(for: context) }
 
   func makeCoordinator() -> Coordinator {
     session.coordinator.onEvent = onEvent
@@ -310,6 +434,7 @@ struct SupportChatWebView: NSViewRepresentable {
       "token": info?["PHPostHogApiKey"] as? String ?? "",
       "apiHost": info?["PHPostHogHost"] as? String ?? "https://us.i.posthog.com",
       "appVersion": info?["CFBundleShortVersionString"] as? String ?? "",
+      "backendURL": DayflowBackendConfiguration.endpoint() ?? "",
       "palette": palette.values,
       "language": Bundle.main.preferredLocalizations.first ?? "en",
       "flowWaitlist": context.isFlowWaitlist,
@@ -319,7 +444,9 @@ struct SupportChatWebView: NSViewRepresentable {
         "emailPlaceholder": String(localized: "so we can reply if you close the app"),
         "messagePlaceholder": context.isFlowWaitlist
           ? String(localized: "Who are you, and how would you use Flow?")
-          : String(localized: "What's going on? Bugs, ideas, confusion — all welcome."),
+          // The image hint is its own string so the original keeps its translations.
+          : String(localized: "What's going on? Bugs, ideas, confusion — all welcome.") + " "
+            + String(localized: "Paste or drop screenshots here too."),
         "debug": String(localized: "Attach debug logs"),
         "send": String(localized: "Send"),
         "you": String(localized: "You"),
@@ -339,6 +466,10 @@ struct SupportChatWebView: NSViewRepresentable {
           : String(localized: "Sent. Replies show up here and in your inbox."),
         "sendFailed": String(localized: "Couldn't send. Try again."),
         "rateLimited": String(localized: "Slow down a little — try again in a minute."),
+        "dropHint": String(localized: "Drop images to attach"),
+        "imageUnsupported": String(localized: "That file type isn't supported."),
+        "imageTooLarge": String(localized: "Images can be up to 50 MB."),
+        "imageFailed": String(localized: "Couldn't upload that image. Try again."),
       ],
     ]
     if let distinctId = AnalyticsService.shared.currentDistinctId() {
@@ -400,9 +531,7 @@ struct SupportChatWebView: NSViewRepresentable {
         session?.receiveReplies(body)
 
       case "sent":
-        if session?.context.isFlowWaitlist != true {
-          Task { await NotificationService.shared.requestPermission() }
-        }
+        Task { await NotificationService.shared.requestPermission() }
         AnalyticsService.shared.capture(
           session?.context.isFlowWaitlist == true
             ? "flow_waitlist_message_sent" : "support_message_sent",
@@ -576,6 +705,11 @@ private enum SupportChatPage {
       .meta.user { align-self: flex-end; }
       .meta.team { align-self: flex-start; }
       .msg a { color: var(--accent); }
+      .msg img {
+        display: block; max-width: 100%; max-height: 260px;
+        border-radius: 10px; margin-top: 6px;
+      }
+      .msg img:only-child, .msg a:first-child img { margin-top: 0; }
       .status {
         align-self: center; font-size: 12px; color: var(--text-muted);
         padding: 4px 0;
@@ -598,6 +732,31 @@ private enum SupportChatPage {
       input:focus, textarea:focus { border-color: var(--accent); }
       #email { flex: 1; padding: 6px 10px; border-radius: 10px; font-size: 13px; }
       #text { width: 100%; resize: none; min-height: 64px; max-height: 160px; }
+
+      #attachments { display: flex; flex-wrap: wrap; gap: 10px; }
+      #attachments:empty { display: none; }
+      .attachment {
+        position: relative; width: 56px; height: 56px; border-radius: 10px;
+        display: flex; align-items: center; justify-content: center;
+        color: var(--text-muted);
+        background: var(--input-fill) center / cover no-repeat;
+        border: 1px solid var(--input-border);
+      }
+      .attachment button {
+        position: absolute; top: -7px; right: -7px; width: 18px; height: 18px;
+        padding: 0; border-radius: 50%; cursor: pointer;
+        font-size: 12px; line-height: 1; color: var(--text-secondary);
+        background: var(--chip-fill); border: 1px solid var(--chip-border);
+      }
+      /* Covers the whole chat so an image can be dropped anywhere. */
+      #drop-overlay {
+        position: fixed; inset: 0; z-index: 10; pointer-events: none;
+        display: none; align-items: center; justify-content: center;
+        font-weight: 600; color: var(--accent);
+        background: var(--team-fill);
+        border: 2px dashed var(--accent); border-radius: 20px;
+      }
+      body.dragging #drop-overlay { display: flex; }
 
       #actions { display: flex; align-items: center; gap: 10px; }
       #debug-toggle {
@@ -632,6 +791,7 @@ private enum SupportChatPage {
           <input id="email" type="email" placeholder="so we can reply if you close the app" autocomplete="email">
         </div>
         <textarea id="text" placeholder="What's going on? Bugs, ideas, confusion — all welcome." rows="3"></textarea>
+        <div id="attachments"></div>
         <div id="actions">
           <label id="debug-toggle">
             <input id="debug" type="checkbox" checked>
@@ -643,6 +803,7 @@ private enum SupportChatPage {
         </div>
       </div>
     </div>
+    <div id="drop-overlay"></div>
 
     <script>
     (function () {
@@ -655,6 +816,7 @@ private enum SupportChatPage {
         messages: document.getElementById("messages"),
         email: document.getElementById("email"),
         text: document.getElementById("text"),
+        attachments: document.getElementById("attachments"),
         debug: document.getElementById("debug"),
         send: document.getElementById("send"),
         error: document.getElementById("error")
@@ -675,6 +837,7 @@ private enum SupportChatPage {
       el.text.placeholder = strings.messagePlaceholder;
       document.querySelector('#debug-toggle span').textContent = strings.debug;
       el.send.textContent = strings.send;
+      document.getElementById("drop-overlay").textContent = strings.dropHint;
       var GREETING = strings.greeting;
       // Logs travel as a PostHog event on the same person, not inside the message,
       // so the ticket thread stays readable. Event properties allow ~1MB; stay well under.
@@ -686,6 +849,7 @@ private enum SupportChatPage {
         available: false,
         sending: false,
         rendered: {},           // message id -> true
+        attachments: [],        // { url, node }; url is null while uploading
         pendingDebugLog: null   // resolver waiting on native
       };
 
@@ -743,9 +907,20 @@ private enum SupportChatPage {
           content = content.slice(FLOW_WAITLIST_PREFIX.length);
         }
 
+        var images = content.match(IMAGE_URL) || [];
         var bubble = document.createElement("div");
         bubble.className = "msg " + (isUser ? "user" : "team");
-        bubble.innerHTML = linkify(escapeHTML(content.trim()));
+        bubble.innerHTML = linkify(escapeHTML(content.replace(IMAGE_URL, "").trim()));
+        images.forEach(function (url) {
+          var link = document.createElement("a");
+          link.href = url;
+          link.target = "_blank";
+          var image = document.createElement("img");
+          image.src = url;
+          image.onload = scrollToBottom;
+          link.appendChild(image);
+          bubble.appendChild(link);
+        });
         el.messages.appendChild(bubble);
 
         var meta = document.createElement("div");
@@ -776,8 +951,102 @@ private enum SupportChatPage {
       }
 
       function updateSendEnabled() {
-        el.send.disabled = !state.available || state.sending || el.text.value.trim().length === 0;
+        var uploading = state.attachments.some(function (a) { return !a.url; });
+        var empty = el.text.value.trim().length === 0 && state.attachments.length === 0;
+        el.send.disabled = !state.available || state.sending || uploading || empty;
       }
+
+      // ---- Images --------------------------------------------------------------
+
+      var backendURL = (config.backendURL || "").replace(/\/+$/, "");
+      var IMAGE_URL = /https:\/\/[^\s<>|]+\/v1\/support\/images\/[\w-]+\.(?:jpg|png|gif|webp)/g;
+      var IMAGE_MAX_BYTES = 50 * 1024 * 1024;
+
+      function removeAttachment(attachment) {
+        state.attachments = state.attachments.filter(function (a) { return a !== attachment; });
+        attachment.node.remove();
+        updateSendEnabled();
+      }
+
+      // The backend converts whatever it's given, so any image format is fine here.
+      function uploadImage(file) {
+        if (file.size > IMAGE_MAX_BYTES) {
+          showError(strings.imageTooLarge);
+          return;
+        }
+        var attachment = { url: null, node: document.createElement("div") };
+        attachment.node.className = "attachment";
+        var label = document.createElement("span");
+        label.textContent = "…";
+        var remove = document.createElement("button");
+        remove.textContent = "×";
+        remove.addEventListener("click", function () { removeAttachment(attachment); });
+        attachment.node.appendChild(label);
+        attachment.node.appendChild(remove);
+        el.attachments.appendChild(attachment.node);
+        state.attachments.push(attachment);
+        showError("");
+        updateSendEnabled();
+
+        fetch(backendURL + "/v1/support/images", {
+          method: "POST",
+          headers: { "Content-Type": "application/octet-stream" },
+          body: file
+        }).then(function (response) {
+          if (!response.ok) throw response.status;
+          return response.json();
+        }).then(function (body) {
+          attachment.url = body.url;
+          label.textContent = "";
+          attachment.node.style.backgroundImage = 'url("' + body.url + '")';
+        }).catch(function (status) {
+          removeAttachment(attachment);
+          showError(status === 415 ? strings.imageUnsupported
+            : status === 413 ? strings.imageTooLarge : strings.imageFailed);
+        }).finally(updateSendEnabled);
+      }
+
+      function attachFiles(files) {
+        if (!backendURL) return;
+        Array.prototype.forEach.call(files, uploadImage);
+      }
+
+      document.addEventListener("paste", function (event) {
+        var files = event.clipboardData && event.clipboardData.files;
+        if (!files || files.length === 0) return;
+        event.preventDefault();
+        attachFiles(files);
+      });
+
+      // Dragging is tracked on the window so the whole chat is the drop target.
+      var dragDepth = 0;
+      function isFileDrag(event) {
+        return !!event.dataTransfer
+          && Array.prototype.indexOf.call(event.dataTransfer.types, "Files") >= 0;
+      }
+      function setDragging(depth) {
+        dragDepth = depth;
+        document.body.classList.toggle("dragging", depth > 0);
+      }
+      window.addEventListener("dragenter", function (event) {
+        if (!isFileDrag(event)) return;
+        event.preventDefault();
+        setDragging(dragDepth + 1);
+      });
+      window.addEventListener("dragover", function (event) {
+        if (!isFileDrag(event)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      });
+      window.addEventListener("dragleave", function (event) {
+        if (isFileDrag(event)) setDragging(Math.max(0, dragDepth - 1));
+      });
+      window.addEventListener("drop", function (event) {
+        if (!isFileDrag(event)) return;
+        event.preventDefault();
+        setDragging(0);
+        attachFiles(event.dataTransfer.files);
+      });
 
       // ---- Email ---------------------------------------------------------------
 
@@ -837,8 +1106,10 @@ private enum SupportChatPage {
       // ---- Sending -----------------------------------------------------------
 
       async function sendCurrentMessage() {
-        var text = el.text.value.trim();
-        if (!text || state.sending || !state.available) return;
+        // Image URLs ride along as their own lines after the text.
+        var imageURLs = state.attachments.map(function (a) { return a.url; });
+        var text = [el.text.value.trim()].concat(imageURLs).join("\n").trim();
+        if (!text || imageURLs.indexOf(null) >= 0 || state.sending || !state.available) return;
 
         var email = el.email.value.trim();
         if (!isLikelyEmail(email)) {
@@ -864,6 +1135,8 @@ private enum SupportChatPage {
           if (!response) throw new Error(strings.unavailable);
           if (attachDebug) sendDebugLogEvent(log, response);
           el.text.value = "";
+          state.attachments = [];
+          el.attachments.innerHTML = "";
           appendMessage({
             id: response.message_id,
             content: text,
@@ -897,7 +1170,10 @@ private enum SupportChatPage {
 
       async function loadMessages() {
         if (loadingMessages || !state.available || !posthog.conversations.getCurrentTicketId()) return;
+        // The hidden built-in widget polls on its own and spends the shared rate limit.
+        if (posthog.conversations.isVisible()) posthog.conversations.hide();
         loadingMessages = true;
+        lastAttemptAt = Date.now();
         try {
           var response = await posthog.conversations.getMessages();
           if (!response) return;
@@ -915,9 +1191,44 @@ private enum SupportChatPage {
             var receipt = await posthog.conversations.markAsRead();
             if (receipt && receipt.success) unread = 0;
           }
+          unreadCount = unread;
           native({ event: "replies", unread: unread,
             latestID: latest ? String(latest.id) : "" });
+          return true;
         } catch (e) {} finally { loadingMessages = false; }
+      }
+
+      // PostHog shares one rate limit for message fetches across every install,
+      // so each tick asks the Dayflow backend for the ticket's latest message id
+      // and only fetches the conversation when that id changes.
+      var unreadCount = 0;
+      var lastAttemptAt = 0;
+      var RETRY_MS = 20 * 1000;
+      var latestKnownID;
+      var checkingForNew = false;
+      var POSTHOG_FALLBACK_MS = 5 * 60 * 1000;
+
+      async function checkForNew() {
+        var ticketID = state.available && posthog.conversations.getCurrentTicketId();
+        if (!ticketID || checkingForNew) return;
+        // A failed mark-as-read is retried, but not on every tick.
+        if (reading && unreadCount > 0 && Date.now() - lastAttemptAt > RETRY_MS) return loadMessages();
+        checkingForNew = true;
+        try {
+          if (!backendURL) throw new Error("no backend");
+          var response = await fetch(
+            backendURL + "/v1/support/tickets/" + encodeURIComponent(ticketID) + "/latest");
+          if (!response.ok) throw new Error("status " + response.status);
+          var latestID = (await response.json()).latest_message_id || "";
+          var changed = latestKnownID !== undefined && latestID !== latestKnownID;
+          // Only remember the new id once its message was fetched, so a failed
+          // fetch is tried again on a later tick instead of being lost.
+          if (!changed) latestKnownID = latestID;
+          else if (Date.now() - lastAttemptAt > RETRY_MS && await loadMessages()) latestKnownID = latestID;
+        } catch (e) {
+          // Backend unreachable: fall back to asking PostHog, but rarely.
+          if (Date.now() - lastAttemptAt > POSTHOG_FALLBACK_MS) loadMessages();
+        } finally { checkingForNew = false; }
       }
 
       function startPolling() {
@@ -952,7 +1263,11 @@ private enum SupportChatPage {
 
       window.__dayflowSupport = {
         poll: loadMessages,
-        setReading: function (value) { reading = value; loadMessages(); },
+        setReading: function (value) {
+          var opened = value && !reading;
+          reading = value;
+          if (opened) loadMessages(); else checkForNew();
+        },
         receiveDebugLog: receiveDebugLog,
         applyPalette: applyPalette
       };
