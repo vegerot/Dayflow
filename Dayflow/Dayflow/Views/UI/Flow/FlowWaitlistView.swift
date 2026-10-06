@@ -281,7 +281,8 @@ struct FlowWaitlistView: View {
   // MARK: - Actions
 
   private var hasJoinedWaitlist: Bool {
-    !joinedEmail.isEmpty && joinedAccountID == (authManager.user?.id ?? "")
+    FlowWaitlistRegistration(email: joinedEmail, accountID: joinedAccountID)
+      .belongsTo(userID: authManager.user?.id, email: authManager.user?.email)
   }
 
   private var isJoined: Bool {
@@ -304,6 +305,7 @@ struct FlowWaitlistView: View {
         try await authManager.joinFlowWaitlist(email: submittedEmail)
         joinedAccountID = submittedAccountID
         joinedEmail = submittedEmail
+        SupportChatSession.refreshFlowWaitlistMonitoring()
         AnalyticsService.shared.capture(
           "flow_waitlist_joined", ["outcome": "success", "signed_in": authManager.isSignedIn])
       } catch {
