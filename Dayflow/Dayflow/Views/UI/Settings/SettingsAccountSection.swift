@@ -283,15 +283,33 @@ private struct ActiveProCard: View {
     entitlement.source == "manual"
   }
 
+  // Dayflow Plus is the Flow-only plan; it does not include the Pro features.
+  private var isPlus: Bool {
+    entitlement.plan == "plus"
+  }
+
+  private var isTrial: Bool {
+    entitlement.source == "trial"
+  }
+
   private var title: String {
-    isGifted ? String(localized: "Gifted Pro") : String(localized: "Dayflow Pro")
+    if isPlus { return String(localized: "Dayflow Plus") }
+    return isGifted ? String(localized: "Gifted Pro") : String(localized: "Dayflow Pro")
   }
 
   private var badge: String {
-    isGifted ? String(localized: "Gifted") : String(localized: "Active")
+    if isTrial { return String(localized: "Free trial") }
+    return isGifted ? String(localized: "Gifted") : String(localized: "Active")
   }
 
   private var description: String {
+    if isPlus {
+      return isTrial
+        ? String(localized: "Your free trial of Flow is running on this Mac.")
+        : String(
+          localized: "Flow is unlocked on this Mac and attached to your Dayflow account.")
+    }
+
     if isGifted {
       return
         String(
@@ -309,6 +327,7 @@ private struct ActiveProCard: View {
       return String(localized: "Status")
     }
 
+    if isTrial { return String(localized: "Trial ends") }
     return isGifted ? String(localized: "Access through") : String(localized: "Renews")
   }
 
@@ -353,7 +372,7 @@ private struct ActiveProCard: View {
         .frame(height: 1)
 
       HStack(alignment: .center, spacing: 16) {
-        ProFeatureList()
+        ProFeatureList(features: isPlus ? ProFeatureList.plus : ProFeatureList.pro)
 
         Spacer(minLength: 16)
 
@@ -365,7 +384,7 @@ private struct ActiveProCard: View {
             action: signOutAction
           )
 
-          if !isGifted {
+          if !isGifted && !isTrial {
             SettingsPrimaryButton(
               title: String(localized: "Manage billing"),
               systemImage: "creditcard",
@@ -810,12 +829,19 @@ private struct BillingPlanCard: View {
 }
 
 private struct ProFeatureList: View {
-  private let features = [
+  static let pro = [
     String(localized: "Zero setup cloud AI for timeline generation"),
     String(localized: "Daily and weekly reports without provider setup"),
     String(localized: "Priority support"),
     String(localized: "Processed securely and never used to train AI models"),
   ]
+  static let plus = [
+    String(localized: "Flow focus sessions with your island companion"),
+    String(localized: "Distraction alerts while a session is running"),
+    String(localized: "Session summaries and island progress"),
+  ]
+
+  var features: [String] = ProFeatureList.pro
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
