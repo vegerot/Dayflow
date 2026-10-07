@@ -328,6 +328,18 @@ extension WeeklyDashboardBuilder {
       }
   }
 
+  /// Minutes the heat map counts as distraction: whole distraction cards plus
+  /// the distractions noted inside otherwise focused ones.
+  static func distractedMinutes(from facts: [WeeklyCardFact]) -> Double {
+    facts.reduce(0) { total, fact in
+      if isFullDistractionFact(fact) {
+        return total + (fact.endMinute - fact.startMinute)
+      }
+      return total
+        + embeddedDistractionIntervals(for: fact).reduce(0) { $0 + ($1.end - $1.start) }
+    }
+  }
+
   private static func isFullDistractionFact(_ fact: WeeklyCardFact) -> Bool {
     let categoryText = "\(fact.categoryName) \(fact.card.subcategory)".lowercased()
     if categoryText.contains("distraction") || categoryText.contains("distracted") {
