@@ -44,6 +44,28 @@ enum WeeklyDashboardBuilder {
     )
   }
 
+  /// The slice of a week the Flow paywall shows: the focus heat map and how
+  /// long the week's distractions added up to. Numbers only, so nothing a
+  /// card says (titles, summaries, apps, sites) leaves the app with it.
+  static func buildFlowFocus(
+    cards: [TimelineCard],
+    categories: [TimelineCategory],
+    weekRange: WeeklyDateRange
+  ) -> WeeklyFlowFocusSnapshot {
+    let categoryLookup = firstCategoryLookup(
+      from: categories.sorted { $0.order < $1.order },
+      normalizedKey: normalizedKey
+    )
+    let facts = cardFacts(from: cards, categories: categoryLookup, weekRange: weekRange)
+    let visibleFacts = facts.filter { !$0.isSystem && !$0.isIdle }
+
+    return WeeklyFlowFocusSnapshot(
+      heatmap: buildHeatmap(from: facts, weekRange: weekRange),
+      trackedMinutes: visibleFacts.reduce(0) { $0 + $1.durationMinutes },
+      distractedMinutes: Int(distractedMinutes(from: visibleFacts).rounded())
+    )
+  }
+
   private static func cardFacts(
     from cards: [TimelineCard],
     categories: [String: TimelineCategory],
