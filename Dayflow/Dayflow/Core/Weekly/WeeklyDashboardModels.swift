@@ -138,6 +138,30 @@ struct WeeklyWorkflowTotalItem: Identifiable, Sendable {
   let colorHex: String
 }
 
+struct WeeklyFlowFocusSnapshot {
+  let heatmap: WeeklyFocusHeatmapSnapshot
+  let trackedMinutes: Int
+  let distractedMinutes: Int
+
+  /// What goes over the Flow bridge. Scores run from -1 (focused) to 1
+  /// (distracted), rounded to two places; rows carry the day id ("mon"…).
+  var bridgePayload: [String: Any] {
+    [
+      "available": trackedMinutes > 0,
+      "trackedMinutes": trackedMinutes,
+      "distractedMinutes": distractedMinutes,
+      "startMinute": heatmap.startMinute,
+      "bucketMinutes": heatmap.bucketMinutes,
+      "rows": heatmap.rows.map { row in
+        [
+          "day": row.id,
+          "values": row.values.map { ($0 * 100).rounded() / 100 },
+        ] as [String: Any]
+      },
+    ]
+  }
+}
+
 struct WeeklyCardFact {
   let id: String
   let card: TimelineCard
