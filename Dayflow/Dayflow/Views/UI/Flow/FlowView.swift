@@ -16,6 +16,7 @@ struct FlowView: View {
   @State private var loadState: LoadState = .loading
   /// Bumped to tear down and recreate the webview on retry.
   @State private var reloadToken = 0
+  @State private var showingSupport = false
 
   private enum LoadState {
     case loading
@@ -25,13 +26,29 @@ struct FlowView: View {
 
   var body: some View {
     ZStack {
-      if authManager.flowEnabled {
+      if (!authManager.hasLoadedStoredSession || authManager.isRestoringStoredSession)
+        && FlowWaitlistRegistration().email.isEmpty
+      {
+        ProgressView()
+      } else if authManager.flowEnabled {
         webContent
+      } else if authManager.hasUnrestoredSession && !authManager.isRestoringStoredSession {
+        // Signed in, but the account couldn't be fetched: not a waitlist case.
+        errorView(
+          title: "Flow needs an internet connection",
+          message: String(
+            localized: "Dayflow couldn't reach your account. Check your connection and try again.")
+        ) {
+          Task { await authManager.restoreStoredSession() }
+        }
       } else {
         FlowWaitlistView()
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .task {
+      await authManager.restoreStoredSession()
+    }
   }
 
   private var webContent: some View {
@@ -42,6 +59,8 @@ struct FlowView: View {
           loadState = .loaded
         case .failed(let error):
           loadState = .failed(error.localizedDescription)
+        case .supportRequested:
+          showingSupport = true
         }
       }
       .id(reloadToken)
@@ -51,11 +70,20 @@ struct FlowView: View {
       case .loading:
         ProgressView()
       case .failed(let message):
-        errorView(message: message)
+        errorView(title: "Couldn't load Flow", message: message) {
+          loadState = .loading
+          reloadToken += 1
+        }
       case .loaded:
         EmptyView()
       }
+
+      if showingSupport {
+        FlowSupportChatView { showingSupport = false }
+          .transition(.opacity)
+      }
     }
+    .animation(.easeOut(duration: 0.15), value: showingSupport)
   }
 
   private var isLoaded: Bool {
@@ -63,12 +91,16 @@ struct FlowView: View {
     return false
   }
 
-  private func errorView(message: String) -> some View {
+  private func errorView(
+    title: LocalizedStringKey,
+    message: String,
+    onRetry: @escaping () -> Void
+  ) -> some View {
     VStack(spacing: 16) {
       Image(systemName: "wifi.slash")
         .font(.system(size: 40))
         .foregroundColor(theme.textMuted)
-      Text("Couldn't load Flow")
+      Text(title)
         .font(.custom("Figtree", size: 20).weight(.semibold))
         .foregroundColor(theme.textPrimary)
       Text(message)
@@ -76,12 +108,9 @@ struct FlowView: View {
         .foregroundColor(theme.textSecondary)
         .multilineTextAlignment(.center)
         .frame(maxWidth: 360)
-      Button("Retry") {
-        loadState = .loading
-        reloadToken += 1
-      }
-      .buttonStyle(.borderedProminent)
-      .tint(theme.accent)
+      Button("Retry", action: onRetry)
+        .buttonStyle(.borderedProminent)
+        .tint(theme.accent)
     }
   }
 }
