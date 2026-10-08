@@ -101,6 +101,11 @@ struct FlowNativeSnapshot: Codable, Equatable {
 
 /// What the overlay panel is currently showing.
 enum FlowOverlayPresentation: Equatable {
+  var isDemo: Bool {
+    if case .demo = self { return true }
+    return false
+  }
+
   case hidden
   /// Short auto-dismissing speech bubble ("Your flow session starts now!").
   case toast(message: String)
@@ -113,6 +118,10 @@ enum FlowOverlayPresentation: Equatable {
   case onBreak
   /// Timed session hit its natural end.
   case sessionEnded
+  /// Onboarding shows the alert for real: the creature leans in at the screen
+  /// edge with the page's own line and a single reply. `feisty` plays the
+  /// fire clips. Driven by the Flow page, never by a session.
+  case demo(message: String, reply: String, feisty: Bool)
 }
 
 /// Where the nudge creature comes from. `side` is the Figma layout (peeks in
