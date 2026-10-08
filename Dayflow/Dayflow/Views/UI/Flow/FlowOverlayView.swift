@@ -18,6 +18,10 @@ struct FlowOverlayView: View {
   /// Nudges start as just the creature; the bubble and replies appear once
   /// the user hovers over it (and then stay until the overlay changes).
   @State private var revealed = false
+  /// The feisty demo's reply waits for the fire to start (see updateCreature).
+  @State private var demoReplyReady = false
+  private static let fireBeginLength: TimeInterval = 9.625
+  private static let demoFireStart: TimeInterval = 5.0
 
   /// The 1280×768 clip canvas rendered at half size, plus a little headroom
   /// so bubbles can float above it.
@@ -39,7 +43,7 @@ struct FlowOverlayView: View {
       if mirror.overlay != .hidden {
         FlowCreatureHotspot(
           onHover: { hovering in
-            if hovering { withAnimation(.spring(duration: 0.3)) { revealed = true } }
+            if hovering, !revealed { withAnimation(.spring(duration: 0.3)) { revealed = true } }
           }
         )
         .frame(width: hotspotRect.width, height: hotspotRect.height)
@@ -62,6 +66,9 @@ struct FlowOverlayView: View {
         }
       case .onBreak:
         breakBubble
+      case .demo(let message, let reply, let feisty):
+        demoBubble(message, reply: reply, feisty: feisty)
+          .transition(.opacity.combined(with: .scale(scale: 0.9)))
       case .sessionEnded:
         if revealed {
           speechBubble(String(localized: "Time's up! Great work."), layout: .edge)
@@ -103,7 +110,17 @@ struct FlowOverlayView: View {
       break  // Exit clips are driven by FlowOverlayController before hiding.
     case .nudge(_, true):
       player.play(.fireBegin, thenLoop: .fireLoop)
-    case .toast, .sessionEnded, .nudge:
+    case .demo(_, _, true):
+      // Onboarding skips the long glare and opens just before the eyes catch
+      // fire; the reply only shows up once the creature is breathing fire.
+      player.play(.fireBegin, thenLoop: .fireLoop, startAt: Self.demoFireStart)
+      demoReplyReady = false
+      Task { @MainActor in
+        try? await Task.sleep(
+          nanoseconds: UInt64((Self.fireBeginLength - Self.demoFireStart) * 1_000_000_000))
+        if case .demo(_, _, true) = mirror.overlay { withAnimation { demoReplyReady = true } }
+      }
+    case .toast, .sessionEnded, .nudge, .demo:
       switch variant {
       case .side:
         if old == .hidden {
@@ -181,6 +198,48 @@ struct FlowOverlayView: View {
     }
   }
 
+  /// Onboarding's demo: a wider bubble for the longer lines, shown straight
+  /// away (no hover), with its one reply directly underneath.
+  private func demoBubble(_ text: String, reply: String, feisty: Bool) -> some View {
+    VStack(alignment: .trailing, spacing: 7) {
+      Text(text)
+        .font(.custom("Figtree", size: 14))
+        .foregroundColor(.black)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 8)
+        .frame(width: 200, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: "D9D9D9")))
+        .background(alignment: .trailing) {
+          BubbleTail()
+            .fill(Color(hex: "D9D9D9"))
+            .frame(width: 30, height: 16)
+            .offset(x: 19)
+        }
+      // Solid, like the reply pills inside onboarding: this one sits on
+      // whatever window happens to be behind it.
+      Button {
+        mirror.replyToDemo()
+      } label: {
+        Text(reply)
+          .font(.custom("Figtree", size: 14).weight(.medium))
+          .foregroundColor(.white)
+          .padding(.horizontal, 16)
+          .frame(height: 32)
+          .background(Capsule().fill(Color(hex: "FF9F6F")))
+          .overlay(Capsule().strokeBorder(Color(hex: "F4C8B1"), lineWidth: 0.75))
+          .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
+      }
+      .buttonStyle(.plain)
+      .onHover { hovering in
+        if hovering { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+      }
+      .opacity(!feisty || demoReplyReady ? 1 : 0)
+      .allowsHitTesting(!feisty || demoReplyReady)
+    }
+    .offset(x: feisty ? 257 : 377, y: feisty ? 70 : 170)
+  }
+
   private func bubbleShell<Content: View>(
     layout: BubbleLayout, @ViewBuilder content: () -> Content
   ) -> some View {
@@ -209,7 +268,7 @@ struct FlowOverlayView: View {
 
   private var nudgePills: some View {
     VStack(alignment: .leading, spacing: 7) {
-      pill(background: .white.opacity(0.5)) {
+      pill(background: .white) {
         showSnoozeOptions = false
         mirror.respondBackToWork()
       } label: {
@@ -221,7 +280,7 @@ struct FlowOverlayView: View {
         }
       }
 
-      pill(background: .white.opacity(showSnoozeOptions ? 0.8 : 0.5)) {
+      pill(background: showSnoozeOptions ? Color(hex: "F1F1F1") : .white) {
         showSnoozeOptions.toggle()
       } label: {
         pillText(String(localized: "Just a few more minutes!"))
@@ -230,7 +289,7 @@ struct FlowOverlayView: View {
       if showSnoozeOptions {
         HStack(spacing: 5) {
           ForEach([5, 10, 15], id: \.self) { minutes in
-            pill(background: .white.opacity(0.75)) {
+            pill(background: .white) {
               showSnoozeOptions = false
               mirror.snooze(minutes: minutes)
             } label: {
@@ -240,7 +299,7 @@ struct FlowOverlayView: View {
         }
       }
 
-      pill(background: .white.opacity(0.5)) {
+      pill(background: .white) {
         showSnoozeOptions = false
         mirror.correctMistake()
       } label: {
@@ -252,12 +311,12 @@ struct FlowOverlayView: View {
 
   private var sessionEndedPills: some View {
     VStack(alignment: .leading, spacing: 7) {
-      pill(background: .white.opacity(0.5)) {
+      pill(background: .white) {
         mirror.openFlowTab()
       } label: {
         pillText(String(localized: "Start a new session"))
       }
-      pill(background: .white.opacity(0.5)) {
+      pill(background: .white) {
         mirror.dismissOverlay()
       } label: {
         pillText(String(localized: "Done"))
@@ -281,7 +340,13 @@ struct FlowOverlayView: View {
       label()
         .padding(.horizontal, 10)
         .frame(height: 26)
+        // Opaque with an edge and a shadow: the pills sit over whatever is on
+        // screen, and a translucent white one vanishes on a white page.
         .background(RoundedRectangle(cornerRadius: 10).fill(background))
+        .overlay(
+          RoundedRectangle(cornerRadius: 10).stroke(Color.black.opacity(0.1), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.16), radius: 4, y: 1)
     }
     .buttonStyle(.plain)
     .onHover { hovering in
@@ -316,8 +381,16 @@ private struct FlowCreatureHotspot: NSViewRepresentable {
       trackingAreas.forEach(removeTrackingArea)
       addTrackingArea(
         NSTrackingArea(
-          rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+          rect: bounds,
+          options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
           owner: self, userInfo: nil))
+    }
+
+    // Entering alone misses a pointer that was already over the creature when
+    // it arrived, or when a nudge turned into the fire one and hid the replies
+    // again; any movement inside counts as a hover too.
+    override func mouseMoved(with event: NSEvent) {
+      onHover?(true)
     }
 
     override func mouseEntered(with event: NSEvent) {
