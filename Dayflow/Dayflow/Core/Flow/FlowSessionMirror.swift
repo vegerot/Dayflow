@@ -35,7 +35,7 @@ final class FlowSessionMirror: ObservableObject {
           overlayVariant = FlowNudgeVariant.current
           lastNudgeReply = nil
         }
-      } else if overlay == .onBreak || oldValue == .hidden {
+      } else if overlay == .onBreak || oldValue == .hidden || overlay.isDemo {
         overlayVariant = .side
       }
     }
@@ -111,7 +111,7 @@ final class FlowSessionMirror: ObservableObject {
       snoozeUntil = nil
       FlowSessionTimeline.shared.finish()
       FlowDistractionAgent.shared.stop()
-      if case (_, .idle) = (previous.phase, newSnapshot.phase) {
+      if case (_, .idle) = (previous.phase, newSnapshot.phase), !overlay.isDemo {
         overlay = .hidden
       }
     default:
@@ -119,6 +119,26 @@ final class FlowSessionMirror: ObservableObject {
     }
 
     armDeadlineTimer()
+  }
+
+  // MARK: - Onboarding demo
+
+  /// Onboarding's "I will appear on the side of your screen like this" beats:
+  /// the Flow page asks for the real overlay instead of drawing a picture of it.
+  func showDemo(message: String, reply: String, feisty: Bool) {
+    guard snapshot.phase != .active, snapshot.phase != .onBreak else { return }
+    toastTimer?.invalidate()
+    overlay = .demo(message: message, reply: reply, feisty: feisty)
+  }
+
+  func hideDemo() {
+    if overlay.isDemo { overlay = .hidden }
+  }
+
+  /// The reply pill under the demo bubble. The page decides what comes next
+  /// (the feisty beat, or hiding the creature), so the overlay stays up.
+  func replyToDemo() {
+    webBridge?.sendEvent("onboardingAlertReply", payload: [:])
   }
 
   // MARK: - Distraction simulation (⌘⇧D fallback for testing)
@@ -268,6 +288,37 @@ final class FlowSessionMirror: ObservableObject {
     MainWindowController.shared.showMainWindow()
     NSApp.activate(ignoringOtherApps: true)
     NotificationCenter.default.post(name: .navigateToFlow, object: nil)
+  }
+
+  // MARK: - Menu bar controls
+
+  /// A session is running or on a break: the menu bar shows its Flow pill
+  /// and session card only while this holds.
+  var isSessionOn: Bool { snapshot.phase == .active || snapshot.phase == .onBreak }
+
+  /// Pause ("break"), resume and stop ("end") from the menu bar card. The web
+  /// UI owns sessions, so the press is relayed there; if the Flow page isn't
+  /// loaded there is nobody to act on it, and opening Flow is the next best thing.
+  func menuBarControl(_ action: String) {
+    AnalyticsService.shared.capture("flow_menu_bar_control", ["action": action])
+    guard let webBridge else {
+      openFlowTab()
+      return
+    }
+    webBridge.sendEvent("sessionControl", payload: ["action": action])
+  }
+
+  /// The menu bar card's snooze: no nudges for a while, without there having
+  /// been a nudge to answer.
+  func menuBarSnooze(minutes: Int) {
+    guard snapshot.phase == .active else { return }
+    AnalyticsService.shared.capture("flow_menu_bar_control", ["action": "snooze"])
+    snoozeUntil = Date().addingTimeInterval(TimeInterval(minutes * 60))
+    FlowDistractionAgent.shared.noteUserEvent(
+      "The user asked from the menu bar not to be nudged for \(minutes) minutes. Do not nudge until then unless they switch to something new."
+    )
+    if case .nudge = overlay { overlay = .hidden }
+    armDeadlineTimer()
   }
 
   // MARK: - Deadlines
