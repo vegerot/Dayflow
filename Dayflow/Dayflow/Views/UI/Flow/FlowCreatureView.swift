@@ -137,11 +137,18 @@ final class FlowCreaturePlayer {
 
   /// Play `clip` once, then keep looping `loop` (pass the same clip to loop
   /// it from the start).
-  func play(_ clip: FlowCreatureClip, thenLoop loop: FlowCreatureClip?) {
+  /// `startAt` skips into `clip` (seconds), for callers that only want its
+  /// tail end.
+  func play(_ clip: FlowCreatureClip, thenLoop loop: FlowCreatureClip?, startAt: TimeInterval = 0) {
     playGeneration += 1
     onceCompletion = nil
     loopClip = loop
     startQueue(with: clip)
+    if startAt > 0 {
+      player.seek(
+        to: CMTime(seconds: startAt, preferredTimescale: 600), toleranceBefore: .zero,
+        toleranceAfter: .zero)
+    }
     if let loop { enqueue(loop) }
   }
 
