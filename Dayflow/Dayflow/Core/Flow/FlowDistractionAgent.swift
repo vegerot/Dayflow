@@ -3,22 +3,26 @@
 //  Dayflow
 //
 //  Real distraction detection for Flow sessions. Each session gets one
-//  continuous Codex CLI conversation: an initial briefing with the user's
+//  conversation with the model: an initial briefing with the user's
 //  goals, session length, and alert style, then a screenshot every ~15 seconds
 //  with the current time and time remaining. The model replies with a strict
-//  one-object JSON verdict; nudges/praise drive the desktop overlay and
+//  one-object JSON verdict; nudges drive the desktop overlay and
 //  on-task/off-task flips drive the session's distraction log (via
 //  FlowSessionMirror → web UI → backend).
 //
-//  Runs entirely through the user's own `codex` CLI at low reasoning effort,
-//  reusing ChatCLIProcessRunner (streaming for the first turn to capture the
-//  thread id, then `codex exec resume <id> --image <shot>` per tick).
+//  Which model does the watching follows the provider the user picked for
+//  Dayflow itself (see `Engine`): their own `codex` CLI (streaming for the
+//  first turn to capture the thread id, then `codex exec resume <id> --image
+//  <shot>` per tick), their own `claude` CLI (a resumable session that Reads
+//  each screenshot), or Dayflow Pro (a stateless backend call per tick that
+//  carries the briefing and the recent turns). Other providers aren't
+//  supported yet and the agent says so instead of starting.
 //
 
 import AppKit
 import Combine
 import Foundation
-import ScreenCaptureKit
+@preconcurrency import ScreenCaptureKit
 
 @MainActor
 final class FlowDistractionAgent: ObservableObject {
@@ -41,7 +45,10 @@ final class FlowDistractionAgent: ObservableObject {
   /// The model's per-turn reply. Anything unparseable is treated as
   /// on-task/no-action so a flaky turn can never fire a bogus nudge.
   private struct Verdict: Decodable {
+    /// Models sometimes answer with the timeline's word for it.
+    var isOffTask: Bool { status == "off_task" || status == "distracted" }
     let status: String?
+    let seeing: String?
     let action: String?
     let message: String?
     let reason: String?
@@ -54,16 +61,88 @@ final class FlowDistractionAgent: ObservableObject {
     let timeline: [FlowSessionTimeline.ModelItem]?
   }
 
+  /// What runs the conversation, picked from the user's primary provider
+  /// when a session starts.
+  private enum Engine: Equatable {
+    case codex
+    case claude
+    case dayflow
+
+    static func current() -> Engine? {
+      switch (try? LLMProviderRoutingStore.load())?.primary {
+      case .chatGPT: return .codex
+      case .claude: return .claude
+      case .dayflow: return .dayflow
+      default: return nil
+      }
+    }
+
+    /// Codex and Claude keep the session timeline as a file they edit in
+    /// place; Dayflow Pro has no file system, so it answers inline.
+    var editsTimelineFile: Bool { self != .dayflow }
+
+    var label: String {
+      switch self {
+      case .codex: return "Codex"
+      case .claude: return "Claude"
+      case .dayflow: return "Dayflow Pro"
+      }
+    }
+  }
+
+  /// Claude's own model alias: small and fast, since a turn runs every tick.
+  private static let claudeModel = "haiku"
+  /// Past turns (text only, never the screenshots) resent to the backend on
+  /// each Dayflow Pro tick so the model can see a pattern across checks.
+  private static let dayflowHistoryTurns = 12
+
+  private struct BackendTurn: Codable, Sendable {
+    let role: String
+    let content: String
+  }
+
+  private struct BackendCheckRequest: Encodable {
+    let briefing: String
+    let history: [BackendTurn]
+    let message: String
+    let image_base64: String?
+    let want_timeline: Bool
+  }
+
+  private struct BackendCheckResponse: Decodable {
+    let text: String
+  }
+
   private let runner = ChatCLIProcessRunner()
 
-  private var codexSessionId: String?
+  private var engine: Engine = .codex
+  /// Codex thread id, Claude session id, or a local id for Dayflow Pro
+  /// (which keeps no conversation on the server). Nil until briefed.
+  private var conversationId: String?
+  /// Dayflow Pro only: the briefing and recent turns resent on each tick.
+  private var backendBriefing = ""
+  private var backendHistory: [BackendTurn] = []
   private var tickTimer: Timer?
   private var tickInFlight = false
   private var paused = false
+  private var lastNudgeAt: Date?
+  private var offTaskSince: Date?
+  private var backOnTaskSince: Date?
+  private var unansweredNudges = 0
+  private var focusedSince: Date?
   /// Bumped on every start/stop so results from a superseded session's
   /// in-flight process are ignored when they land.
   private var generation = 0
   private var consecutiveFailures = 0
+  /// The display from the last good screenshot, reused so each tick costs one
+  /// ScreenCaptureKit request instead of two. Dropped when a capture fails.
+  private var cachedCaptureDisplay: SCDisplay?
+  /// Screenshot failures back off instead of counting toward `maxFailures`:
+  /// retrying ScreenCaptureKit right away is what makes macOS show a spurious
+  /// Screen Recording prompt (issue #381).
+  private var captureFailureCount = 0
+  private var captureBackoffUntil: Date?
+  private static let captureBackoffDelays: [TimeInterval] = [30, 60, 120, 300]
   /// One-shot context lines (snooze, back-to-work, break) folded into the
   /// next tick's message.
   private var pendingNotes: [String] = []
@@ -112,13 +191,13 @@ final class FlowDistractionAgent: ObservableObject {
       .dropFirst()
       .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
       .sink { [weak self] _ in
-        guard let self, self.codexSessionId != nil else { return }
+        guard let self, self.conversationId != nil else { return }
         self.scheduleTimer()
       }
       .store(in: &cancellables)
   }
 
-  var isRunning: Bool { generationIsLive && codexSessionId != nil }
+  var isRunning: Bool { generationIsLive && conversationId != nil }
   private var generationIsLive: Bool { tickTimer != nil || tickInFlight }
 
   // MARK: - Lifecycle (driven by FlowSessionMirror phase transitions)
@@ -133,6 +212,12 @@ final class FlowDistractionAgent: ObservableObject {
   private func start(with snapshot: FlowNativeSnapshot, rebrief: Bool) {
     stop()
     lastSnapshot = snapshot
+    sessionStartedAt =
+      snapshot.sessionStartedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) } ?? Date()
+    // Before anything can bail out: a session the agent never watches must
+    // still drop the previous session's log, or its summary would show it.
+    // The same session on a re-brief or relaunch keeps what's been logged.
+    timeline.begin(sessionStartedAt: sessionStartedAt)
     guard settings.agentEnabled else {
       statusLine = "Disabled"
       return
@@ -146,19 +231,33 @@ final class FlowDistractionAgent: ObservableObject {
     goalTasks =
       snapshot.goalTasks
       ?? goals.enumerated().map { FlowGoalTask(id: "goal-\($0.offset)", title: $0.element) }
-    if !rebrief { reportedGoalIds = [] }
+    if !rebrief {
+      reportedGoalIds = []
+      lastNudgeAt = nil
+      offTaskSince = nil
+      backOnTaskSince = nil
+      focusedSince = nil
+      unansweredNudges = 0
+    }
     alertStyle = snapshot.alertStyle
-    sessionStartedAt =
-      snapshot.sessionStartedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) } ?? Date()
     sessionEndsAt = snapshot.sessionEndsAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
     lastReportedOffTask = false
     pendingNotes = []
     consecutiveFailures = 0
     paused = false
-    // Same session on a re-brief or relaunch keeps what's been logged so far.
-    timeline.begin(sessionStartedAt: sessionStartedAt)
+
+    guard let engine = Engine.current() else {
+      print("[FlowAgent] Not starting: the primary provider can't run the Flow agent")
+      appendTranscript(
+        "Flow's screen watching needs ChatGPT (Codex), Claude or Dayflow Pro as your provider.")
+      statusLine = "Needs Codex, Claude or Dayflow Pro"
+      AnalyticsService.shared.capture("flow_agent_unsupported_provider")
+      return
+    }
+    self.engine = engine
 
     let directory = FileManager.default.temporaryDirectory
+      .resolvingSymlinksInPath()
       .appendingPathComponent("DayflowFlowAgent-\(UUID().uuidString)", isDirectory: true)
     try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     workDirectory = directory
@@ -168,8 +267,26 @@ final class FlowDistractionAgent: ObservableObject {
     let prompt = initialPrompt()
     let runner = self.runner
 
-    print("[FlowAgent] Starting Codex conversation (style: \(alertStyle.rawValue))")
-    statusLine = rebrief ? "Re-briefing \(settings.model)…" : "Briefing \(settings.model)…"
+    print("[FlowAgent] Starting \(engine.label) conversation (style: \(alertStyle.rawValue))")
+    let modelName = modelLabel
+    statusLine = rebrief ? "Re-briefing \(modelName)…" : "Briefing \(modelName)…"
+
+    // Dayflow Pro keeps nothing on the server, so there's no briefing turn:
+    // the briefing rides along with every tick instead.
+    if engine == .dayflow {
+      guard Self.dayflowCredentials() != nil else {
+        appendTranscript("Couldn't start the agent: not signed in to Dayflow Pro.")
+        statusLine = "Sign in to Dayflow Pro"
+        AnalyticsService.shared.capture("flow_agent_start_failed", ["engine": "dayflow"])
+        cleanupWorkDirectory()
+        return
+      }
+      backendBriefing = prompt
+      backendHistory = []
+      finishStart(generation: gen, sessionId: UUID().uuidString, reply: "", error: nil)
+      return
+    }
+
     tickInFlight = true
     let model = settings.model
     let effort = settings.reasoningEffort
@@ -177,6 +294,35 @@ final class FlowDistractionAgent: ObservableObject {
       var sessionId: String?
       var replyText = ""
       var errorText: String?
+      if engine == .claude {
+        // The id is ours, so the first turn doesn't need to stream to learn it.
+        let id = UUID().uuidString.lowercased()
+        do {
+          let result = try runner.run(
+            tool: .claude,
+            prompt: prompt,
+            workingDirectory: directory,
+            model: Self.claudeModel,
+            claudeProfile: ClaudeCLIExecutionProfile.flowAgent.allowingFlowWorkspace(
+              at: directory.path),
+            claudeSessionMode: .start(id: id)
+          )
+          if result.exitCode == 0 {
+            sessionId = id
+            replyText = result.stdout
+          } else {
+            errorText = result.failureMessage(toolName: "Claude CLI")
+            ClaudeSessionCleanup(sessionID: id).cleanup()
+          }
+        } catch {
+          errorText = error.localizedDescription
+        }
+        await MainActor.run {
+          FlowDistractionAgent.shared.finishStart(
+            generation: gen, sessionId: sessionId, reply: replyText, error: errorText)
+        }
+        return
+      }
       do {
         let stream = runner.runStreaming(
           tool: .codex,
@@ -211,31 +357,34 @@ final class FlowDistractionAgent: ObservableObject {
     tickInFlight = false
 
     guard let sessionId else {
-      print("[FlowAgent] Could not start Codex session: \(error ?? "no thread id in output")")
+      print(
+        "[FlowAgent] Could not start \(engine.label) session: \(error ?? "no thread id in output")")
       appendTranscript("Couldn't start the agent: \(error ?? "no thread id in output")")
       statusLine = "Failed to start"
-      AnalyticsService.shared.capture("flow_agent_start_failed")
+      AnalyticsService.shared.capture("flow_agent_start_failed", ["engine": engineKey])
       cleanupWorkDirectory()
       return
     }
-    statusLine = "Watching (\(settings.model), \(settings.reasoningEffort))"
+    statusLine = "Watching (\(modelLabel))"
 
-    print("[FlowAgent] Codex session started: \(sessionId), first reply: \(reply.prefix(200))")
+    print(
+      "[FlowAgent] \(engine.label) session started: \(sessionId), first reply: \(reply.prefix(200))"
+    )
     appendTranscript(reply)
-    AnalyticsService.shared.capture("flow_agent_started")
-    codexSessionId = sessionId
+    AnalyticsService.shared.capture("flow_agent_started", ["engine": engineKey])
+    conversationId = sessionId
     scheduleTimer()
   }
 
   func pause() {
-    guard generationIsLive || codexSessionId != nil else { return }
+    guard generationIsLive || conversationId != nil else { return }
     paused = true
     timeline.beginBreak()
     noteUserEvent("The user is taking a break; screenshots were paused while it lasted.")
   }
 
   func resume() {
-    guard codexSessionId != nil else { return }
+    guard conversationId != nil else { return }
     paused = false
     timeline.endBreak()
     noteUserEvent("The user just came back from their break.")
@@ -246,10 +395,20 @@ final class FlowDistractionAgent: ObservableObject {
     tickTimer?.invalidate()
     tickTimer = nil
     tickInFlight = false
-    codexSessionId = nil
+    // Claude keeps the conversation (screenshots included) in its own session
+    // file; nothing of a Flow session should outlive it.
+    if engine == .claude, let id = conversationId {
+      Task.detached(priority: .utility) { ClaudeSessionCleanup(sessionID: id).cleanup() }
+    }
+    conversationId = nil
+    backendBriefing = ""
+    backendHistory = []
     paused = false
     pendingNotes = []
     lastReportedOffTask = false
+    cachedCaptureDisplay = nil
+    captureFailureCount = 0
+    captureBackoffUntil = nil
     cleanupWorkDirectory()
     statusLine = "Not running"
   }
@@ -271,7 +430,7 @@ final class FlowDistractionAgent: ObservableObject {
 
   /// Take a screenshot and ask the model right now, off the timer.
   func tickNow() {
-    guard codexSessionId != nil else {
+    guard conversationId != nil else {
       appendTranscript("Agent isn't running.")
       return
     }
@@ -297,7 +456,7 @@ final class FlowDistractionAgent: ObservableObject {
   /// The open task list changed mid-session (voice additions, manual
   /// check-offs): tell the model on its next tick, with fresh short ids.
   func goalsChanged(to snapshot: FlowNativeSnapshot) {
-    guard codexSessionId != nil else { return }
+    guard conversationId != nil else { return }
     let next = snapshot.goalTasks ?? []
     guard next != goalTasks else { return }
     let finished = goalTasks.filter { old in !next.contains(where: { $0.id == old.id }) }
@@ -325,7 +484,7 @@ final class FlowDistractionAgent: ObservableObject {
   /// `markRefocused` also resets the off-task flag so a later distraction
   /// opens a fresh interval in the session log.
   func noteUserEvent(_ note: String, markRefocused: Bool = false) {
-    guard codexSessionId != nil else { return }
+    guard conversationId != nil else { return }
     pendingNotes.append(note)
     if markRefocused { lastReportedOffTask = false }
   }
@@ -344,15 +503,24 @@ final class FlowDistractionAgent: ObservableObject {
   }
 
   private func tick() {
-    guard let sessionId = codexSessionId, let directory = workDirectory else { return }
+    guard let sessionId = conversationId, let directory = workDirectory else { return }
     guard !paused, !tickInFlight else { return }
+    // Nothing to see on a locked or sleeping screen, and ScreenCaptureKit
+    // requests right then are the ones that trigger the spurious prompt.
+    guard !ScreenCaptureMonitor.shared.isCaptureBlocked else { return }
+    if let until = captureBackoffUntil, Date() < until { return }
+    // Without the grant every capture attempt would show the real system prompt.
+    guard CGPreflightScreenCaptureAccess() else {
+      statusLine = "No Screen Recording permission"
+      return
+    }
 
     tickInFlight = true
     let gen = generation
     let askTimeline =
       forceTimelineUpdate || timeline.wantsUpdate(every: settings.timelineEverySeconds)
     forceTimelineUpdate = false
-    if askTimeline, let file = timelineFileURL {
+    if askTimeline, engine.editsTimelineFile, let file = timelineFileURL {
       // The model reads and edits this file during the turn.
       try? timeline.promptTimelineJSON().write(to: file, atomically: true, encoding: .utf8)
     }
@@ -362,68 +530,123 @@ final class FlowDistractionAgent: ObservableObject {
     let shotURL = directory.appendingPathComponent("shot-\(Int(Date().timeIntervalSince1970)).jpg")
     let model = settings.model
     let effort = settings.reasoningEffort
-    let textOnly = settings.textOnly
     let shotHeight = settings.screenshotHeight
     let quality = settings.jpegQuality
     let timeout = settings.tickTimeoutSeconds
     let startedAt = Date()
     // Which app is in front goes on the timeline entry (icon + merge key).
     let front = FlowSessionTimeline.frontmostApp()
+    let display = cachedCaptureDisplay
+    let engine = self.engine
+    let briefing = backendBriefing
+    let history = backendHistory
 
     Task.detached(priority: .utility) {
       var replyText: String?
       var errorText: String?
+      var capturedDisplay: SCDisplay?
+      var sentPrompt = ""
       do {
-        try await Self.captureScreenshotJPEG(to: shotURL, height: shotHeight, quality: quality)
-        // OCR text instead of the image for text-only models.
-        var prompt = message
-        var imagePaths = [shotURL.path]
-        if textOnly {
-          let screenText = Self.recognizeScreenText(at: shotURL)
-          prompt +=
-            "\nScreen text (Apple OCR of the current screenshot):\n\(screenText)\nReply with the JSON object only."
-          imagePaths = []
-        } else {
-          prompt += "\nScreenshot attached. Reply with the JSON object only."
-        }
-        let result = try runner.run(
-          tool: .codex,
-          prompt: prompt,
-          workingDirectory: directory,
-          imagePaths: imagePaths,
-          model: model,
-          reasoningEffort: effort,
-          codexResumeSessionId: sessionId,
-          codexConfigOverrides: Self.codexConfigOverrides,
-          timeoutSeconds: timeout
-        )
-        if result.exitCode == 0 {
-          replyText = result.stdout
-        } else {
-          errorText = result.stderr.isEmpty ? "exit \(result.exitCode)" : result.stderr
+        capturedDisplay = try await Self.captureScreenshotJPEG(
+          to: shotURL, height: shotHeight, quality: quality, display: display)
+        let prompt = message + "\n" + Self.replyReminder
+        let imagePaths = [shotURL.path]
+        sentPrompt = prompt
+        switch engine {
+        case .codex:
+          let result = try runner.run(
+            tool: .codex,
+            prompt: prompt,
+            workingDirectory: directory,
+            imagePaths: imagePaths,
+            model: model,
+            reasoningEffort: effort,
+            codexResumeSessionId: sessionId,
+            codexConfigOverrides: Self.codexConfigOverrides,
+            timeoutSeconds: timeout
+          )
+          if result.exitCode == 0 {
+            replyText = result.stdout
+          } else {
+            errorText = result.stderr.isEmpty ? "exit \(result.exitCode)" : result.stderr
+          }
+        case .claude:
+          // Claude gets the screenshot as a path and Reads it; its tools
+          // only reach this session's working directory.
+          let result = try runner.run(
+            tool: .claude,
+            prompt: prompt,
+            workingDirectory: directory,
+            imagePaths: imagePaths,
+            model: Self.claudeModel,
+            claudeProfile: ClaudeCLIExecutionProfile.flowAgent.allowingFlowWorkspace(
+              at: directory.path),
+            claudeSessionMode: .resume(id: sessionId),
+            timeoutSeconds: timeout
+          )
+          if result.exitCode == 0 {
+            replyText = result.stdout
+          } else {
+            errorText = result.failureMessage(toolName: "Claude CLI")
+          }
+        case .dayflow:
+          let image = try Data(contentsOf: shotURL).base64EncodedString()
+          replyText = try await Self.backendCheck(
+            BackendCheckRequest(
+              briefing: briefing, history: history, message: prompt, image_base64: image,
+              want_timeline: askTimeline),
+            timeout: timeout)
         }
       } catch {
         errorText = error.localizedDescription
+        // No display yet means the screenshot itself failed, not the model.
+        let domain = (error as NSError).domain
+        if capturedDisplay == nil, domain != "FlowAgent", domain != NSCocoaErrorDomain {
+          ScreenCaptureMonitor.shared.recordFailure(error, source: .flow)
+        }
       }
       try? FileManager.default.removeItem(at: shotURL)
 
       let elapsed = Date().timeIntervalSince(startedAt)
       await MainActor.run {
         FlowDistractionAgent.shared.finishTick(
-          generation: gen, reply: replyText, error: errorText, seconds: elapsed,
-          front: front, askedTimeline: askTimeline)
+          generation: gen, prompt: sentPrompt, reply: replyText, error: errorText,
+          seconds: elapsed, front: front, askedTimeline: askTimeline,
+          captureDisplay: capturedDisplay)
+      }
+      // The session ended (or was re-briefed) while this turn ran, after its
+      // Claude session file was already removed: the turn wrote it back.
+      if engine == .claude {
+        let stale = await MainActor.run { FlowDistractionAgent.shared.generation != gen }
+        if stale { ClaudeSessionCleanup(sessionID: sessionId).cleanup() }
       }
     }
   }
 
   private func finishTick(
-    generation gen: Int, reply: String?, error: String?, seconds: Double,
-    front: FlowSessionTimeline.FrontApp, askedTimeline: Bool
+    generation gen: Int, prompt: String, reply: String?, error: String?, seconds: Double,
+    front: FlowSessionTimeline.FrontApp, askedTimeline: Bool, captureDisplay: SCDisplay?
   ) {
     guard gen == generation else { return }
     tickInFlight = false
     lastTickAt = Date()
     lastTickSeconds = seconds
+
+    // The screenshot itself failed: back off rather than spending the
+    // failure budget, and fetch the display list again next time.
+    guard let captureDisplay else {
+      cachedCaptureDisplay = nil
+      captureFailureCount += 1
+      let delays = Self.captureBackoffDelays
+      let delay = delays[min(captureFailureCount - 1, delays.count - 1)]
+      captureBackoffUntil = Date().addingTimeInterval(delay)
+      print("[FlowAgent] Screenshot failed (\(captureFailureCount)): \(error ?? "unknown")")
+      appendTranscript("Screenshot failed: \(error ?? "unknown"). Trying again in \(Int(delay))s.")
+      return
+    }
+    cachedCaptureDisplay = captureDisplay
+    captureFailureCount = 0
+    captureBackoffUntil = nil
 
     guard let reply else {
       consecutiveFailures += 1
@@ -432,11 +655,10 @@ final class FlowDistractionAgent: ObservableObject {
       // Codex lost the conversation (its rollout file is gone, e.g. a full
       // disk or a pruned sessions dir). Resuming will never work again, so
       // start a fresh thread instead of burning through the failure budget.
-      if let error, error.contains("no rollout found") || error.contains("thread/resume"),
-        let snapshot = lastSnapshot, rebriefs < 3
-      {
+      if let error, Self.conversationWasLost(error), let snapshot = lastSnapshot, rebriefs < 3 {
         rebriefs += 1
-        appendTranscript("Codex thread was lost; re-briefing on a new one (\(rebriefs)/3).")
+        appendTranscript(
+          "\(engine.label) conversation was lost; re-briefing on a new one (\(rebriefs)/3).")
         start(with: snapshot, rebrief: true)
         pendingNotes.append("(Re-briefed mid-session after the previous conversation was lost.)")
         return
@@ -452,6 +674,12 @@ final class FlowDistractionAgent: ObservableObject {
     }
     consecutiveFailures = 0
     appendTranscript(reply)
+    if engine == .dayflow {
+      backendHistory.append(BackendTurn(role: "user", content: prompt))
+      backendHistory.append(BackendTurn(role: "assistant", content: reply))
+      let limit = Self.dayflowHistoryTurns * 2
+      if backendHistory.count > limit { backendHistory.removeFirst(backendHistory.count - limit) }
+    }
 
     let objects = Self.jsonObjects(in: reply)
     guard let first = objects.first,
@@ -463,14 +691,15 @@ final class FlowDistractionAgent: ObservableObject {
     // The verdict comes first and is acted on first; the timeline (when the
     // tick asked for one) rides behind it in a second object.
     handle(verdict: verdict)
-    timeline.observe(offTask: verdict.status == "off_task", front: front, reason: verdict.reason)
+    timeline.observe(
+      offTask: verdict.isOffTask, front: front, reason: verdict.reason ?? verdict.seeing)
     if askedTimeline { readBackTimeline(fallback: Array(objects.dropFirst())) }
   }
 
   /// After a timeline turn: take the file the model edited (or, if it
   /// answered inline instead, a {"timeline": [...]} object in its reply).
   private func readBackTimeline(fallback objects: [String]) {
-    if let file = timelineFileURL, let data = try? Data(contentsOf: file),
+    if engine.editsTimelineFile, let file = timelineFileURL, let data = try? Data(contentsOf: file),
       let items = Self.decodeTimelineItems(data), !items.isEmpty
     {
       timeline.apply(modelItems: items)
@@ -484,7 +713,7 @@ final class FlowDistractionAgent: ObservableObject {
         return
       }
     }
-    appendTranscript("Timeline update: the model didn't leave a usable timeline.json.")
+    appendTranscript("Timeline update: the model didn't leave a usable timeline.")
   }
 
   /// The file may be a bare array or wrapped in {"timeline": [...]}.
@@ -496,8 +725,45 @@ final class FlowDistractionAgent: ObservableObject {
     return (try? decoder.decode(TimelineReply.self, from: data))?.timeline
   }
 
+  /// When the creature may speak. Friendly waits three minutes into a drift,
+  /// then backs off instead of nagging: each nudge that doesn't bring them
+  /// back doubles the wait (5, 10, then 20 minutes). Feisty starts after two
+  /// checks and repeats every two minutes.
+  private func nudgeDue(at now: Date) -> Bool {
+    guard let since = offTaskSince, backOnTaskSince == nil else { return false }
+    let drift = now.timeIntervalSince(since)
+    let sinceLast = lastNudgeAt.map { now.timeIntervalSince($0) } ?? .infinity
+    switch alertStyle {
+    case .quiet:
+      return false
+    case .friendly:
+      let waits: [TimeInterval] = [240, 300, 600, 1200]
+      return drift >= 180 && sinceLast >= waits[min(unansweredNudges, waits.count - 1)]
+    case .feisty:
+      return drift >= Double(settings.tickSeconds) && sinceLast >= 120
+    }
+  }
+
   private func handle(verdict: Verdict) {
-    let offTask = verdict.status == "off_task"
+    let offTask = verdict.isOffTask
+    // A drift starts at the first off-task check and only ends after a full
+    // minute back on task, so one glance at work doesn't restart the count.
+    let now = Date()
+    if offTask {
+      if offTaskSince == nil { offTaskSince = now }
+      backOnTaskSince = nil
+    } else if offTaskSince != nil {
+      if let back = backOnTaskSince, now.timeIntervalSince(back) >= 60 {
+        offTaskSince = nil
+        backOnTaskSince = nil
+        focusedSince = back
+      } else if backOnTaskSince == nil {
+        backOnTaskSince = now
+      }
+    } else if let focused = focusedSince, now.timeIntervalSince(focused) >= 180 {
+      // Three minutes of real work: the last nudge landed.
+      unansweredNudges = 0
+    }
     if offTask != lastReportedOffTask {
       lastReportedOffTask = offTask
       FlowSessionMirror.shared.agentReportedFocusChange(isDistracted: offTask)
@@ -522,13 +788,22 @@ final class FlowDistractionAgent: ObservableObject {
 
     switch verdict.action {
     case "nudge":
+      // Someone else can see this screen right now, most likely in a meeting.
+      guard !FlowScreenShareDetector.isSharing() else {
+        print("[FlowAgent] Nudge held back: the screen is being shared")
+        break
+      }
+      // Dayflow times the nudges; the model only writes them.
+      guard offTask, nudgeDue(at: now) else {
+        print("[FlowAgent] Nudge held back: none is due")
+        break
+      }
+      unansweredNudges += 1
+      focusedSince = nil
+      lastNudgeAt = now
       let message =
         verdict.message ?? String(localized: "Psst... I think you're getting distracted!")
       FlowSessionMirror.shared.agentNudge(message: message)
-    case "praise":
-      if let message = verdict.message, !message.isEmpty {
-        FlowSessionMirror.shared.agentPraise(message: message)
-      }
     default:
       break
     }
@@ -565,43 +840,22 @@ final class FlowDistractionAgent: ObservableObject {
     switch alertStyle {
     case .quiet:
       styleBlock = """
-        Quiet. The user asked for zero interruptions. NEVER use "nudge" or "praise" — keep \
-        action "none" on every turn. Your status field still matters: distractions are \
+        Quiet. The user asked for zero interruptions. NEVER use "nudge": keep action \
+        "none" on every turn. Your status field still matters: distractions are \
         logged silently for their session summary.
         """
     case .friendly:
       styleBlock = """
-        Friendly. Give them slack: don't nudge until they've clearly been off task for a \
-        few minutes straight (many consecutive off-task checks — a quick detour that \
-        ends on its own never earns a nudge). One nudge per incident; if they're still \
-        distracted several minutes later, one firmer follow-up is okay. Tone: warm and \
-        encouraging, like a supportive friend. Never guilt-trippy.
+        Friendly. They get slack: a nudge only comes due after a few minutes of drift, \
+        with one follow-up later. Tone: warm and light, like a friend at the next desk. \
+        The follow-up can be a little more direct. Never guilt-trippy.
         """
     case .feisty:
       styleBlock = """
-        Feisty. Quick and stern. Nudge as soon as you're confident they're off task — one \
-        clearly off-task check is enough. Persistent reminders until they're back on \
-        track: if they stay distracted, nudge again every minute or two, each one more \
-        direct than the last. Tone: stern and no-nonsense, a coach who won't let it slide. \
-        Blunt is fine; insulting is not.
+        Feisty. Nudges come due quickly and keep coming while they stay off task. Tone: \
+        stern and no-nonsense, a coach who won't let it slide, each one more direct than \
+        the last. Blunt is fine; insulting is not.
         """
-    }
-
-    // The evidence wording flips between screenshots and OCR text.
-    let evidenceIntro: String
-    let evidenceJudging: String
-    if settings.textOnly {
-      evidenceIntro =
-        "text extracted from a screenshot of their screen (Apple's OCR), the current time, "
-        + "and the time left"
-      evidenceJudging = """
-        - The OCR text is your only evidence, and it's imperfect: expect garbled fragments, \
-        menu bars, timestamps, and UI chrome mixed together. Anchor on the strong signals — \
-        app names, window and tab titles, site names, video or post titles.
-        """
-    } else {
-      evidenceIntro = "a screenshot of their screen, the current time, and the time left"
-      evidenceJudging = "- The screenshot is your only evidence."
     }
 
     let template = settings.briefingTemplate.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -612,9 +866,10 @@ final class FlowDistractionAgent: ObservableObject {
       "{{style}}": alertStyle.rawValue,
       "{{goals}}": goalsBlock,
       "{{style_rules}}": styleBlock,
-      "{{evidence_intro}}": evidenceIntro,
-      "{{evidence_rules}}": evidenceJudging,
       "{{tick_seconds}}": String(Int(settings.tickSeconds)),
+      "{{categories}}": Self.categoriesBlock(),
+      "{{timeline_mechanics}}": (Engine.current() ?? .codex).editsTimelineFile
+        ? Self.timelineByFile : Self.timelineInline,
     ]
     for (key, value) in values {
       prompt = prompt.replacingOccurrences(of: key, with: value)
@@ -627,14 +882,13 @@ final class FlowDistractionAgent: ObservableObject {
   }
 
   /// The built-in briefing. Placeholders: {{started}}, {{length}}, {{style}},
-  /// {{goals}}, {{style_rules}}, {{evidence_intro}}, {{evidence_rules}},
-  /// {{tick_seconds}}. The debug panel can replace the whole thing.
+  /// {{goals}}, {{style_rules}}, {{tick_seconds}}, {{categories}}, {{timeline_mechanics}}. The debug panel can replace the whole thing.
   static let briefingTemplate = """
     You are the focus companion inside Dayflow, a Mac time-tracking app. The user just \
     started a Flow focus session and you're watching over it. Roughly every {{tick_seconds}} seconds \
-    you'll get a message with {{evidence_intro}}. Your job: judge whether they're on task, \
-    and decide whether their focus buddy (a small pixel creature that peeks in from the \
-    screen edge) should say something.
+    you'll get a message with a screenshot of their screen, the current time, and the time \
+    left. Your job: judge whether they're on task, and decide whether their focus buddy (a \
+    small pixel creature that peeks in from the screen edge) should say something.
 
     SESSION
     - Started at {{started}}.
@@ -645,25 +899,36 @@ final class FlowDistractionAgent: ObservableObject {
     {{goals}}
 
     HOW TO JUDGE
-    - Be generous. Docs, searches, terminal work, Slack or email replies, and quick \
-    utility checks all plausibly serve the goals — count them as on task.
-    - One glance at something unrelated is not a distraction; a pattern across \
-    consecutive checks is (social feeds, YouTube, shopping, news rabbit holes).
-    {{evidence_rules}}
+    - Work that plausibly serves the goals is on task, including the docs, searches, \
+    terminal work and Slack or email replies that go with it.
+    - Other real work that isn't on their list (a different project, helping a \
+    colleague) is on task too. You guard against distraction, not against a change of plan.
+    - Off task means leisure: social feeds, YouTube, shopping, personal chats, news \
+    rabbit holes. One glance at those is not a distraction; a pattern across \
+    consecutive checks is.
+    - The screenshot is your only evidence.
     - If you're unsure, assume on task.
 
     HOW TO REPLY
     Reply to every message with exactly one JSON object and nothing else — no prose, no \
     code fences, no explanation:
-    {"status": "on_task" | "off_task", "action": "none" | "nudge" | "praise", "message": "...", "reason": "..."}
+    {"seeing": "...", "status": "on_task" | "off_task", "action": "none" | "nudge", "message": "...", "reason": "..."}
+    - seeing: 3 to 6 words naming the app in front and what it shows ("X home feed", \
+    "Xcode, editing a Swift file"). Always first, so the verdict comes from this \
+    screenshot and not from the last one.
     - status: your read of the current check.
-    - action "nudge" makes the creature appear with your message. Write it yourself in \
-    the alert style's tone, but keep it SHORT: one sentence, 10 words max — it renders \
-    in a tiny speech bubble ("Twitter can wait — 12 minutes left!").
-    - action "praise" shows a brief encouragement, same 10-word cap. Use it sparingly — \
-    at most once every ten minutes or so, e.g. after a long on-task stretch or right \
-    after they recover from a distraction.
-    - message is required whenever action isn't "none". reason: a few words of evidence \
+    - action "nudge" makes the creature appear at the side of their screen with your \
+    message, like a notification. Write the message yourself: one short sentence, 12 \
+    words at most, because it renders in a small speech bubble. Think from the user's \
+    side: what would be useful for them to see right now. Usually that is the next \
+    concrete step on the one goal they were last working on, in plain words. Name one \
+    goal, never two ("X or Y" is wrong), don't say how long they've been away or how much time is left, and \
+    don't describe what they're looking at. Never preachy, and never the same \
+    wording as a nudge you already sent this session.
+    - Dayflow decides when a nudge is due and says so in the message ("NUDGE DUE"). On \
+    those turns, if the screenshot is still off task, use "nudge". On every other turn \
+    keep action "none".
+    - message is required whenever action is "nudge". reason: a few words of evidence \
     whenever status is "off_task".
     - completed_goals: optional. Each goal above has a short id in brackets. When the \
     screen shows a goal has been FINISHED — the PR is merged, the email is in Sent, the \
@@ -676,25 +941,105 @@ final class FlowDistractionAgent: ObservableObject {
     {{style_rules}}
 
     THE SESSION TIMELINE
-    You also keep the user's session log, the way Dayflow's timeline does. It lives in a \
-    file, timeline.json, in your working directory: a JSON array of entries \
-    {"start": "HH:mm", "end": "HH:mm", "kind": "focused" | "distracted" | "break", "title": "..."}. \
-    About once a minute a message will end with "TIMELINE UPDATE" and give you the file's \
-    path plus the check log since your last edit. On those turns, read the file and edit \
-    it in place as you see fit — usually extend the last entry or add one for what they've \
-    moved on to, and now and then condense: merge a stretch of work on one thing into a \
-    single entry even if they bounced between docs, terminal, and editor for it, and rename \
-    earlier entries once you understand what they were really doing. Keep genuine splits: \
-    a detour to X or YouTube (kind "distracted"), even a one-minute one, and every break \
-    stay as their own entries. Entries must stay contiguous (each starts where the previous \
-    ended, 24h HH:mm), the first at the session start, the last ending at the current time. \
-    Titles are concrete, 3–7 words, like "Address feedback on PR", "Scrolling on X", \
-    "Reviewing checkout flow mockups in Figma". After editing the file, reply with the \
-    verdict object as usual — the file is the timeline, don't repeat it in your reply.
+    You also keep the user's session log. Flow turns focus into a game, a bit like Guitar \
+    Hero: the longer they stay focused the higher their multiplier climbs, and a \
+    distraction knocks it back down. The timeline is the record of that run, shown to \
+    them when the session ends, so it should answer two questions at a glance: what did \
+    they get done in each stretch, and what pulled them away.
+    - It is a JSON array of entries \
+    {"start": "HH:mm", "end": "HH:mm", "kind": "focused" | "distracted" | "break", "category": "...", "site": "...", "title": "..."}, \
+    plus an optional "completed" list on focused entries (see below).
+    - category files the entry under one of the user's own Dayflow categories. Use one \
+    of these names exactly as written, never a name of your own:
+    {{categories}}
+    Pick the one that fits most of the stretch. Every focused and distracted entry \
+    gets one; a break gets none. A change of category within focused work is a \
+    different kind of stretch, so once it has lasted two minutes it is its own entry.
+    - site is the one website or app the stretch was mostly about, and it picks the \
+    icon shown beside the entry. For anything in a browser give the site's domain, \
+    lower-case with no protocol or path ("youtube.com", "github.com", "docs.google.com"), \
+    never the browser's name. For a desktop app give its name ("Xcode", "Figma", \
+    "Slack"). One value, the one they spent the most time in; leave it out on breaks.
+    - Keep it high level. An entry is a block of time and what it was for, not a list of \
+    apps or windows: a stretch of work on one thing is a single entry even if they \
+    bounced between docs, terminal and editor for it.
+    - Rule of thumb: at most about 10 entries an hour. Someone locked in on one thing all \
+    session is 1 or 2 entries; someone bouncing around will have more. If the timeline \
+    is already past that pace, merge the smallest neighbours before adding anything.
+    - Never put two entries of the same kind next to each other, unless they are focused \
+    work on clearly different things. A run of distraction is ONE "distracted" entry \
+    however many sites it wandered through: title it by the main one or two ("YouTube \
+    and X") and keep extending it until they are back at work.
+    - Ignore blips. A check or two of something else in the middle of a stretch (under \
+    about two minutes) doesn't split it, in either direction: a quick look at X during \
+    work stays part of the work, and a quick look at work during a YouTube binge stays \
+    part of the distraction. Anything that lasts two minutes or more gets its own entry.
+    - Breaks always stay as their own entries.
+    - When they finish one of the goals on their list during an entry, add \
+    "completed": ["<that goal's title>"] to it. Their summary calls these out as wins, so \
+    use the same bar as completed_goals: clear evidence it's done, not just worked on.
+    - Entries must stay contiguous (each starts where the previous ended, 24h HH:mm), the \
+    first at the session start, the last ending at the current time.
+    - Titles are concrete, 3 to 7 words, like "Address feedback on PR", "Scrolling on X", \
+    "Reviewing checkout flow mockups in Figma". Rename an earlier entry once you \
+    understand what they were really doing.
+    {{timeline_mechanics}}
 
-    Don't overthink the ticks: no analysis, no chain of reasoning in your reply. Most \
-    turns the correct answer is exactly {"status":"on_task","action":"none"}. Acknowledge \
-    this briefing now with that same JSON object.
+    Don't overthink the checks: no analysis, no chain of reasoning in your reply, but do \
+    look at every screenshot fresh. Acknowledge this briefing now with \
+    {"status":"on_task","action":"none"}.
+    """
+
+  /// Ends every check. Small models drift off the format over a long session
+  /// unless it is restated each turn.
+  static let replyReminder = """
+    Screenshot attached. Look at it before you answer, then reply with only this JSON \
+    object: {"seeing": "<3 to 6 words: the app and what it shows>", "status": "on_task" \
+    | "off_task", "action": "none" | "nudge", "message": "<12 words at most, only with \
+    nudge>", "reason": "<a few words, only when off_task>"}
+    """
+
+  /// Restated on every timeline turn, for the same reason.
+  static let timelineReminder = """
+    Rules: extend the last entry unless they have switched to a different kind of \
+    stretch for two minutes or more. Never one entry per check. No two "distracted" \
+    entries in a row. Entries stay contiguous with no gaps. Every focused and \
+    distracted entry carries a "category" from the briefing's list, spelled exactly, \
+    and a "site": the domain or app it was mostly about.
+    """
+
+  /// The user's categories as the briefing lists them, one per line with the
+  /// description they wrote for it.
+  static func categoriesBlock() -> String {
+    let categories = CategoryStore.shared.categories
+      .filter { !$0.isIdle && !$0.isSystem }
+      .sorted { $0.order < $1.order }
+    guard !categories.isEmpty else { return "    (none set up: leave category out)" }
+    return categories.map { category in
+      let name = category.name.trimmingCharacters(in: .whitespacesAndNewlines)
+      let details = category.details.trimmingCharacters(in: .whitespacesAndNewlines)
+        .replacingOccurrences(of: "\n", with: " ")
+      return details.isEmpty ? "    · \(name)" : "    · \(name): \(String(details.prefix(160)))"
+    }.joined(separator: "\n")
+  }
+
+  /// How the timeline gets updated, for engines with a working directory.
+  private static let timelineByFile = """
+    - It lives in a file, timeline.json, in your working directory. About once a minute \
+    a message will end with "TIMELINE UPDATE" and give you the file's path plus the check \
+    log since your last edit. On those turns edit the file in place: usually that means \
+    moving the last entry's end time forward. Add an entry only when they have moved to \
+    a different kind of stretch for two minutes or more. Leave the rest alone unless it needs merging or renaming; don't rewrite the \
+    whole file. Then reply with the verdict object as usual. The file is the timeline, \
+    so don't repeat it in your reply.
+    """
+
+  /// The same, for Dayflow Pro: the timeline travels in the messages.
+  private static let timelineInline = """
+    - About once a minute a message will end with "TIMELINE UPDATE" and include the \
+    current timeline plus the check log since your last update. On those turns reply with \
+    the verdict object first and then a second JSON object, {"timeline": [...]}, holding \
+    the full revised array. On every other turn reply with the verdict object alone.
     """
 
   private func tickMessage(askTimeline: Bool) -> String {
@@ -711,9 +1056,30 @@ final class FlowDistractionAgent: ObservableObject {
       line += " Elapsed: \(Self.formatMinutes(elapsed)) (open-ended session)."
     }
 
+    if nudgeDue(at: now), let since = offTaskSince {
+      let minutes = max(1, Int(now.timeIntervalSince(since) / 60))
+      line +=
+        " NUDGE DUE: they have been off task for about \(minutes)m. If this screenshot is "
+        + "still off task, set action to \"nudge\" and write the message."
+    }
+
     var parts = [line]
     parts.append(contentsOf: pendingNotes)
-    if askTimeline {
+    if askTimeline, !engine.editsTimelineFile {
+      let since = timeline.lastModelUpdateAt
+      parts.append(
+        """
+        TIMELINE UPDATE — revise the session timeline so it covers the whole session \
+        (started \(FlowSessionTimeline.clock(sessionStartedAt))) up to now, and reply with \
+        the verdict object followed by {"timeline": [...]}.
+        Current timeline:
+        \(timeline.promptTimelineJSON())
+        \(Self.timelineReminder)
+        Check log since your last edit (time · verdict · frontmost app · reason):
+        \(timeline.promptObservations(since: since))
+        Breaks (exact, from the app): \(timeline.promptBreaks())
+        """)
+    } else if askTimeline {
       let since = timeline.lastModelUpdateAt
       parts.append(
         """
@@ -721,14 +1087,86 @@ final class FlowDistractionAgent: ObservableObject {
         place so it covers the whole session (started \
         \(FlowSessionTimeline.clock(sessionStartedAt))) up to now, then reply with the \
         verdict object.
+        \(Self.timelineReminder)
         Check log since your last edit (time · verdict · frontmost app · reason):
         \(timeline.promptObservations(since: since))
         Breaks (exact, from the app): \(timeline.promptBreaks())
         """)
     }
-    // The evidence line (screenshot vs OCR text) is appended in tick(), where
+    // The screenshot line is appended in tick(), where
     // the capture happens.
     return parts.joined(separator: "\n")
+  }
+
+  /// "gpt-… , low" for Codex; the other engines choose their own model.
+  private var modelLabel: String {
+    switch engine {
+    case .codex: return "\(settings.model), \(settings.reasoningEffort)"
+    case .claude: return "Claude \(Self.claudeModel)"
+    case .dayflow: return "Dayflow Pro"
+    }
+  }
+
+  private var engineKey: String {
+    switch engine {
+    case .codex: return "codex"
+    case .claude: return "claude"
+    case .dayflow: return "dayflow"
+    }
+  }
+
+  /// The CLI can no longer resume this conversation (Codex's rollout file or
+  /// Claude's session file is gone), so retrying the same id will never work.
+  private static func conversationWasLost(_ error: String) -> Bool {
+    error.contains("no rollout found") || error.contains("thread/resume")
+      || error.contains("No conversation found")
+  }
+
+  // MARK: - Dayflow Pro
+
+  private nonisolated static func dayflowCredentials() -> (endpoint: String, token: String)? {
+    let token = DayflowAuthManager.storedSessionToken()?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let token, !token.isEmpty,
+      let endpoint = DayflowBackendConfiguration.endpoint(
+        legacySavedEndpoint: DayflowEndpointPreferences.load())
+    else { return nil }
+    let trimmed = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+      .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    return (trimmed, token)
+  }
+
+  /// One stateless check: briefing, recent turns, this tick's message and
+  /// screenshot in; the model's raw reply out.
+  private nonisolated static func backendCheck(
+    _ payload: BackendCheckRequest, timeout: TimeInterval
+  ) async throws -> String {
+    guard let credentials = dayflowCredentials(),
+      let url = URL(string: "\(credentials.endpoint)/v1/dayflow/flow-check")
+    else {
+      throw NSError(
+        domain: "FlowAgent", code: -3,
+        userInfo: [NSLocalizedDescriptionKey: "Not signed in to Dayflow Pro"])
+    }
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.timeoutInterval = timeout
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
+    request.setValue("Bearer \(credentials.token)", forHTTPHeaderField: "Authorization")
+    request.httpBody = try JSONEncoder().encode(payload)
+
+    let (data, response) = try await URLSession.shared.data(for: request)
+    let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+    guard (200...299).contains(status) else {
+      let body = String(data: data, encoding: .utf8) ?? ""
+      throw NSError(
+        domain: "FlowAgent", code: status,
+        userInfo: [
+          NSLocalizedDescriptionKey: "Dayflow Pro check failed (\(status)): \(body.prefix(200))"
+        ])
+    }
+    return try JSONDecoder().decode(BackendCheckResponse.self, from: data).text
   }
 
   private static func formatMinutes(_ minutes: Int) -> String {
@@ -788,15 +1226,24 @@ final class FlowDistractionAgent: ObservableObject {
 
   /// One-shot capture of the main display, scaled to ~720p JPEG. Independent
   /// of the timeline recorder so Flow works even when recording is paused.
+  /// Reuses `cachedDisplay` when given (skipping the SCShareableContent fetch)
+  /// and returns the display it captured so the caller can cache it.
   private nonisolated static func captureScreenshotJPEG(
-    to url: URL, height: Int, quality: Double
-  ) async throws {
-    let content = try await SCShareableContent.excludingDesktopWindows(
-      false, onScreenWindowsOnly: true)
-    guard let display = content.displays.first else {
-      throw NSError(
-        domain: "FlowAgent", code: -1,
-        userInfo: [NSLocalizedDescriptionKey: "No display available for capture"])
+    to url: URL, height: Int, quality: Double, display cachedDisplay: SCDisplay?
+  ) async throws -> SCDisplay {
+    let display: SCDisplay
+    if let cachedDisplay {
+      display = cachedDisplay
+    } else {
+      ScreenCaptureMonitor.shared.recordRequest(.shareableContent, source: .flow)
+      let content = try await SCShareableContent.excludingDesktopWindows(
+        false, onScreenWindowsOnly: true)
+      guard let first = content.displays.first else {
+        throw NSError(
+          domain: "FlowAgent", code: -1,
+          userInfo: [NSLocalizedDescriptionKey: "No display available for capture"])
+      }
+      display = first
     }
 
     let configuration = SCStreamConfiguration()
@@ -806,6 +1253,7 @@ final class FlowDistractionAgent: ObservableObject {
     configuration.scalesToFit = true
     configuration.showsCursor = true
 
+    ScreenCaptureMonitor.shared.recordRequest(.screenshot, source: .flow)
     let image = try await SCScreenshotManager.captureImage(
       contentFilter: SCContentFilter(display: display, excludingWindows: []),
       configuration: configuration
@@ -820,18 +1268,7 @@ final class FlowDistractionAgent: ObservableObject {
         userInfo: [NSLocalizedDescriptionKey: "JPEG conversion failed"])
     }
     try jpegData.write(to: url)
-  }
-
-  // Full-screen OCR via the same Apple Vision recognizer the Claude
-  // transcription path uses (text-only mode).
-  private nonisolated static func recognizeScreenText(at url: URL) -> String {
-    let blocks = (try? AppleVisionClaudeFrameTextRecognizer().recognizeText(in: url)) ?? []
-    let lines = blocks.filter { $0.confidence >= 0.3 }.map(\.text)
-    var text = lines.joined(separator: "\n")
-    if text.count > 4000 {
-      text = String(text.prefix(4000)) + "\n[truncated]"
-    }
-    return text.isEmpty ? String(localized: "[no text detected on screen]") : text
+    return display
   }
 
   // MARK: - Cleanup
@@ -841,5 +1278,37 @@ final class FlowDistractionAgent: ObservableObject {
       try? FileManager.default.removeItem(at: directory)
     }
     workDirectory = nil
+  }
+}
+
+/// Whether the user is sharing their screen in a call. macOS has no API for
+/// this, and its own recording indicator is always on because Dayflow records,
+/// so this looks for the floating controls meeting apps put up while sharing.
+enum FlowScreenShareDetector {
+  /// Window titles that only exist while sharing, lowercased, by owning app
+  /// ("" matches any app, which covers browsers running Meet and the like).
+  private static let markers: [(owner: String, title: String)] = [
+    ("zoom.us", "zoom share statusbar window"),
+    ("zoom.us", "zoom share toolbar window"),
+    ("microsoft teams", "sharing control bar"),
+    ("microsoft teams", "sharing toolbar"),
+    ("webex", "sharing control bar"),
+    ("", "is sharing your screen"),
+    ("", "is sharing a window"),
+  ]
+
+  static func isSharing() -> Bool {
+    guard
+      let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID)
+        as? [[String: Any]]
+    else { return false }
+    return windows.contains { window in
+      let owner = (window[kCGWindowOwnerName as String] as? String ?? "").lowercased()
+      let title = (window[kCGWindowName as String] as? String ?? "").lowercased()
+      guard !title.isEmpty else { return false }
+      return markers.contains { marker in
+        (marker.owner.isEmpty || owner.contains(marker.owner)) && title.contains(marker.title)
+      }
+    }
   }
 }
