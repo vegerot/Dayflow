@@ -173,9 +173,9 @@ struct FlowDebugPanel: View {
         }
         slider(
           String(format: "JPEG quality %.2f", settings.jpegQuality), value: $settings.jpegQuality,
-          in: 0.3...0.95, step: 0.05)
-        Toggle("Text only (send Apple OCR text instead of the image)", isOn: $settings.textOnly)
-          .font(.system(size: 11))
+          in: 0.3...0.95, step: 0.05
+        )
+        .font(.system(size: 11))
         slider(
           "Turn timeout \(Int(settings.tickTimeoutSeconds))s", value: $settings.tickTimeoutSeconds,
           in: 10...180, step: 5)
@@ -232,7 +232,7 @@ struct FlowDebugPanel: View {
           .overlay(alignment: .topLeading) {
             if settings.briefingTemplate.isEmpty {
               Text(
-                "Empty = built-in. Placeholders: {{started}} {{length}} {{style}} {{goals}} {{style_rules}} {{evidence_intro}} {{evidence_rules}} {{tick_seconds}}"
+                "Empty = built-in. Placeholders: {{started}} {{length}} {{style}} {{goals}} {{style_rules}} {{tick_seconds}} {{timeline_mechanics}}"
               )
               .font(.system(size: 10))
               .foregroundColor(.white.opacity(0.45))
@@ -249,7 +249,7 @@ struct FlowDebugPanel: View {
         .frame(height: 64)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
       HStack {
-        Text("Prompt changes apply on Restart agent (a new Codex conversation).")
+        Text("Prompt changes apply on Restart agent (a new conversation).")
           .font(.system(size: 10))
           .foregroundColor(.white.opacity(0.6))
         Spacer()
