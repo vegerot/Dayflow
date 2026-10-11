@@ -88,6 +88,8 @@ struct MainView: View {
   @State var timelineFailureToastPayload: TimelineFailureToastPayload?
   @State var showScreenRecordingPermissionNotice = false
   @State var didDismissScreenRecordingPermissionNoticeThisSession = false
+  /// macOS says access is granted, but the recorder gave up after captures kept failing.
+  @State var screenCaptureIsFailing = false
   @State var pendingGoalPromptDay: String?
   @Binding var goalFlowPresentation: DayGoalFlowPresentation?
 
@@ -123,6 +125,13 @@ struct MainView: View {
         }
         withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
           selectedIcon = .daily
+        }
+      }
+      .onReceive(NotificationCenter.default.publisher(for: .navigateToTimeline)) { _ in
+        selectedActivity = nil
+        setSelectedDate(timelineDisplayDate(from: Date()))
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
+          selectedIcon = .timeline
         }
       }
       .onReceive(NotificationCenter.default.publisher(for: .navigateToFlow)) { _ in
