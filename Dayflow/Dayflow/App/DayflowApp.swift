@@ -16,6 +16,7 @@ struct AppRootView: View {
   @State private var activeWhatsNewVersion: String? = nil
   @State private var shouldMarkWhatsNewSeen = false
   @State private var goalFlowPresentation: DayGoalFlowPresentation? = nil
+  @State private var isShowingGettingStartedTour = false
 
   var body: some View {
     ZStack {
@@ -24,9 +25,12 @@ struct AppRootView: View {
         .environmentObject(categoryStore)
 
       goalFlowOverlay
+
+      gettingStartedTourOverlay
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .onAppear {
+      showGettingStartedTourIfPending()
       guard whatsNewNote == nil else { return }
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
         if let note = WhatsNewConfiguration.pendingReleaseForCurrentBuild() {
@@ -102,9 +106,35 @@ struct AppRootView: View {
     }
   }
 
+  @ViewBuilder
+  private var gettingStartedTourOverlay: some View {
+    if isShowingGettingStartedTour {
+      GettingStartedTourOverlay(onFinish: finishGettingStartedTour)
+        .transition(.opacity)
+        .zIndex(4)
+    }
+  }
+
+  private func showGettingStartedTourIfPending() {
+    guard UserDefaults.standard.bool(forKey: GettingStarted.Keys.tourPending) else { return }
+    // Let the timeline's entrance animation land first.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+      withAnimation(.easeOut(duration: 0.25)) {
+        isShowingGettingStartedTour = true
+      }
+    }
+  }
+
+  private func finishGettingStartedTour() {
+    UserDefaults.standard.set(false, forKey: GettingStarted.Keys.tourPending)
+    withAnimation(.easeOut(duration: 0.2)) {
+      isShowingGettingStartedTour = false
+    }
+  }
+
   private var canShowGitHubStarPrompt: Bool {
     !isShowingGitHubStarPrompt && whatsNewNote == nil && goalFlowPresentation == nil
-      && !SurveyCenter.shared.isShowingSurvey
+      && !isShowingGettingStartedTour && !SurveyCenter.shared.isShowingSurvey
   }
 
   /// Keeps the star card off the day a survey was shown.
@@ -117,7 +147,7 @@ struct AppRootView: View {
   private func showSurveyIfEligible(source: String) {
     SurveyCenter.shared.checkForSurvey(source: source) {
       whatsNewNote == nil && goalFlowPresentation == nil && !isShowingGitHubStarPrompt
-        && !isCheckingGitHubStar
+        && !isCheckingGitHubStar && !isShowingGettingStartedTour
     }
   }
 
@@ -492,6 +522,10 @@ struct DayflowApp: App {
         NotificationCenter.default.post(name: .navigateToDaily, object: nil)
       case .support:
         NotificationCenter.default.post(name: .navigateToSupport, object: nil)
+      case .flow:
+        NotificationCenter.default.post(name: .navigateToFlow, object: nil)
+      case .timeline:
+        NotificationCenter.default.post(name: .navigateToTimeline, object: nil)
       case .weekly:
         NotificationCenter.default.post(name: .navigateToWeekly, object: nil)
       }
@@ -509,11 +543,13 @@ extension Notification.Name {
   static let navigateToWeekly = Notification.Name("navigateToWeekly")
   static let timelineDataUpdated = Notification.Name("timelineDataUpdated")
   static let showTimelineFailureToast = Notification.Name("showTimelineFailureToast")
+  static let hideTimelineFailureToast = Notification.Name("hideTimelineFailureToast")
   static let showScreenRecordingPermissionNotice = Notification.Name(
     "showScreenRecordingPermissionNotice")
   static let openProvidersSettings = Notification.Name("openProvidersSettings")
   static let openAccountSettings = Notification.Name("openAccountSettings")
   static let navigateToFlow = Notification.Name("navigateToFlow")
+  static let navigateToTimeline = Notification.Name("navigateToTimeline")
 }
 
 @MainActor
