@@ -18,6 +18,7 @@ This document lists manual events, properties, and code locations. All events re
 - app_heartbeat
   - appearance props: `appearance: system|light|dark` (saved preference, defaults to system), `effective_appearance: light|dark` (resolved at each heartbeat, including forced light during onboarding). Sent on startup and hourly; use each person's latest heartbeat for a user split rather than counting events.
   - props: `session_hours: number`, `cpu_current_pct_bucket?: 0-5%|5-20%|20-50%|50-100%|100-150%|150-200%|>200%`, `cpu_avg_pct_bucket?: 0-5%|5-20%|20-50%|50-100%|100-150%|150-200%|>200%`, `cpu_peak_pct_bucket?: 0-5%|5-20%|20-50%|50-100%|100-150%|150-200%|>200%`, `cpu_sample_count?: int`, `cpu_sampler_interval_s?: int`, `current_tab?: timeline|daily|weekly|dashboard|journal|bug_report|settings`, `timeline_mode?: day|week`
+  - ScreenCaptureKit props (counts since the previous heartbeat): `sck_shareable_content_calls: int`, `sck_screenshot_calls: int`, `sck_failures_while_granted: int`
   - file: App/AppDelegate.swift
 - app_cpu_spike
   - props: `cpu_current_pct_bucket: 0-5%|5-20%|20-50%|50-100%|100-150%|150-200%|>200%`, `cpu_hour_peak_pct_bucket: 0-5%|5-20%|20-50%|50-100%|100-150%|150-200%|>200%`, `cpu_threshold_pct: number`, `cpu_sampler_interval_s: int`
@@ -223,6 +224,26 @@ This document lists manual events, properties, and code locations. All events re
 - recording_auto_recovery
   - props: `outcome: restarted|gave_up`
   - file: Core/Recording/ScreenRecorder.swift
+- recording_startup_failed
+  - props: `attempt: int`, `error_domain: string`, `error_code: int`. Sent on the first failure of a streak; the recorder keeps retrying (5s, 30s, 1m, 2m, 5m, then every 10m).
+  - file: Core/Recording/ScreenRecorder.swift
+- recording_capture_backoff
+  - props: `reason: capture_error|no_display`, `failure_count: int`, `delay_s: int`, `error_domain?: string`, `error_code?: int`. Sent for each of the first four consecutive failures (delays 1m, 2m, 5m, 10m); later failures keep the 10m delay silently.
+  - file: Core/Recording/ScreenRecorder.swift
+- recording_gave_up_while_granted
+  - props: none. Sent when ScreenCaptureKit kept failing for 10 minutes while macOS reported access as granted; recording turns off and the permission notice shows.
+  - file: Core/Recording/ScreenRecorder.swift
+- recording_capture_recovered
+  - props: `failure_count: int`, `down_duration_bucket: 0-15s|15-60s|1-5m|5-20m|>20m`
+  - file: Core/Recording/ScreenRecorder.swift
+- screen_capture_denied_while_granted
+  - A ScreenCaptureKit request failed while `CGPreflightScreenCaptureAccess()` still reported access. This is the proxy for the spurious macOS Screen Recording prompt (GitHub issue #381): the prompt itself can't be observed. Throttled to one event per source per 10 minutes.
+  - props: `source: recorder_setup|recorder_refresh|recorder_capture|flow`, `error_domain: string`, `error_code: int`, `user_declined: bool` (SCStreamError.userDeclined, the code macOS returns while the prompt is up), `suppressed_count: int` (failures since the last event from this source), `capture_interval_s: int`, `display_count: int`, `since_unlock_bucket?: 0-15s|15-60s|1-5m|5-20m|>20m`, `since_wake_bucket?: same buckets`
+  - file: Core/Recording/ScreenCaptureMonitor.swift
+- screen_capture_burst
+  - At least 10 SCShareableContent fetches in the last minute. Throttled to one event per 10 minutes.
+  - props: `calls_last_minute: int`, `calls_recorder_setup: int`, `calls_recorder_refresh: int`, `calls_recorder_capture: int`, `calls_flow: int`, `since_unlock_bucket?: string`, `since_wake_bucket?: string`
+  - file: Core/Recording/ScreenCaptureMonitor.swift
 - chunk_created (sampled ~1%)
   - props: `duration_bucket: string`, `resolution_bucket: string`
   - file: Core/Recording/ScreenRecorder.swift
@@ -235,6 +256,23 @@ This document lists manual events, properties, and code locations. All events re
   - props: compatibility provider family in `llm_provider`, exact primary provider in `provider_id`, exact effective provider in `effective_provider_id` on completion, and exact configured backup in `backup_provider_id` on failure
   - privacy: failures include a classified failure kind, never a raw error message
   - file: Core/AI/LLMService.swift
+- backend_timeline_request_started / backend_timeline_request_succeeded / backend_timeline_request_failed
+  - props: `timeline_request_id`, `endpoint_host`, screenshot/card/category counts, `batch_id`; success adds `latency_ms`, byte sizes, `cards_count`, `observations_count`, `provider`, `model`; failure adds `error_domain`, `error_code`, `http_status`
+  - notes: one-step timeline generation on Dayflow Pro (screenshots to cards in a single backend call)
+  - privacy: counts and timings only, never screenshot or card content
+  - file: Core/AI/DayflowBackendProvider.swift
+- timeline_one_step_fallback
+  - props: `batch_id`, `provider`, `provider_id`, `error_domain`, `error_code`, `latency_ms`
+  - notes: the one-step call failed and the batch fell back to transcribe + generate; `analysis_batch_completed` carries `one_step` (bool)
+  - file: Core/AI/LLMService.swift
+- analysis_batch_auto_retried
+  - props: `batch_id: int`, `attempt: int` (1–3 per batch per app session), `succeeded: bool`
+  - when: after a successful batch, Dayflow retries failed batches from the last 24 hours, oldest first, stopping at the first failure
+  - file: Core/Analysis/AnalysisManager.swift
+- llm_timeline_failure_toast_shown / llm_timeline_failure_toast_clicked_settings / llm_timeline_failure_toast_copied_command / llm_timeline_failure_toast_dismissed
+  - props: `failure_kind`, `operation`, `destination`, `provider_name`, `waiting_seconds`, primary/backup provider ids and labels, `error_domain`, `error_code`, `batch_id?`
+  - when: bottom-right card for failures the person must fix (signed out, out of credits, CLI missing); never shown for transient, flaky model output or unknown failures
+  - files: System/TimelineFailureToast.swift, Views/UI/MainView/Layout.swift
 - llm_timeline_fallback_attempted / llm_timeline_fallback_succeeded / llm_timeline_fallback_failed
   - props: compatibility provider families plus exact `primary_provider_id` and `backup_provider_id`; safe error domain/code metadata only
   - file: Core/AI/LLMService.swift
