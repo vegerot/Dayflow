@@ -512,6 +512,52 @@
         }
       }
     },
+    "— Jerry, who makes Dayflow" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "— Jerry, der Dayflow entwickelt"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "— Jerry, qui développe Dayflow"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "— Dayflow を作っている Jerry より"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "— Dayflow를 만드는 Jerry"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "— Jerry, создатель Dayflow"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "— Dayflow 的开发者 Jerry"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "— Dayflow 的開發者 Jerry"
+          }
+        }
+      }
+    },
     ", when they use Dayflow for a week." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -652,6 +698,7 @@
       }
     },
     "“%@” will be removed from your onboarding categories." : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -744,6 +791,7 @@
       }
     },
     "[no text detected on screen]" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -1655,6 +1703,52 @@
         }
       }
     },
+    "%@ recorded" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ aufgezeichnet"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ enregistré"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ 記録済み"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ 기록됨"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Записано: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已记录 %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已記錄 %@"
+          }
+        }
+      }
+    },
     "%@ to %@" : {
       "localizations" : {
         "de" : {
@@ -1706,6 +1800,9 @@
           }
         }
       }
+    },
+    "%@ waiting to process" : {
+
     },
     "%@-%@" : {
       "localizations" : {
@@ -2505,6 +2602,9 @@
         }
       }
     },
+    "%lld hrs" : {
+
+    },
     "%lld min" : {
       "comment" : "Snooze choice pill in the Flow overlay (5, 10 or 15 minutes). Abbreviated unit.",
       "localizations" : {
@@ -2684,6 +2784,62 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "%lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld of %2$lld"
+          }
+        }
+      }
+    },
+    "%lld out of 5" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld von 5"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld sur 5"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "5 段階中 %lld"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "5점 만점에 %lld점"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld из 5"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld / 5"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld / 5"
           }
         }
       }
@@ -3751,6 +3907,7 @@
       }
     },
     "+ Add category" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -3792,6 +3949,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "+ 新增類別"
+          }
+        }
+      }
+    },
+    "~15 min" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "~15 Min."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "~15 min"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "約15分"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "약 15분"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "~15 мин"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "约 15 分钟"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "約 15 分鐘"
           }
         }
       }
@@ -4357,6 +4560,9 @@
         }
       }
     },
+    "1 day" : {
+
+    },
     "1 GB" : {
       "localizations" : {
         "de" : {
@@ -4448,6 +4654,9 @@
           }
         }
       }
+    },
+    "1 hr" : {
+
     },
     "1 month of Dayflow Pro (stackable!)" : {
       "extractionState" : "stale",
@@ -5830,6 +6039,9 @@
         }
       }
     },
+    "9:41" : {
+
+    },
     "9am" : {
       "localizations" : {
         "de" : {
@@ -6521,6 +6733,7 @@
       }
     },
     "A fresh look, light and dark + a new view for your agents" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -6885,6 +7098,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "已記錄的 App 使用時間中約有 %@ 用於這些 App。"
+          }
+        }
+      }
+    },
+    "Access code" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zugangscode"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Code d’accès"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "アクセスコード"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "액세스 코드"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Код доступа"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "访问码"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "存取碼"
           }
         }
       }
@@ -10783,10 +11042,142 @@
       }
     },
     "Briefing as it would be sent now" : {
-
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Briefing, wie es jetzt gesendet würde"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Briefing tel qu’il serait envoyé maintenant"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "現時点で送信されるブリーフィング"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "지금 전송될 브리핑"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Брифинг в том виде, в каком он был бы отправлен сейчас"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "当前将发送的简报"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "目前將傳送的簡報"
+          }
+        }
+      }
     },
     "Briefing template" : {
-
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Briefing-Vorlage"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Modèle de briefing"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ブリーフィングのテンプレート"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "브리핑 템플릿"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Шаблон брифинга"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "简报模板"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "簡報範本"
+          }
+        }
+      }
+    },
+    "Bring your preferred categories into focus. Click the categories above your timeline to dim the ones you don't need, in both Day and Week views." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rücke deine bevorzugten Kategorien in den Fokus. Klicke auf die Kategorien über deiner Zeitleiste, um die nicht benötigten abzublenden – in der Tages- und in der Wochenansicht."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mettez en avant vos catégories préférées. Cliquez sur les catégories au-dessus de votre chronologie pour estomper celles dont vous n’avez pas besoin, dans les vues Jour et Semaine."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "よく使うカテゴリーを目立たせましょう。タイムライン上部のカテゴリーをクリックすると、不要なものを薄く表示できます。日表示と週表示の両方で使えます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "원하는 카테고리에 집중하세요. 타임라인 위의 카테고리를 클릭하면 필요 없는 항목을 흐리게 표시할 수 있습니다. 일 보기와 주 보기 모두에서 사용할 수 있습니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сфокусируйтесь на нужных категориях. Нажимайте на категории над хронологией, чтобы приглушить ненужные — и в режиме «День», и в режиме «Неделя»."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "突出显示你关注的类别。点按时间线上方的类别，即可淡化不需要的类别，在日视图和周视图中均可使用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "突顯你關注的類別。點按時間軸上方的類別，即可淡化不需要的類別，在日顯示方式和週顯示方式中皆可使用。"
+          }
+        }
+      }
     },
     "Browsing TripAdvisor" : {
       "localizations" : {
@@ -11675,6 +12066,7 @@
       }
     },
     "Category name" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -11904,6 +12296,9 @@
         }
       }
     },
+    "Chat is temporarily unavailable." : {
+
+    },
     "Chat isn't reachable right now" : {
       "localizations" : {
         "de" : {
@@ -12085,6 +12480,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "chat_cli"
+          }
+        }
+      }
+    },
+    "Chat: ask anything about your day" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chat: Frag alles über deinen Tag"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chat : posez n’importe quelle question sur votre journée"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "チャット：1日のことを何でも質問"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "채팅: 하루에 대해 무엇이든 물어보세요"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Чат: спросите что угодно о своём дне"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "聊天：关于你的一天，尽管提问"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "聊天：關於你的一天，儘管提問"
           }
         }
       }
@@ -12608,7 +13049,50 @@
       }
     },
     "Checked off: %@" : {
-
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abgehakt: %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Terminé : %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "完了：%@"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "완료: %@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Выполнено: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已完成：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已完成：%@"
+          }
+        }
+      }
     },
     "CHECKING" : {
       "localizations" : {
@@ -14786,6 +15270,52 @@
         }
       }
     },
+    "Click any card to see its summary and timelapse" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Klicke auf eine Karte, um Zusammenfassung und Zeitraffer zu sehen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cliquez sur une carte pour voir son résumé et sa vidéo accélérée"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "カードをクリックすると要約とタイムラプスを表示できます"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "카드를 클릭하면 요약과 타임랩스를 볼 수 있습니다"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Нажмите на любую карточку, чтобы увидеть сводку и таймлапс"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "点按任意卡片即可查看摘要和延时视频"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "點按任一卡片即可查看摘要和縮時影片"
+          }
+        }
+      }
+    },
     "Click the button below to verify your API key works with Gemini" : {
       "localizations" : {
         "de" : {
@@ -14920,6 +15450,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "關閉"
+          }
+        }
+      }
+    },
+    "Close survey" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Umfrage schließen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fermer le sondage"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "アンケートを閉じる"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "설문 닫기"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Закрыть опрос"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "关闭调查"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "關閉問卷"
           }
         }
       }
@@ -16142,6 +16718,98 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "時間軸中出現幾張卡片後再回來。"
+          }
+        }
+      }
+    },
+    "Come back here to tell us about yourself, or email jerry@dayflow.so." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Komm hierher zurück, um uns von dir zu erzählen, oder schreib an jerry@dayflow.so."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Revenez ici pour nous parler de vous, ou écrivez à jerry@dayflow.so."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ここに戻ってあなたのことを教えていただくか、jerry@dayflow.so までメールでご連絡ください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "여기로 돌아와 자기소개를 남기거나 jerry@dayflow.so로 이메일을 보내 주세요."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вернитесь сюда, чтобы рассказать о себе, или напишите на jerry@dayflow.so."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "回到这里向我们介绍一下你自己，或发送邮件至 jerry@dayflow.so。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "回到這裡向我們介紹你自己，或寄信至 jerry@dayflow.so。"
+          }
+        }
+      }
+    },
+    "Coming Soon" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Demnächst verfügbar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bientôt disponible"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "近日公開"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "출시 예정"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Скоро"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "即将推出"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "即將推出"
           }
         }
       }
@@ -19230,6 +19898,52 @@
         }
       }
     },
+    "Couldn't upload that image. Try again." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Das Bild konnte nicht hochgeladen werden. Versuch es erneut."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impossible de téléverser cette image. Réessayez."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "画像をアップロードできませんでした。もう一度お試しください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이미지를 업로드하지 못했습니다. 다시 시도하세요."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не удалось загрузить изображение. Повторите попытку."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "无法上传该图像，请重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "無法上傳該影像，請再試一次。"
+          }
+        }
+      }
+    },
     "Count" : {
       "localizations" : {
         "de" : {
@@ -19969,6 +20683,52 @@
         }
       }
     },
+    "Daily recap and standup notes" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tagesrückblick und Stand-up-Notizen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Récap quotidien et notes de stand-up"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "デイリー振り返りとスタンドアップのメモ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "일일 요약 및 스탠드업 노트"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Итоги дня» и заметки для стендапа"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每日回顾和站会笔记"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每日回顧和站會筆記"
+          }
+        }
+      }
+    },
     "Daily recap provider" : {
       "localizations" : {
         "de" : {
@@ -20575,6 +21335,52 @@
         }
       }
     },
+    "Dayflow adapts to what you need" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow passt sich deinen Bedürfnissen an"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow s’adapte à vos besoins"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow はあなたのニーズに合わせます"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow는 필요에 맞춰 조정됩니다"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow подстраивается под ваши задачи"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow 会根据你的需求调整"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow 會依你的需求調整"
+          }
+        }
+      }
+    },
     "Dayflow automatically downgrades if your chosen model is rate limited or unavailable." : {
       "localizations" : {
         "de" : {
@@ -20989,6 +21795,9 @@
         }
       }
     },
+    "Dayflow catches up automatically" : {
+
+    },
     "Dayflow couldn't finish saving this provider. Please try again." : {
       "localizations" : {
         "de" : {
@@ -21126,6 +21935,9 @@
           }
         }
       }
+    },
+    "Dayflow couldn't reach your account. Check your connection and try again." : {
+
     },
     "Dayflow couldn't save this endpoint configuration. Your previous configuration is still active." : {
       "localizations" : {
@@ -21357,6 +22169,147 @@
         }
       }
     },
+    "Dayflow is free and open source, and GitHub stars are how other people find it. If you’re enjoying it, a star would mean a lot." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow ist kostenlos und Open Source, und über GitHub-Sterne finden andere Leute die App. Wenn sie dir gefällt, würde uns ein Stern viel bedeuten."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow est gratuit et open source, et c’est grâce aux étoiles GitHub que d’autres personnes le découvrent. Si vous l’appréciez, une étoile compterait beaucoup pour nous."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow は無料のオープンソースで、GitHub のスターが他の人に見つけてもらうきっかけになります。気に入っていただけたら、スターをいただけるととても嬉しいです。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow는 무료 오픈 소스이며, GitHub 스타 덕분에 다른 사람들이 Dayflow를 발견합니다. 마음에 드신다면 스타 하나가 큰 힘이 됩니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow — бесплатное приложение с открытым исходным кодом, и другие находят его благодаря звёздам на GitHub. Если оно вам нравится, звезда будет очень много значить."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow 免费且开源，GitHub 星标能让更多人发现它。如果你喜欢它，点一颗星对我们意义重大。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow 免費且開源，GitHub 星號能讓更多人發現它。如果你喜歡它，給一顆星對我們意義重大。"
+          }
+        }
+      }
+    },
+    "Dayflow is free and open source, and GitHub stars are how other people find it. It’s one click, no browser needed." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow ist kostenlos und Open Source, und über GitHub-Sterne finden andere Leute die App. Ein Klick genügt, ganz ohne Browser."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow est gratuit et open source, et c’est grâce aux étoiles GitHub que d’autres personnes le découvrent. Un seul clic suffit, sans navigateur."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow は無料のオープンソースで、GitHub のスターが他の人に見つけてもらうきっかけになります。ワンクリックで完了し、ブラウザは不要です。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow는 무료 오픈 소스이며, GitHub 스타 덕분에 다른 사람들이 Dayflow를 발견합니다. 클릭 한 번이면 되고 브라우저도 필요 없습니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow — бесплатное приложение с открытым исходным кодом, и другие находят его благодаря звёздам на GitHub. Достаточно одного нажатия, браузер не нужен."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow 免费且开源，GitHub 星标能让更多人发现它。只需点按一下，无需打开浏览器。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow 免費且開源，GitHub 星號能讓更多人發現它。只需點按一下，無需開啟瀏覽器。"
+          }
+        }
+      }
+    },
+    "Dayflow is free and open source, and GitHub stars are how other people find it. Join %@ people who’ve starred it. It’s one click, no browser needed." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow ist kostenlos und Open Source, und über GitHub-Sterne finden andere Leute die App. Schließ dich %@ Menschen an, die schon einen Stern vergeben haben. Ein Klick genügt, ganz ohne Browser."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow est gratuit et open source, et c’est grâce aux étoiles GitHub que d’autres personnes le découvrent. Rejoignez les %@ personnes qui lui ont attribué une étoile. Un seul clic suffit, sans navigateur."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow は無料のオープンソースで、GitHub のスターが他の人に見つけてもらうきっかけになります。すでにスターを付けた %@ 人に加わりませんか。ワンクリックで完了し、ブラウザは不要です。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow는 무료 오픈 소스이며, GitHub 스타 덕분에 다른 사람들이 Dayflow를 발견합니다. 이미 스타를 준 %@명과 함께하세요. 클릭 한 번이면 되고 브라우저도 필요 없습니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow — бесплатное приложение с открытым исходным кодом, и другие находят его благодаря звёздам на GitHub. Присоединяйтесь к тем, кто уже поставил звезду (%@). Достаточно одного нажатия, браузер не нужен."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow 免费且开源，GitHub 星标能让更多人发现它。加入已点星的 %@ 人吧。只需点按一下，无需打开浏览器。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow 免費且開源，GitHub 星號能讓更多人發現它。加入已給星的 %@ 人吧。只需點按一下，無需開啟瀏覽器。"
+          }
+        }
+      }
+    },
+    "Dayflow is paused." : {
+
+    },
     "Dayflow is paused. Click 'Resume' to generate new activity cards." : {
       "localizations" : {
         "de" : {
@@ -21449,6 +22402,98 @@
         }
       }
     },
+    "Dayflow is running in the background" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow läuft im Hintergrund"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow fonctionne en arrière-plan"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow はバックグラウンドで動作しています"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow가 백그라운드에서 실행 중입니다"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow работает в фоновом режиме"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow 正在后台运行"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow 正在背景執行"
+          }
+        }
+      }
+    },
+    "Dayflow is turning your screen time into cards" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow macht aus deiner Bildschirmzeit Karten"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow transforme votre temps d’écran en cartes"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow が画面の利用時間をカードに変換しています"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow가 화면 사용 시간을 카드로 바꾸고 있습니다"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow превращает ваше экранное время в карточки"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow 正在将你的屏幕使用时间整理成卡片"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow 正在將你的螢幕使用時間整理成卡片"
+          }
+        }
+      }
+    },
     "Dayflow isn't recording. Click 'Resume' to generate new activity cards." : {
       "localizations" : {
         "de" : {
@@ -21494,6 +22539,55 @@
           }
         }
       }
+    },
+    "Dayflow keeps working from your menu bar. Your first cards usually show up about 15 minutes after recording starts, and we can send you a notification when they're ready." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow arbeitet in deiner Menüleiste weiter. Deine ersten Karten erscheinen meist etwa 15 Minuten nach Beginn der Aufzeichnung, und wir können dich benachrichtigen, sobald sie bereit sind."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow continue de fonctionner depuis votre barre des menus. Vos premières cartes apparaissent généralement environ 15 minutes après le début de l’enregistrement, et nous pouvons vous envoyer une notification lorsqu’elles sont prêtes."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow はメニューバーで動作し続けます。最初のカードは通常、記録開始から約15分後に表示されます。準備ができたら通知でお知らせすることもできます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow는 메뉴 막대에서 계속 작동합니다. 첫 카드는 보통 기록을 시작한 지 약 15분 후에 나타나며, 준비되면 알림을 보내 드릴 수 있습니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow продолжает работать из строки меню. Первые карточки обычно появляются примерно через 15 минут после начала записи, и мы можем прислать уведомление, когда они будут готовы."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow 会在菜单栏中继续工作。首批卡片通常会在开始录制约 15 分钟后出现，准备好后我们可以通知你。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow 會在選單列中繼續運作。第一批卡片通常會在開始錄製約 15 分鐘後出現，準備好後我們可以通知你。"
+          }
+        }
+      }
+    },
+    "Dayflow needs a hand" : {
+
     },
     "Dayflow organizes your activities by the category titles and descriptions you provide." : {
       "localizations" : {
@@ -21680,6 +22774,9 @@
           }
         }
       }
+    },
+    "Dayflow Plus" : {
+
     },
     "Dayflow Pro" : {
       "localizations" : {
@@ -22003,6 +23100,52 @@
         }
       }
     },
+    "Dayflow survey" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow-Umfrage"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sondage Dayflow"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow アンケート"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow 설문"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Опрос Dayflow"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow 调查"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow 問卷"
+          }
+        }
+      }
+    },
     "Dayflow takes periodic screen captures to understand what you're working on - all stored privately on your device." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -22288,7 +23431,14 @@
         }
       }
     },
+    "Dayflow was busy and could not open checkout. Try again." : {
+
+    },
+    "Dayflow was busy and could not start the trial. Try again." : {
+
+    },
     "Dayflow will organize your activities based on the categories you provide." : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -22382,7 +23532,50 @@
       }
     },
     "Debug (%lld)" : {
-
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Debug (%lld)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Débogage (%lld)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "デバッグ (%lld)"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "디버그 (%lld)"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Отладка (%lld)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "调试 (%lld)"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "偵錯 (%lld)"
+          }
+        }
+      }
     },
     "Debug Log" : {
       "localizations" : {
@@ -22708,6 +23901,7 @@
       }
     },
     "Delete category?" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -23351,6 +24545,55 @@
           }
         }
       }
+    },
+    "Distraction · 6 min" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ablenkung · 6 Min."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Distraction · 6 min"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "注意散漫 · 6分"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "주의 분산 · 6분"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Отвлечение · 6 мин"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "分心 · 6 分钟"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "分心 · 6 分鐘"
+          }
+        }
+      }
+    },
+    "Distraction alerts while a session is running" : {
+
     },
     "Distraction budget" : {
       "localizations" : {
@@ -24411,6 +25654,52 @@
         }
       }
     },
+    "Drop images to attach" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bilder zum Anhängen hier ablegen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Déposez des images pour les joindre"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "画像をドロップして添付"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이미지를 놓아 첨부"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перетащите изображения, чтобы прикрепить"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "拖放图像以附加"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "拖放影像以附加"
+          }
+        }
+      }
+    },
     "Drop on a category →" : {
       "localizations" : {
         "de" : {
@@ -24545,6 +25834,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "Beta 測試期間，系統會記錄你的問題以協助改進產品。回覆不會被記錄，因此你的隱私仍受到保護。"
+          }
+        }
+      }
+    },
+    "e.g. See where my time actually goes, cut down on distractions, or have an automatic log of my work for standups and reviews." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "z. B. Sehen, wohin meine Zeit wirklich geht, Ablenkungen reduzieren oder ein automatisches Protokoll meiner Arbeit für Stand-ups und Reviews haben."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "p. ex. Voir où passe réellement mon temps, réduire les distractions ou disposer d’un journal automatique de mon travail pour les stand-ups et les bilans."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "例：時間を実際に何に使っているかを把握する、気が散る時間を減らす、スタンドアップやレビュー用に作業の自動ログを残す。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "예: 내 시간이 실제로 어디에 쓰이는지 확인하기, 주의 분산 줄이기, 스탠드업과 리뷰를 위한 업무 자동 기록 남기기."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Например: увидеть, на что на самом деле уходит моё время, меньше отвлекаться или получить автоматический журнал работы для стендапов и ревью."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "例如：了解我的时间实际花在哪里、减少分心，或为站会和回顾自动记录我的工作。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "例如：了解我的時間實際花在哪裡、減少分心，或為站會和回顧自動記錄我的工作。"
           }
         }
       }
@@ -25657,6 +26992,53 @@
       }
     },
     "Empty = built-in. Placeholders: {{started}} {{length}} {{style}} {{goals}} {{style_rules}} {{evidence_intro}} {{evidence_rules}} {{tick_seconds}}" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Leer = integriert. Platzhalter: {{started}} {{length}} {{style}} {{goals}} {{style_rules}} {{evidence_intro}} {{evidence_rules}} {{tick_seconds}}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vide = intégré. Variables : {{started}} {{length}} {{style}} {{goals}} {{style_rules}} {{evidence_intro}} {{evidence_rules}} {{tick_seconds}}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "空欄 = 内蔵。プレースホルダー：{{started}} {{length}} {{style}} {{goals}} {{style_rules}} {{evidence_intro}} {{evidence_rules}} {{tick_seconds}}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "비워 두면 기본값. 자리 표시자: {{started}} {{length}} {{style}} {{goals}} {{style_rules}} {{evidence_intro}} {{evidence_rules}} {{tick_seconds}}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Пусто = встроенный. Заполнители: {{started}} {{length}} {{style}} {{goals}} {{style_rules}} {{evidence_intro}} {{evidence_rules}} {{tick_seconds}}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "留空 = 使用内置。占位符：{{started}} {{length}} {{style}} {{goals}} {{style_rules}} {{evidence_intro}} {{evidence_rules}} {{tick_seconds}}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "留空 = 使用內建。預留位置：{{started}} {{length}} {{style}} {{goals}} {{style_rules}} {{evidence_intro}} {{evidence_rules}} {{tick_seconds}}"
+          }
+        }
+      }
+    },
+    "Empty = built-in. Placeholders: {{started}} {{length}} {{style}} {{goals}} {{style_rules}} {{tick_seconds}} {{timeline_mechanics}}" : {
 
     },
     "End" : {
@@ -25704,6 +27086,9 @@
           }
         }
       }
+    },
+    "End the session" : {
+
     },
     "Endpoint" : {
       "localizations" : {
@@ -26350,6 +27735,52 @@
         }
       }
     },
+    "Enter your access code." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gib deinen Zugangscode ein."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Saisissez votre code d’accès."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "アクセスコードを入力してください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "액세스 코드를 입력하세요."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Введите код доступа."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "请输入你的访问码。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "請輸入你的存取碼。"
+          }
+        }
+      }
+    },
     "Enter your API key:" : {
       "localizations" : {
         "de" : {
@@ -26576,6 +28007,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "每 %lld 秒"
+          }
+        }
+      }
+    },
+    "Every 15 minutes, your day writes itself" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle 15 Minuten schreibt sich dein Tag von selbst"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Toutes les 15 minutes, votre journée s’écrit toute seule"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "15分ごとに、あなたの1日が自動で記録されます"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "15분마다 하루가 저절로 기록됩니다"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Каждые 15 минут ваш день записывается сам"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每 15 分钟，你的一天自动成文"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每 15 分鐘，你的一天自動成文"
           }
         }
       }
@@ -27087,7 +28564,50 @@
       }
     },
     "Extra instructions (appended)" : {
-
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zusätzliche Anweisungen (angehängt)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Instructions supplémentaires (ajoutées à la fin)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "追加の指示（末尾に追加）"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "추가 지침(뒤에 추가됨)"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Дополнительные инструкции (добавляются в конец)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "额外指令（追加在末尾）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "額外指示（附加在結尾）"
+          }
+        }
+      }
     },
     "F" : {
       "localizations" : {
@@ -27921,6 +29441,52 @@
         }
       }
     },
+    "First cards on your timeline" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Erste Karten auf deiner Zeitleiste"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Premières cartes sur votre chronologie"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "タイムラインに最初のカード"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "타임라인의 첫 카드"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Первые карточки в хронологии"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "时间线上的首批卡片"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "時間軸上的第一批卡片"
+          }
+        }
+      }
+    },
     "Flexible monthly billing." : {
       "localizations" : {
         "de" : {
@@ -28013,7 +29579,115 @@
         }
       }
     },
+    "Flow focus sessions with your island companion" : {
+
+    },
+    "Flow helps you plan your day and find your way back when you get distracted." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow hilft dir, deinen Tag zu planen und zurückzufinden, wenn du abgelenkt wirst."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow vous aide à planifier votre journée et à vous recentrer quand vous êtes distrait."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow は1日の計画を立て、気が散ったときに元の作業へ戻るお手伝いをします。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow는 하루를 계획하고, 주의가 흐트러졌을 때 다시 돌아오도록 도와줍니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow помогает планировать день и возвращаться к делу, когда вы отвлеклись."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow 帮助你规划一天，并在分心时找回状态。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow 協助你規劃一天，並在分心時找回狀態。"
+          }
+        }
+      }
+    },
+    "Flow is in beta!" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow ist in der Beta!"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow est en bêta !"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow はベータ版です！"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow는 베타 버전입니다!"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow в бета-версии!"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow 正在测试中！"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow 正在測試中！"
+          }
+        }
+      }
+    },
+    "Flow is unlocked on this Mac and attached to your Dayflow account." : {
+
+    },
+    "Flow needs an internet connection" : {
+
+    },
+    "Flow session in progress" : {
+
+    },
+    "Flow session paused." : {
+
+    },
     "Flow sessions sync with your Dayflow account." : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -28060,7 +29734,50 @@
       }
     },
     "Flow: Nudge Style — %@" : {
-
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow: Hinweisstil — %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow : style de rappel — %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow：ナッジのスタイル — %@"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow: 넛지 스타일 — %@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow: стиль подсказок — %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow：提醒风格 — %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow：提醒風格 — %@"
+          }
+        }
+      }
     },
     "Flow: Simulate Distraction" : {
       "localizations" : {
@@ -28984,6 +30701,9 @@
           }
         }
       }
+    },
+    "Free trial" : {
+
     },
     "Fri" : {
       "localizations" : {
@@ -30369,6 +32089,52 @@
         }
       }
     },
+    "Get early access to Flow" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Frühen Zugang zu Flow erhalten"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Obtenir un accès anticipé à Flow"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow の早期アクセスを取得"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow 얼리 액세스 받기"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Получить ранний доступ к Flow"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "抢先体验 Flow"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "搶先體驗 Flow"
+          }
+        }
+      }
+    },
     "Get your Gemini API key" : {
       "localizations" : {
         "de" : {
@@ -30647,7 +32413,96 @@
       }
     },
     "Give up after %lld failed turns" : {
-
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nach %lld fehlgeschlagenen Durchläufen aufgeben"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abandonner après %lld tours échoués"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld 回失敗したら中止"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld회 실패 후 중단"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Прекратить после %lld неудачных ходов"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "失败 %lld 轮后放弃"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "失敗 %lld 輪後放棄"
+          }
+        }
+      }
+    },
+    "Got it" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Verstanden"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Compris"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "了解"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "확인"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Понятно"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "知道了"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "知道了"
+          }
+        }
+      }
     },
     "GPT-5.6 Sol" : {
       "localizations" : {
@@ -30836,6 +32691,52 @@
         }
       }
     },
+    "Have an access code?" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hast du einen Zugangscode?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vous avez un code d’accès ?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "アクセスコードをお持ちですか？"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "액세스 코드가 있으신가요?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Есть код доступа?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "有访问码吗？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "有存取碼嗎？"
+          }
+        }
+      }
+    },
     "Heads up: this can consume a large number of API calls." : {
       "localizations" : {
         "de" : {
@@ -30878,6 +32779,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "請注意：這可能會耗用大量 API 呼叫次數。"
+          }
+        }
+      }
+    },
+    "Hear when your first cards and daily recap are ready" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Erfahre, wenn deine ersten Karten und dein Tagesrückblick bereit sind"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Soyez averti quand vos premières cartes et votre Récap quotidien sont prêts"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "最初のカードとデイリー振り返りの準備ができたらお知らせします"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "첫 카드와 일일 요약이 준비되면 알려 드립니다"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Узнайте, когда будут готовы первые карточки и «Итоги дня»"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "首批卡片和每日回顾准备好时通知你"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "第一批卡片和每日回顧準備好時通知你"
           }
         }
       }
@@ -30975,6 +32922,7 @@
       }
     },
     "Help Dayflow understand your workflow" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -31067,6 +33015,7 @@
       }
     },
     "Here are options tailored to your work to help you get started. Provide more personalized descriptions to help Dayflow better understand your actions." : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -31206,7 +33155,50 @@
       }
     },
     "Hide debug" : {
-
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Debug ausblenden"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Masquer le débogage"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "デバッグを非表示"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "디버그 숨기기"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Скрыть отладку"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "隐藏调试"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "隱藏偵錯"
+          }
+        }
+      }
     },
     "Hide details" : {
       "localizations" : {
@@ -31623,7 +33615,50 @@
       }
     },
     "Hover the creature to reveal its bubble and replies; drag it to move where it comes from (side: up/down, top layouts: left/right). Simulate distraction needs an active session; the trigger buttons above work any time." : {
-
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bewege den Mauszeiger über die Kreatur, um ihre Sprechblase und Antworten einzublenden; ziehe sie, um zu ändern, von wo sie erscheint (Seite: oben/unten, obere Layouts: links/rechts). „Ablenkung simulieren“ benötigt eine aktive Sitzung; die Auslöser-Schaltflächen oben funktionieren jederzeit."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Survolez la créature pour afficher sa bulle et ses réponses ; faites-la glisser pour changer l’endroit d’où elle apparaît (côté : haut/bas, dispositions en haut : gauche/droite). « Simuler une distraction » nécessite une session active ; les boutons de déclenchement ci-dessus fonctionnent à tout moment."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "クリーチャーにポインタを合わせると吹き出しと返信が表示されます。ドラッグすると出現位置を変更できます（サイド：上下、上部レイアウト：左右）。「注意散漫をシミュレート」にはアクティブなセッションが必要です。上のトリガーボタンはいつでも使えます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "캐릭터 위에 포인터를 올리면 말풍선과 답장이 표시됩니다. 드래그하면 나타나는 위치를 바꿀 수 있습니다(측면: 위/아래, 상단 레이아웃: 왼쪽/오른쪽). ‘주의 분산 시뮬레이션’은 활성 세션이 필요하며, 위의 트리거 버튼은 언제든 작동합니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Наведите указатель на существо, чтобы показать его облачко и ответы; перетащите его, чтобы изменить место появления (сбоку: вверх/вниз, верхние макеты: влево/вправо). Для «Имитации отвлечения» нужна активная сессия; кнопки запуска выше работают всегда."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "将指针悬停在小生物上可显示其气泡和回复；拖动可调整它出现的位置（侧边：上/下，顶部布局：左/右）。“模拟分心”需要有进行中的专注时段；上方的触发按钮随时可用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "將指標停留在小生物上可顯示其對話泡泡和回覆；拖移可調整它出現的位置（側邊：上/下，頂部佈局：左/右）。「模擬分心」需要有進行中的專注時段；上方的觸發按鈕隨時可用。"
+          }
+        }
+      }
     },
     "Hover-expand prototype" : {
       "localizations" : {
@@ -32132,6 +34167,7 @@
       }
     },
     "I wanted a tracker that's open source and keeps my data private" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -32173,6 +34209,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "我想要一款開源且能保護資料隱私的追蹤工具"
+          }
+        }
+      }
+    },
+    "I will help you focus, and let you know when you get distracted" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ich helfe dir, konzentriert zu bleiben, und sage dir Bescheid, wenn du abgelenkt wirst"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Je vous aiderai à rester concentré et vous préviendrai quand vous serez distrait"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "集中をサポートし、気が散ったときにお知らせします"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "집중할 수 있도록 돕고, 주의가 흐트러지면 알려 드릴게요"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Я помогу вам сосредоточиться и дам знать, когда вы отвлечётесь"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "我会帮你保持专注，并在你分心时提醒你"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "我會幫你保持專注，並在你分心時提醒你"
           }
         }
       }
@@ -32363,6 +34445,7 @@
       }
     },
     "If Dayflow has been useful and you'd like to help more people find it, a star on GitHub goes a long way." : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -32547,6 +34630,7 @@
       }
     },
     "If you’re enjoying Dayflow so far, a GitHub star helps other people discover it." : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -32634,6 +34718,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "分類編輯方式示意圖"
+          }
+        }
+      }
+    },
+    "Images can be up to 50 MB." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bilder dürfen bis zu 50 MB groß sein."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les images peuvent peser jusqu’à 50 Mo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "画像は最大 50 MB までです。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이미지는 최대 50MB까지 가능합니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Размер изображения — до 50 МБ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "图像最大为 50 MB。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "影像最大為 50 MB。"
           }
         }
       }
@@ -33653,6 +35783,52 @@
         }
       }
     },
+    "It quietly records your screen while you work and keeps the recordings on this Mac. Pause or resume anytime from the Dayflow icon in your menu bar." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Es zeichnet während der Arbeit unauffällig deinen Bildschirm auf und speichert die Aufnahmen auf diesem Mac. Über das Dayflow-Symbol in der Menüleiste kannst du jederzeit pausieren oder fortsetzen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il enregistre discrètement votre écran pendant que vous travaillez et conserve les enregistrements sur ce Mac. Mettez en pause ou reprenez à tout moment depuis l’icône Dayflow dans la barre des menus."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "作業中の画面を静かに記録し、記録はこの Mac に保存されます。メニューバーの Dayflow アイコンからいつでも一時停止・再開できます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "작업하는 동안 화면을 조용히 기록하고, 기록은 이 Mac에 보관합니다. 메뉴 막대의 Dayflow 아이콘에서 언제든 일시 정지하거나 재개할 수 있습니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Приложение незаметно записывает экран во время работы и хранит записи на этом Mac. Приостановить или возобновить запись можно в любой момент через значок Dayflow в строке меню."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "它会在你工作时安静地录制屏幕，并将录制内容保存在这台 Mac 上。可随时通过菜单栏中的 Dayflow 图标暂停或继续。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "它會在你工作時安靜地錄製螢幕，並將錄製內容保存在這台 Mac 上。可隨時透過選單列中的 Dayflow 圖像暫停或繼續。"
+          }
+        }
+      }
+    },
     "It took longer than 30 seconds, so your machine doesn't appear powerful enough to run this model locally." : {
       "localizations" : {
         "de" : {
@@ -33791,6 +35967,52 @@
         }
       }
     },
+    "Jerry reads every answer." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jerry liest jede Antwort."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jerry lit chaque réponse."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jerry がすべての回答を読んでいます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jerry가 모든 답변을 읽습니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jerry читает каждый ответ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jerry 会阅读每一条回答。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jerry 會閱讀每一則回答。"
+          }
+        }
+      }
+    },
     "Join Discord" : {
       "localizations" : {
         "de" : {
@@ -33833,6 +36055,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "加入 Discord"
+          }
+        }
+      }
+    },
+    "Join our waitlist" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Auf die Warteliste setzen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rejoindre notre liste d’attente"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ウェイトリストに登録"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "대기자 명단에 등록"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Записаться в список ожидания"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "加入候补名单"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "加入候補名單"
           }
         }
       }
@@ -36055,6 +38323,52 @@
         }
       }
     },
+    "Love it" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gefällt mir sehr"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "J’adore"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "とても気に入っている"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "아주 좋아요"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Очень нравится"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "非常喜欢"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "非常喜歡"
+          }
+        }
+      }
+    },
     "Lower %@ limit?" : {
       "localizations" : {
         "de" : {
@@ -36701,6 +39015,52 @@
         }
       }
     },
+    "Meet Flow, our new tool to help you plan your day and stay focused. Interested in trying it? Open Flow in the sidebar and join the waitlist for early access." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lerne Flow kennen, unser neues Tool, mit dem du deinen Tag planst und konzentriert bleibst. Möchtest du es ausprobieren? Öffne Flow in der Seitenleiste und setz dich für frühen Zugang auf die Warteliste."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Découvrez Flow, notre nouvel outil pour planifier votre journée et rester concentré. Envie de l’essayer ? Ouvrez Flow dans la barre latérale et rejoignez la liste d’attente pour un accès anticipé."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "1日の計画を立て、集中を保つための新しいツール Flow が登場しました。試してみませんか？サイドバーで Flow を開き、早期アクセスのウェイトリストに登録してください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "하루를 계획하고 집중을 유지하도록 돕는 새로운 도구 Flow를 만나 보세요. 사용해 보고 싶으신가요? 사이드바에서 Flow를 열고 얼리 액세스 대기자 명단에 등록하세요."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Знакомьтесь с Flow — нашим новым инструментом для планирования дня и концентрации. Хотите попробовать? Откройте Flow в боковой панели и запишитесь в список ожидания раннего доступа."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "认识一下 Flow，我们帮助你规划一天并保持专注的新工具。想试试吗？在边栏中打开 Flow，加入候补名单以抢先体验。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "認識一下 Flow，我們協助你規劃一天並保持專注的新工具。想試試嗎？在側邊欄中打開 Flow，加入候補名單以搶先體驗。"
+          }
+        }
+      }
+    },
     "Memory" : {
       "comment" : "AI conversational memory, NOT computer RAM.",
       "localizations" : {
@@ -37256,7 +39616,50 @@
       }
     },
     "Model, reasoning, prompt, and screenshot changes take effect on the next tick for a running agent, except the model and prompt, which need Restart agent." : {
-
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Änderungen an Modell, Reasoning, Prompt und Screenshots wirken bei einem laufenden Agenten ab dem nächsten Tick – außer Modell und Prompt, die „Restart agent“ erfordern."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les modifications du modèle, du raisonnement, du prompt et des captures d’écran prennent effet au prochain tick pour un agent en cours d’exécution, sauf le modèle et le prompt, qui nécessitent « Restart agent »."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "モデル、推論、プロンプト、スクリーンショットの変更は、実行中のエージェントでは次のティックから反映されます。ただしモデルとプロンプトは「Restart agent」が必要です。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "모델, 추론, 프롬프트, 스크린샷 변경 사항은 실행 중인 에이전트의 다음 틱부터 적용됩니다. 단, 모델과 프롬프트는 ‘Restart agent’가 필요합니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Изменения модели, рассуждений, промпта и скриншотов вступают в силу на следующем тике работающего агента, кроме модели и промпта — для них нужен «Restart agent»."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "对于运行中的代理，模型、推理、提示词和截图的更改将在下一个周期生效；但模型和提示词需要“Restart agent”。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "對於執行中的代理，模型、推理、提示詞和截圖的更動將在下一個週期生效；但模型和提示詞需要「Restart agent」。"
+          }
+        }
+      }
     },
     "Mon" : {
       "localizations" : {
@@ -39288,6 +41691,9 @@
         }
       }
     },
+    "No nudges for 5 minutes" : {
+
+    },
     "No observations were recorded for %@." : {
       "localizations" : {
         "de" : {
@@ -39980,6 +42386,52 @@
         }
       }
     },
+    "Not at all" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Überhaupt nicht"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pas du tout"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "まったくそう思わない"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "전혀 아니에요"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Совсем нет"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "完全不"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "完全不"
+          }
+        }
+      }
+    },
     "Not checked" : {
       "localizations" : {
         "de" : {
@@ -40160,6 +42612,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "未安裝"
+          }
+        }
+      }
+    },
+    "Not now" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nicht jetzt"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pas maintenant"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "今はしない"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "나중에"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не сейчас"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "以后再说"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "稍後再說"
           }
         }
       }
@@ -40532,6 +43030,52 @@
         }
       }
     },
+    "Notify me when they're ready" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Benachrichtige mich, wenn sie bereit sind"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Me prévenir quand elles sont prêtes"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "準備ができたら通知する"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "준비되면 알려 주세요"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Уведомить меня, когда они будут готовы"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "准备好后通知我"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "準備好後通知我"
+          }
+        }
+      }
+    },
     "Notion" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -40575,6 +43119,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "Notion"
+          }
+        }
+      }
+    },
+    "now" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "jetzt"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "maintenant"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "今"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "지금"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "сейчас"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "现在"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "現在"
           }
         }
       }
@@ -40903,6 +43493,7 @@
       }
     },
     "Ollama/LM Studio" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -41174,6 +43765,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "開啟"
+          }
+        }
+      }
+    },
+    "Open a card" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eine Karte öffnen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ouvrir une carte"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "カードを開く"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "카드 열기"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Открыть карточку"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "打开一张卡片"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "打開一張卡片"
           }
         }
       }
@@ -42607,6 +45244,52 @@
         }
       }
     },
+    "Paste or drop screenshots here too." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Du kannst hier auch Screenshots einfügen oder ablegen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vous pouvez aussi coller ou déposer des captures d’écran ici."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "スクリーンショットの貼り付けやドロップもできます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "스크린샷을 붙여넣거나 끌어다 놓을 수도 있습니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сюда также можно вставить или перетащить скриншоты."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "也可以在这里粘贴或拖入截图。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "也可以在這裡貼上或拖入截圖。"
+          }
+        }
+      }
+    },
     "Paste this into any MCP client's configuration." : {
       "localizations" : {
         "de" : {
@@ -42883,6 +45566,9 @@
           }
         }
       }
+    },
+    "Paused until %@" : {
+
     },
     "Permission" : {
       "localizations" : {
@@ -43296,6 +45982,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "規劃"
+          }
+        }
+      }
+    },
+    "Planning the week" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Woche planen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Planification de la semaine"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "週の計画"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "주간 계획 세우기"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Планирование недели"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "规划本周"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "規劃本週"
           }
         }
       }
@@ -44592,6 +47324,53 @@
       }
     },
     "Prompt changes apply on Restart agent (a new Codex conversation)." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prompt-Änderungen werden mit „Restart agent“ übernommen (eine neue Codex-Konversation)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les modifications du prompt s’appliquent avec « Restart agent » (une nouvelle conversation Codex)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "プロンプトの変更は「Restart agent」で適用されます（新しい Codex 会話）。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "프롬프트 변경 사항은 ‘Restart agent’ 시 적용됩니다(새 Codex 대화)."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Изменения промпта применяются после «Restart agent» (новый диалог Codex)."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "提示词更改在“Restart agent”后生效（新的 Codex 对话）。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "提示詞更動在「Restart agent」後生效（新的 Codex 對話）。"
+          }
+        }
+      }
+    },
+    "Prompt changes apply on Restart agent (a new conversation)." : {
 
     },
     "Prototype checkpoint" : {
@@ -44822,6 +47601,108 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "噓……我覺得你有點分心了！"
+          }
+        }
+      }
+    },
+    "Pulled into YouTube" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Von YouTube abgelenkt"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Happé par YouTube"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "YouTube に気を取られた"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "YouTube에 빠짐"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Затянуло в YouTube"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "被 YouTube 吸引走"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "被 YouTube 吸引走"
+          }
+        }
+      }
+    },
+    "Quick question" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kurze Frage"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Petite question"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "簡単な質問"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "간단한 질문"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Короткий вопрос"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "一个小问题"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "一個小問題"
+          }
+        }
+      }
+    },
+    "Quick question · %lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Quick question · %1$lld of %2$lld"
           }
         }
       }
@@ -45429,6 +48310,52 @@
         }
       }
     },
+    "Ready to open" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bereit zum Öffnen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prêt à ouvrir"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "開く準備ができました"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "열 준비 완료"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Можно открывать"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "可以打开了"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "可以打開了"
+          }
+        }
+      }
+    },
     "Ready to use" : {
       "localizations" : {
         "de" : {
@@ -45613,6 +48540,52 @@
         }
       }
     },
+    "Recording" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aufzeichnung"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enregistrement"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "記録"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "기록"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Запись"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "录制"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "錄製"
+          }
+        }
+      }
+    },
     "Recording cap: %@ • Timelapse cap: %@. Lowering a cap immediately deletes the oldest files for that type. Timeline card text stays preserved. Please avoid deleting files manually so you do not remove Dayflow's database." : {
       "localizations" : {
         "de" : {
@@ -45707,6 +48680,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "錄製已關閉"
+          }
+        }
+      }
+    },
+    "Recording is paused. Turn it on to get your first cards." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die Aufzeichnung ist pausiert. Schalte sie ein, um deine ersten Karten zu erhalten."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L’enregistrement est en pause. Activez-le pour obtenir vos premières cartes."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "記録は一時停止中です。オンにすると最初のカードが作成されます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "기록이 일시 정지되었습니다. 켜면 첫 카드를 받을 수 있습니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Запись приостановлена. Включите её, чтобы получить первые карточки."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "录制已暂停。开启后即可获得首批卡片。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "錄製已暫停。開啟後即可取得第一批卡片。"
           }
         }
       }
@@ -47981,6 +51000,15 @@
         }
       }
     },
+    "Resume Dayflow to continue with the current session." : {
+
+    },
+    "Resume the session" : {
+
+    },
+    "Retries on its own" : {
+
+    },
     "Retry" : {
       "localizations" : {
         "de" : {
@@ -48254,6 +51282,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "檢視了範圍切換與 SBI 處理流程；草擬了包含 ClickUp 連結的「需要更多 PD 意見的領域」規格；與 Jason Ross 同步 SBI UX 細節"
+          }
+        }
+      }
+    },
+    "Reviewing pull requests" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pull-Requests prüfen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Revue de pull requests"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "プルリクエストのレビュー"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "풀 리퀘스트 리뷰"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Проверка пул-реквестов"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "审查拉取请求"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "審查拉取請求"
           }
         }
       }
@@ -50069,6 +53143,52 @@
         }
       }
     },
+    "Sent. Our team will reply here." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gesendet. Unser Team antwortet hier."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Envoyé. Notre équipe vous répondra ici."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "送信しました。チームがここで返信します。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "전송되었습니다. 저희 팀이 여기로 답변드립니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Отправлено. Наша команда ответит здесь."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已发送。我们的团队会在这里回复。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已傳送。我們的團隊會在這裡回覆。"
+          }
+        }
+      }
+    },
     "Sent. Replies show up here and in your inbox." : {
       "localizations" : {
         "de" : {
@@ -50206,6 +53326,9 @@
           }
         }
       }
+    },
+    "Session summaries and island progress" : {
+
     },
     "Set goals" : {
       "localizations" : {
@@ -51325,6 +54448,52 @@
         }
       }
     },
+    "Sign in first to use an access code." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Melde dich zuerst an, um einen Zugangscode zu verwenden."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Connectez-vous d’abord pour utiliser un code d’accès."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "アクセスコードを使うには、まずサインインしてください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "액세스 코드를 사용하려면 먼저 로그인하세요."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сначала войдите, чтобы использовать код доступа."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "请先登录再使用访问码。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "請先登入再使用存取碼。"
+          }
+        }
+      }
+    },
     "Sign in first." : {
       "localizations" : {
         "de" : {
@@ -51602,6 +54771,7 @@
       }
     },
     "Sign in to use Flow" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -51643,6 +54813,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "登入以使用 Flow"
+          }
+        }
+      }
+    },
+    "Sign in under Settings › Account first, then enter your code." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Melde dich zuerst unter „Einstellungen › Konto“ an und gib dann deinen Code ein."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Connectez-vous d’abord dans Réglages › Compte, puis saisissez votre code."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "まず「設定 › アカウント」でサインインしてから、コードを入力してください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "먼저 설정 › 계정에서 로그인한 다음 코드를 입력하세요."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сначала войдите в разделе «Настройки › Учётная запись», затем введите код."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "请先在“设置 › 账户”中登录，然后输入你的访问码。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "請先在「設定 › 帳號」中登入，然後輸入你的存取碼。"
           }
         }
       }
@@ -51689,6 +54905,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "登出"
+          }
+        }
+      }
+    },
+    "Sign up" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Registrieren"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "S’inscrire"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "登録"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "가입"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Зарегистрироваться"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "注册"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "註冊"
           }
         }
       }
@@ -52061,6 +55323,52 @@
         }
       }
     },
+    "Skip" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Überspringen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Passer"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "スキップ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "건너뛰기"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Пропустить"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "跳过"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "略過"
+          }
+        }
+      }
+    },
     "Skip today" : {
       "localizations" : {
         "de" : {
@@ -52103,6 +55411,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "今天略過"
+          }
+        }
+      }
+    },
+    "Skip tour" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tour überspringen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Passer la visite"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ツアーをスキップ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "둘러보기 건너뛰기"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Пропустить обзор"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "跳过导览"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "略過導覽"
           }
         }
       }
@@ -52335,6 +55689,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "軟體工程師"
+          }
+        }
+      }
+    },
+    "Some views need enough of your day to say something useful, so they unlock as Dayflow records. Here's what's on the way." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Manche Ansichten brauchen genug von deinem Tag, um etwas Nützliches zu zeigen, und werden daher freigeschaltet, während Dayflow aufzeichnet. Das erwartet dich."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Certaines vues ont besoin d’une part suffisante de votre journée pour être utiles ; elles se débloquent donc au fil de l’enregistrement. Voici ce qui vous attend."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "一部の表示は、役立つ内容を示すために十分な記録が必要なため、Dayflow の記録が進むにつれて解放されます。これから使えるようになるものはこちらです。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "일부 보기는 유용한 내용을 보여 주려면 하루의 기록이 충분히 쌓여야 하므로, Dayflow가 기록하는 동안 차례로 잠금 해제됩니다. 앞으로 열릴 기능은 다음과 같습니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Некоторым разделам нужно достаточно данных о вашем дне, чтобы показать что-то полезное, поэтому они открываются по мере записи. Вот что вас ждёт."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "有些视图需要足够多的当日记录才能提供有用的内容，因此会随着 Dayflow 的录制逐步解锁。以下是即将解锁的功能。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "有些顯示方式需要足夠多的當日記錄才能提供有用的內容，因此會隨著 Dayflow 的錄製逐步解鎖。以下是即將解鎖的功能。"
           }
         }
       }
@@ -54644,6 +58044,55 @@
         }
       }
     },
+    "Take a break" : {
+
+    },
+    "Take a look at what Dayflow picked up from your last few minutes of work." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sieh dir an, was Dayflow aus deinen letzten Arbeitsminuten erfasst hat."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Découvrez ce que Dayflow a retenu de vos dernières minutes de travail."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "直近数分間の作業から Dayflow が記録した内容を見てみましょう。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "지난 몇 분간의 작업에서 Dayflow가 포착한 내용을 확인해 보세요."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Посмотрите, что Dayflow зафиксировал за последние несколько минут вашей работы."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "看看 Dayflow 从你最近几分钟的工作中记录了什么。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "看看 Dayflow 從你最近幾分鐘的工作中記錄了什麼。"
+          }
+        }
+      }
+    },
     "Tap to open it in Daily view." : {
       "localizations" : {
         "de" : {
@@ -54778,6 +58227,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "%@的任務"
+          }
+        }
+      }
+    },
+    "Tell Dayflow what you're hoping to get out of it." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sag Dayflow, was du dir davon erhoffst."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dites à Dayflow ce que vous en attendez."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow に期待することを教えてください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow에서 무엇을 얻고 싶은지 알려 주세요."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Расскажите Dayflow, чего вы от него ждёте."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "告诉 Dayflow 你希望从中获得什么。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "告訴 Dayflow 你希望從中獲得什麼。"
           }
         }
       }
@@ -55519,7 +59014,51 @@
       }
     },
     "Text only (send Apple OCR text instead of the image)" : {
-
+      "extractionState" : "stale",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nur Text (Apple-OCR-Text statt des Bildes senden)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Texte seul (envoyer le texte OCR d’Apple au lieu de l’image)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "テキストのみ（画像の代わりに Apple OCR のテキストを送信）"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "텍스트만(이미지 대신 Apple OCR 텍스트 전송)"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Только текст (отправлять текст Apple OCR вместо изображения)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "仅文本（发送 Apple OCR 文本而非图像）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "僅文字（傳送 Apple OCR 文字而非影像）"
+          }
+        }
+      }
     },
     "Thank you for your feedback!" : {
       "localizations" : {
@@ -55797,7 +59336,57 @@
         }
       }
     },
+    "That code is wrong or has expired. Check it, or send a new one." : {
+
+    },
+    "That file type isn't supported." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dieser Dateityp wird nicht unterstützt."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ce type de fichier n’est pas pris en charge."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このファイル形式には対応していません。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "지원하지 않는 파일 형식입니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Этот тип файла не поддерживается."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "不支持此文件类型。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "不支援此檔案類型。"
+          }
+        }
+      }
+    },
     "The Agents tab now brings your Codex and Claude Code sessions into Dayflow, with a timeline, token usage, and estimated API costs." : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -56115,6 +59704,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "介紹影片、角色選擇與偏好設定畫面現已串接完成。我們可以繼續逐步替換其餘預留內容，暫時不必更動正式環境的導覽流程。"
+          }
+        }
+      }
+    },
+    "The longer it runs, the more it can tell you" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Je länger es läuft, desto mehr kann es dir sagen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Plus il tourne longtemps, plus il peut vous en dire"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "長く使うほど、わかることが増えます"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "오래 실행할수록 더 많은 것을 알려 줍니다"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Чем дольше он работает, тем больше может рассказать"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "运行越久，能告诉你的就越多"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "執行越久，能告訴你的就越多"
           }
         }
       }
@@ -56673,6 +60308,7 @@
       }
     },
     "This card fell back to a lower-quality Gemini model due to rate limiting, so output quality may be lower." : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -56718,7 +60354,11 @@
         }
       }
     },
+    "This card was generated by a backup model because the primary one failed." : {
+
+    },
     "This helps personalize the experience for you." : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -56947,6 +60587,9 @@
           }
         }
       }
+    },
+    "This time couldn't be turned into cards yet. Dayflow will try again automatically. Your recording is saved." : {
+
     },
     "THIS WEEK" : {
       "localizations" : {
@@ -58014,6 +61657,7 @@
       }
     },
     "To be more productive or focused" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -58060,6 +61704,7 @@
       }
     },
     "To find and cut distractions" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -58198,6 +61843,7 @@
       }
     },
     "To keep an automatic log of what I worked on" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -58244,6 +61890,7 @@
       }
     },
     "To make my work more visible for standups, reviews, or promotions" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -58290,7 +61937,50 @@
       }
     },
     "Toast text" : {
-
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Toast-Text"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Texte du toast"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "トーストのテキスト"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "토스트 텍스트"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Текст уведомления"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "提示文本"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "提示文字"
+          }
+        }
+      }
     },
     "Today" : {
       "localizations" : {
@@ -59258,8 +62948,54 @@
         }
       }
     },
-    "Trigger now" : {
+    "Trial ends" : {
 
+    },
+    "Trigger now" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jetzt auslösen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Déclencher maintenant"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "今すぐ実行"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "지금 실행"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Запустить сейчас"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "立即触发"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "立即觸發"
+          }
+        }
+      }
     },
     "Try again" : {
       "localizations" : {
@@ -59306,6 +63042,9 @@
           }
         }
       }
+    },
+    "Try again in a bit, or email jerry@dayflow.so." : {
+
     },
     "Try Dayflow Pro free for 7 days." : {
       "localizations" : {
@@ -59579,6 +63318,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "週二受到的打斷最多，共有 22 次情境切換和 53 次分心。"
+          }
+        }
+      }
+    },
+    "Turn on" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Einschalten"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Activer"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "オンにする"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "켜기"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Включить"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "开启"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "開啟"
           }
         }
       }
@@ -59860,6 +63645,52 @@
         }
       }
     },
+    "Type your answer…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Antwort eingeben…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Saisissez votre réponse…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "回答を入力…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "답변을 입력하세요…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Введите ответ…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "输入你的回答…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "輸入你的回答…"
+          }
+        }
+      }
+    },
     "Uncategorized" : {
       "localizations" : {
         "de" : {
@@ -60090,6 +63921,52 @@
         }
       }
     },
+    "Unlock" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Freischalten"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Débloquer"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ロック解除"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "잠금 해제"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Разблокировать"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "解锁"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "解鎖"
+          }
+        }
+      }
+    },
     "Unlock Beta" : {
       "localizations" : {
         "de" : {
@@ -60132,6 +64009,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "解鎖 Beta 版"
+          }
+        }
+      }
+    },
+    "Unlock Chat" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chat freischalten"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Débloquer le Chat"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "チャットをロック解除"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "채팅 잠금 해제"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Разблокировать чат"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "解锁聊天"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "解鎖聊天"
           }
         }
       }
@@ -60274,6 +64197,52 @@
         }
       }
     },
+    "Unlock your Daily recap" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tagesrückblick freischalten"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Débloquer votre Récap quotidien"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "デイリー振り返りをロック解除"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "일일 요약 잠금 해제"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Разблокировать «Итоги дня»"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "解锁每日回顾"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "解鎖每日回顧"
+          }
+        }
+      }
+    },
     "Unset secondary" : {
       "localizations" : {
         "de" : {
@@ -60412,6 +64381,9 @@
           }
         }
       }
+    },
+    "Until I Resume" : {
+
     },
     "Untitled" : {
       "localizations" : {
@@ -61612,6 +65584,52 @@
         }
       }
     },
+    "Usually ready about 15 minutes after recording starts" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Meist etwa 15 Minuten nach Beginn der Aufzeichnung bereit"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Généralement prêt environ 15 minutes après le début de l’enregistrement"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "通常、記録開始から約15分後に準備完了"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "보통 기록 시작 약 15분 후에 준비됩니다"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Обычно готово примерно через 15 минут после начала записи"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "通常在开始录制约 15 分钟后准备就绪"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "通常在開始錄製約 15 分鐘後準備就緒"
+          }
+        }
+      }
+    },
     "utility" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -62075,7 +66093,50 @@
       }
     },
     "Watch the screen during sessions" : {
-
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bildschirm während Sitzungen beobachten"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Observer l’écran pendant les sessions"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "セッション中に画面を監視"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "세션 중 화면 관찰"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Наблюдать за экраном во время сессий"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在专注时段中观察屏幕"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在專注時段中觀察螢幕"
+          }
+        }
+      }
     },
     "We couldn’t start Agents" : {
       "localizations" : {
@@ -62262,6 +66323,7 @@
       }
     },
     "We’re giving Dayflow’s UI a light refresh, including a much-requested feature: dark mode! It follows your system preference, but you can also choose light or dark manually in Settings → Other." : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -62728,6 +66790,52 @@
         }
       }
     },
+    "Weekly review" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wochenrückblick"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bilan hebdomadaire"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "週間レビュー"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "주간 리뷰"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Недельный обзор"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每周回顾"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每週回顧"
+          }
+        }
+      }
+    },
     "Weekly unlocks after 30 hours of recorded timeline data" : {
       "localizations" : {
         "de" : {
@@ -62867,6 +66975,7 @@
       }
     },
     "What are you hoping to get out of Dayflow?" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -63786,6 +67895,52 @@
         }
       }
     },
+    "Who are you, and how would you use Flow?" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wer bist du, und wie würdest du Flow nutzen?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Qui êtes-vous, et comment utiliseriez-vous Flow ?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "あなたについてと、Flow をどう使いたいかを教えてください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "어떤 분이신가요? Flow를 어떻게 사용하고 싶으신가요?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Кто вы и как бы вы использовали Flow?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "介绍一下你自己，以及你打算如何使用 Flow？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "介紹一下你自己，以及你打算如何使用 Flow？"
+          }
+        }
+      }
+    },
     "Whoops! I'll get back to work." : {
       "localizations" : {
         "de" : {
@@ -64568,7 +68723,54 @@
         }
       }
     },
+    "You can close this window now" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Du kannst dieses Fenster jetzt schließen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vous pouvez maintenant fermer cette fenêtre"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このウインドウを閉じても大丈夫です"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이제 이 윈도우를 닫아도 됩니다"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Теперь это окно можно закрыть"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "现在可以关闭此窗口了"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "現在可以關閉此視窗了"
+          }
+        }
+      }
+    },
     "You can customize or create new categories any time." : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -64707,6 +68909,52 @@
         }
       }
     },
+    "You have a new reply about Flow. Open Flow to read it." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Du hast eine neue Antwort zu Flow. Öffne Flow, um sie zu lesen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vous avez une nouvelle réponse au sujet de Flow. Ouvrez Flow pour la lire."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow について新しい返信があります。Flow を開いてご確認ください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow에 대한 새 답변이 있습니다. Flow를 열어 확인하세요."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "У вас новый ответ о Flow. Откройте Flow, чтобы прочитать его."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你收到一条关于 Flow 的新回复。打开 Flow 查看。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你收到一則關於 Flow 的新回覆。打開 Flow 查看。"
+          }
+        }
+      }
+    },
     "You have a new support reply. Open Support to read it." : {
       "localizations" : {
         "de" : {
@@ -64799,6 +69047,52 @@
         }
       }
     },
+    "You're all set" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alles bereit"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tout est prêt"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "準備完了です"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "모든 준비가 끝났습니다"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Всё готово"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "一切就绪"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "一切就緒"
+          }
+        }
+      }
+    },
     "You're on the beta list." : {
       "localizations" : {
         "de" : {
@@ -64845,6 +69139,190 @@
         }
       }
     },
+    "You're on the Flow waitlist! Tell us a little about yourself and what you'd like to use Flow for. The more detail you share, the sooner we can review your request and get you off the waitlist. Our team will reply here." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Du stehst auf der Flow-Warteliste! Erzähl uns ein wenig über dich und wofür du Flow nutzen möchtest. Je mehr Details du teilst, desto schneller können wir deine Anfrage prüfen und dich von der Warteliste holen. Unser Team antwortet hier."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vous êtes sur la liste d’attente de Flow ! Parlez-nous un peu de vous et de l’usage que vous aimeriez faire de Flow. Plus vous donnez de détails, plus vite nous pourrons examiner votre demande et vous sortir de la liste d’attente. Notre équipe vous répondra ici."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow のウェイトリストに登録されました！あなたのことや Flow の使い道を少し教えてください。詳しく書いていただくほど、早くリクエストを確認してウェイトリストからご案内できます。チームがここで返信します。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flow 대기자 명단에 등록되었습니다! 자기소개와 Flow를 어디에 쓰고 싶은지 조금 알려 주세요. 자세히 적어 주실수록 요청을 더 빨리 검토해 대기자 명단에서 빼 드릴 수 있습니다. 저희 팀이 여기로 답변드립니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вы в списке ожидания Flow! Расскажите немного о себе и о том, для чего хотите использовать Flow. Чем больше подробностей, тем быстрее мы рассмотрим заявку и откроем вам доступ. Наша команда ответит здесь."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你已加入 Flow 候补名单！向我们简单介绍一下你自己，以及你想用 Flow 做什么。你分享得越详细，我们就能越快审核你的申请并为你开通。我们的团队会在这里回复。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你已加入 Flow 候補名單！向我們簡單介紹一下你自己，以及你想用 Flow 做什麼。你分享得越詳細，我們就能越快審核你的申請並為你開通。我們的團隊會在這裡回覆。"
+          }
+        }
+      }
+    },
+    "You're on the list" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Du stehst auf der Liste"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vous êtes sur la liste"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "リストに登録されました"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "명단에 등록되었습니다"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вы в списке"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你已在名单中"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你已在名單中"
+          }
+        }
+      }
+    },
+    "You're on the list. Chat is temporarily unavailable." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Du stehst auf der Liste. Der Chat ist vorübergehend nicht verfügbar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vous êtes sur la liste. Le chat est temporairement indisponible."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "リストに登録されました。チャットは一時的にご利用いただけません。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "명단에 등록되었습니다. 채팅은 일시적으로 사용할 수 없습니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вы в списке. Чат временно недоступен."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你已在名单中。聊天暂时不可用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你已在名單中。聊天暫時無法使用。"
+          }
+        }
+      }
+    },
+    "You're on the waitlist" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Du stehst auf der Warteliste"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vous êtes sur la liste d’attente"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ウェイトリストに登録されました"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "대기자 명단에 등록되었습니다"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вы в списке ожидания"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你已加入候补名单"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你已加入候補名單"
+          }
+        }
+      }
+    },
     "You've reviewed all your activities so far.\nThe Timeline right panel will be updated with your rating." : {
       "localizations" : {
         "de" : {
@@ -64887,6 +69365,52 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "你已檢視目前為止的所有活動。\n你的評分將更新至時間軸右側面板。"
+          }
+        }
+      }
+    },
+    "You've unlocked everything Dayflow does. Enjoy your timeline." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Du hast alles freigeschaltet, was Dayflow kann. Viel Freude mit deiner Zeitleiste."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vous avez débloqué tout ce que Dayflow propose. Profitez de votre chronologie."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow のすべての機能が解放されました。タイムラインをお楽しみください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow의 모든 기능을 잠금 해제했습니다. 타임라인을 즐겨 보세요."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вы открыли все возможности Dayflow. Приятной работы с хронологией."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你已解锁 Dayflow 的全部功能。尽情使用你的时间线吧。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你已解鎖 Dayflow 的所有功能。盡情使用你的時間軸吧。"
           }
         }
       }
@@ -64979,6 +69503,98 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "you@example.com"
+          }
+        }
+      }
+    },
+    "Your AI turns each stretch of screen time into timeline cards: what you worked on, the apps you used, and when you got pulled away. Click any card to see the full summary and a timelapse, or to fix its category." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Deine KI macht aus jedem Abschnitt Bildschirmzeit Zeitleistenkarten: woran du gearbeitet hast, welche Apps du genutzt hast und wann du abgelenkt wurdest. Klicke auf eine Karte, um die vollständige Zusammenfassung und einen Zeitraffer zu sehen oder ihre Kategorie zu korrigieren."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Votre IA transforme chaque période de temps d’écran en cartes de chronologie : ce sur quoi vous avez travaillé, les apps utilisées et les moments où vous avez été distrait. Cliquez sur une carte pour voir le résumé complet et une vidéo accélérée, ou pour corriger sa catégorie."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "AI が画面の利用時間を区切りごとにタイムラインカードに変換します。取り組んだ内容、使ったアプリ、気が散ったタイミングがわかります。カードをクリックすると、詳しい要約とタイムラプスの表示やカテゴリーの修正ができます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "AI가 화면 사용 시간의 각 구간을 타임라인 카드로 바꿉니다. 무엇을 작업했는지, 어떤 앱을 썼는지, 언제 주의가 흐트러졌는지 보여 줍니다. 카드를 클릭하면 전체 요약과 타임랩스를 보거나 카테고리를 수정할 수 있습니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ваш ИИ превращает каждый отрезок экранного времени в карточки хронологии: над чем вы работали, какими приложениями пользовались и когда отвлекались. Нажмите на любую карточку, чтобы увидеть полную сводку и таймлапс или исправить категорию."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的 AI 会把每一段屏幕使用时间整理成时间线卡片：你做了什么、用了哪些 App、何时被打断。点按任意卡片即可查看完整摘要和延时视频，或修正其类别。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的 AI 會把每一段螢幕使用時間整理成時間軸卡片：你做了什麼、用了哪些 App、何時被打斷。點按任一卡片即可查看完整摘要和縮時影片，或修正其類別。"
+          }
+        }
+      }
+    },
+    "Your answer goes straight to the Dayflow team." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Deine Antwort geht direkt an das Dayflow-Team."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Votre réponse est transmise directement à l’équipe Dayflow."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "回答は Dayflow チームに直接届きます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "답변은 Dayflow 팀에 바로 전달됩니다."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ваш ответ попадёт напрямую команде Dayflow."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的回答会直接发送给 Dayflow 团队。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的回答會直接傳送給 Dayflow 團隊。"
           }
         }
       }
@@ -65306,6 +69922,7 @@
       }
     },
     "Your first card is ready!" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -65347,6 +69964,98 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "你的第一張卡片已準備就緒！"
+          }
+        }
+      }
+    },
+    "Your first day with Dayflow" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dein erster Tag mit Dayflow"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Votre première journée avec Dayflow"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow との最初の1日"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dayflow와 함께하는 첫날"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ваш первый день с Dayflow"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你使用 Dayflow 的第一天"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你使用 Dayflow 的第一天"
+          }
+        }
+      }
+    },
+    "Your first Dayflow cards are ready" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Deine ersten Dayflow-Karten sind bereit"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vos premières cartes Dayflow sont prêtes"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "最初の Dayflow カードの準備ができました"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "첫 Dayflow 카드가 준비되었습니다"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ваши первые карточки Dayflow готовы"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的首批 Dayflow 卡片已准备好"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的第一批 Dayflow 卡片已準備好"
           }
         }
       }
@@ -65489,6 +70198,9 @@
           }
         }
       }
+    },
+    "Your free trial of Flow is running on this Mac." : {
+
     },
     "Your interruptions are driven by context shifts and distractions." : {
       "localizations" : {
