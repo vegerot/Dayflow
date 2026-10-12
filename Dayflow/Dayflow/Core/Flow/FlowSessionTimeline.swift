@@ -36,6 +36,16 @@ final class FlowSessionTimeline: ObservableObject {
     var endedAt: Date
     /// Frontmost app's icon as a data: URL (32px PNG), when we had one.
     var iconURL: String?
+    /// Titles of the user's listed tasks the model saw finished in this
+    /// stretch, for the summary's "task done" callout.
+    var completedTasks: [String]?
+    /// Which of the user's Dayflow categories the model filed this stretch
+    /// under, spelled as the category is. Nil on breaks and on a name the
+    /// user doesn't have.
+    var category: String?
+    /// The website or app the model says the stretch was mostly about
+    /// ("youtube.com", "Xcode"), as timeline cards have. Picks the icon.
+    var site: String?
   }
 
   /// What native saw on one tick: the model's verdict plus the frontmost app.
@@ -53,6 +63,9 @@ final class FlowSessionTimeline: ObservableObject {
     let end: String?
     let title: String?
     let kind: String?
+    let completed: [String]?
+    let category: String?
+    let site: String?
   }
 
   private struct File: Codable {
@@ -149,17 +162,24 @@ final class FlowSessionTimeline: ObservableObject {
   /// contiguous, cut around the exact break spans, and given icons.
   func apply(modelItems: [ModelItem], at now: Date = Date()) {
     var parsed: [Entry] = []
+    let categories = Self.categoryNames()
     for item in modelItems {
       guard let title = item.title.map(Self.tidy), !title.isEmpty,
         let start = date(fromClock: item.start, near: now),
         let end = date(fromClock: item.end, near: now)
       else { continue }
-      let kind = Kind(rawValue: (item.kind ?? "").lowercased()) ?? .focused
+      let word = (item.kind ?? "").lowercased()
+      let kind = Kind(rawValue: word) ?? (word == "off_task" ? .distracted : .focused)
       parsed.append(
         Entry(
           id: UUID().uuidString, title: title, kind: kind,
           startedAt: max(sessionStartedAt, start), endedAt: min(now, max(start, end)),
-          iconURL: nil))
+          iconURL: nil,
+          completedTasks: kind == .focused ? Self.tidyCompleted(item.completed) : nil,
+          category: kind == .break
+            ? nil
+            : Self.matchCategory(item.category, distracted: kind == .distracted, in: categories),
+          site: kind == .break ? nil : Self.tidySite(item.site)))
     }
     parsed.sort { $0.startedAt < $1.startedAt }
     // Contiguous: each entry starts where the previous ended; drop empties.
@@ -173,13 +193,94 @@ final class FlowSessionTimeline: ObservableObject {
       cursor = entry.endedAt
     }
     guard !contiguous.isEmpty else { return }
+    // Blips don't split a stretch: an entry under two minutes with the same
+    // kind on both sides folds into them.
+    var index = 1
+    while index < contiguous.count - 1 {
+      let blip = contiguous[index]
+      let before = contiguous[index - 1]
+      let after = contiguous[index + 1]
+      let short = blip.endedAt.timeIntervalSince(blip.startedAt) < 120
+      guard short, blip.kind != .break, before.kind == after.kind, before.kind != blip.kind,
+        blip.completedTasks == nil
+      else {
+        index += 1
+        continue
+      }
+      var joined = before
+      if after.endedAt.timeIntervalSince(after.startedAt)
+        > before.endedAt.timeIntervalSince(before.startedAt)
+      {
+        joined.title = after.title
+        joined.category = after.category ?? before.category
+        joined.site = after.site ?? before.site
+      }
+      joined.endedAt = after.endedAt
+      joined.completedTasks = (before.completedTasks ?? []) + (after.completedTasks ?? [])
+      if joined.completedTasks?.isEmpty == true { joined.completedTasks = nil }
+      contiguous.replaceSubrange((index - 1)...(index + 1), with: [joined])
+    }
+    // One drift is one entry, however many sites it passed through. The
+    // longer piece's title wins.
+    contiguous = contiguous.reduce(into: [Entry]()) { merged, entry in
+      guard let last = merged.last, last.kind == .distracted, entry.kind == .distracted else {
+        merged.append(entry)
+        return
+      }
+      var joined = last
+      if entry.endedAt.timeIntervalSince(entry.startedAt)
+        > last.endedAt.timeIntervalSince(last.startedAt)
+      {
+        joined.title = entry.title
+        joined.category = entry.category ?? last.category
+        joined.site = entry.site ?? last.site
+      }
+      joined.endedAt = entry.endedAt
+      merged[merged.count - 1] = joined
+    }
     var result = overlayBreaks(on: contiguous, until: now)
     for index in result.indices where result[index].kind != .break {
-      result[index].iconURL = iconForSpan(result[index].startedAt, result[index].endedAt)
+      result[index].iconURL = icon(for: result[index])
+    }
+    // A break can cut an entry in two; a finished task belongs to the later
+    // piece only, and is listed once across the session.
+    var seen: Set<String> = []
+    for index in result.indices.reversed() {
+      guard let done = result[index].completedTasks else { continue }
+      let fresh = done.filter { seen.insert($0.lowercased()).inserted }
+      result[index].completedTasks = fresh.isEmpty ? nil : fresh
     }
     entries = result
     lastModelUpdateAt = now
     save()
+    fetchSiteIcons()
+  }
+
+  /// The user's categories an entry can be filed under, in their order. Idle
+  /// and system categories are never work or distraction, so they're left out.
+  static func categoryNames() -> [String] {
+    CategoryStore.shared.categories
+      .filter { !$0.isIdle && !$0.isSystem }
+      .sorted { $0.order < $1.order }
+      .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+  }
+
+  /// The model's category, as the user spells it. A name they don't have is
+  /// dropped, except that a distraction falls back to their distraction
+  /// category when there is one.
+  static func matchCategory(_ raw: String?, distracted: Bool, in names: [String]) -> String? {
+    let wanted = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if !wanted.isEmpty, let match = names.first(where: { $0.lowercased() == wanted }) {
+      return match
+    }
+    guard distracted else { return nil }
+    return names.first { $0.lowercased().contains("distract") }
+  }
+
+  private static func tidyCompleted(_ titles: [String]?) -> [String]? {
+    let cleaned = (titles ?? []).map(tidy).filter { !$0.isEmpty }
+    return cleaned.isEmpty ? nil : Array(cleaned.prefix(5))
   }
 
   /// The session is over: the last entry runs to the end so the final bar
@@ -210,7 +311,12 @@ final class FlowSessionTimeline: ObservableObject {
     guard !entries.isEmpty else { return "[]" }
     let rows = entries.map { entry in
       "{\"start\":\"\(Self.clock(entry.startedAt))\",\"end\":\"\(Self.clock(entry.endedAt))\","
-        + "\"kind\":\"\(entry.kind.rawValue)\",\"title\":\(Self.jsonString(entry.title))}"
+        + "\"kind\":\"\(entry.kind.rawValue)\",\"title\":\(Self.jsonString(entry.title))"
+        + (entry.category.map { ",\"category\":\(Self.jsonString($0))" } ?? "")
+        + (entry.site.map { ",\"site\":\(Self.jsonString($0))" } ?? "")
+        + (entry.completedTasks.map { tasks in
+          ",\"completed\":[" + tasks.map(Self.jsonString).joined(separator: ",") + "]"
+        } ?? "") + "}"
     }
     return "[\n" + rows.joined(separator: ",\n") + "\n]"
   }
@@ -249,6 +355,8 @@ final class FlowSessionTimeline: ObservableObject {
         "ended_at": formatter.string(from: entry.endedAt),
       ]
       if let icon = entry.iconURL { payload["icon_url"] = icon }
+      if let done = entry.completedTasks { payload["completed_tasks"] = done }
+      if let category = entry.category { payload["category"] = category }
       return payload
     }
   }
@@ -300,21 +408,89 @@ final class FlowSessionTimeline: ObservableObject {
     return url
   }
 
-  /// Icon of the app most often in front during a span.
-  private func iconForSpan(_ start: Date, _ end: Date) -> String? {
-    var counts: [String: Int] = [:]
-    for observation in observations
-    where observation.at >= start && observation.at <= end && observation.bundleId != nil {
-      counts[observation.bundleId!, default: 0] += 1
+  // MARK: - Site icons
+
+  /// Favicons already turned into data URLs, by site as the model wrote it.
+  private var siteIcons: [String: String] = [:]
+  private var siteFetches: Set<String> = []
+
+  private static func tidySite(_ raw: String?) -> String? {
+    let site = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    return site.isEmpty || site.count > 80 ? nil : site
+  }
+
+  /// A website is a name with a dot in it; anything else is an app's name.
+  private static func isWebsite(_ site: String) -> Bool {
+    site.contains(".") && !site.contains(" ")
+  }
+
+  /// The icon for an entry, the way a timeline card picks its own: the site
+  /// or app the model named, when we have its icon. In a browser the app is the same for work and for YouTube, so
+  /// the site says far more.
+  private func icon(for entry: Entry) -> String? {
+    if let site = entry.site {
+      if let known = siteIcons[site.lowercased()] { return known }
+      if let image = FaviconService.shared.cachedOrRawFavicon(
+        primaryRaw: site, secondaryRaw: nil,
+        primaryHost: Self.isWebsite(site) ? FaviconService.normalizedHost(from: site) : nil,
+        secondaryHost: nil), let url = Self.dataURL(for: image)
+      {
+        siteIcons[site.lowercased()] = url
+        return url
+      }
+      if !Self.isWebsite(site), let named = iconForApp(named: site) { return named }
     }
-    guard let bundleId = counts.max(by: { $0.value < $1.value })?.key else { return nil }
+    // Nothing recognisable: no icon, and the page draws a dot in the
+    // category's colour instead of whichever app happened to be in front.
+    return nil
+  }
+
+  /// Fetches the favicons the current entries still lack, then fills them in.
+  private func fetchSiteIcons() {
+    let wanted = Set(
+      entries.compactMap { $0.site?.lowercased() }
+        .filter { Self.isWebsite($0) && siteIcons[$0] == nil && !siteFetches.contains($0) })
+    for site in wanted {
+      siteFetches.insert(site)
+      Task { [weak self] in
+        let image = await FaviconService.shared.fetchFavicon(
+          primaryRaw: site, secondaryRaw: nil,
+          primaryHost: FaviconService.normalizedHost(from: site), secondaryHost: nil)
+        guard let self, let image, let url = Self.dataURL(for: image) else { return }
+        self.siteIcons[site] = url
+        var changed = false
+        for index in self.entries.indices where self.entries[index].site?.lowercased() == site {
+          self.entries[index].iconURL = url
+          changed = true
+        }
+        if changed { self.save() }
+      }
+    }
+  }
+
+  /// The icon of a running app the model named ("Xcode"), if it was in front.
+  private func iconForApp(named name: String) -> String? {
+    let wanted = name.lowercased()
+    guard
+      let bundleId = observations.last(where: { $0.appName?.lowercased() == wanted })?.bundleId
+    else { return nil }
     Self.iconCacheLock.lock()
     let cached = Self.iconCache[bundleId]
     Self.iconCacheLock.unlock()
-    if let cached { return cached }
-    guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first
+    return cached
+  }
+
+  private nonisolated static func dataURL(for image: NSImage) -> String? {
+    let size = NSSize(width: 32, height: 32)
+    let small = NSImage(size: size)
+    small.lockFocus()
+    NSGraphicsContext.current?.imageInterpolation = .high
+    image.draw(in: NSRect(origin: .zero, size: size), from: .zero, operation: .copy, fraction: 1)
+    small.unlockFocus()
+    guard let tiff = small.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff),
+      let png = bitmap.representation(using: .png, properties: [:])
     else { return nil }
-    return Self.iconDataURL(for: app)
+    return "data:image/png;base64," + png.base64EncodedString()
   }
 
   // MARK: - Breaks
