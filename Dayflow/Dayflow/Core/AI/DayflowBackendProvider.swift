@@ -132,6 +132,26 @@ private struct DayflowTranscribeRequest: Codable, Sendable {
   }
 }
 
+private struct DayflowGenerateTimelineRequest: Codable, Sendable {
+  let screenshots: [DayflowScreenshotPayload]
+  let existingCards: [ActivityCardData]
+  let categories: [DayflowCategoryDescriptorPayload]
+  let batchId: Int64?
+  let preferredOutputLanguage: String?
+  let timezone: String
+  let userName: String?
+
+  private enum CodingKeys: String, CodingKey {
+    case screenshots
+    case existingCards = "existing_cards"
+    case categories
+    case batchId = "batch_id"
+    case preferredOutputLanguage = "preferred_output_language"
+    case timezone
+    case userName = "user_name"
+  }
+}
+
 private struct DayflowLLMCallResponse: Codable, Sendable {
   let timestamp: String
   let latencySeconds: Double
@@ -148,6 +168,14 @@ private struct DayflowLLMCallResponse: Codable, Sendable {
 
 private struct DayflowGenerateCardsResponse: Codable, Sendable {
   let cards: [ActivityCardData]
+  let provider: String
+  let model: String
+  let log: DayflowLLMCallResponse
+}
+
+private struct DayflowGenerateTimelineResponse: Codable, Sendable {
+  let cards: [ActivityCardData]
+  let observations: [DayflowObservationPayload]
   let provider: String
   let model: String
   let log: DayflowLLMCallResponse
@@ -335,6 +363,10 @@ final class DayflowBackendProvider {
 
   /// Matches the server's MAX_SCREENSHOTS_PER_REQUEST so we never upload frames it would discard.
   private static let maxFramesPerBatch = 15
+  /// Frames for one-step timeline generation go up larger than for transcription; small text
+  /// has to stay readable because no second pass sees the screen.
+  private static let timelineFrameMaxHeight = 1080
+  private static let timelineRequestTimeout: TimeInterval = 180
 
   /// Picks `maxCount` evenly spaced frames, the same way the backend samples them.
   private static func evenlySampled(_ screenshots: [Screenshot], maxCount: Int) -> [Screenshot] {
@@ -516,6 +548,203 @@ final class DayflowBackendProvider {
       AnalyticsService.shared.capture("backend_transcription_request_failed", failureProps)
       print(
         "❌ [DayflowBackendProvider] transcribe error request_id=\(requestId) "
+          + "domain=\(nsError.domain) code=\(nsError.code) message=\(nsError.localizedDescription)"
+      )
+      throw error
+    }
+  }
+
+  /// One call that turns the batch's screenshots straight into timeline cards, with no transcript
+  /// in between. The backend also returns observations rebuilt from the cards so recaps and chat
+  /// keep their per-batch record.
+  func generateTimeline(
+    screenshots: [Screenshot], context: ActivityGenerationContext, batchId: Int64?
+  ) async throws -> (cards: [ActivityCardData], observations: [Observation], log: LLMCall) {
+    let requestId = UUID().uuidString
+    let startedAt = Date()
+    let normalizedEndpoint = resolvedEndpointString()
+    guard let url = URL(string: "\(normalizedEndpoint)/v1/dayflow/generate-timeline") else {
+      throw NSError(
+        domain: "DayflowBackend",
+        code: -40,
+        userInfo: [NSLocalizedDescriptionKey: "Invalid Dayflow backend endpoint: \(endpoint)"]
+      )
+    }
+
+    let sortedScreenshots = screenshots.sorted { $0.capturedAt < $1.capturedAt }
+    let sampledScreenshots = Self.evenlySampled(sortedScreenshots, maxCount: Self.maxFramesPerBatch)
+    let screenshotPayloads = sampledScreenshots.compactMap {
+      screenshot -> DayflowScreenshotPayload? in
+      guard
+        let data = screenshot.jpegData(
+          maxHeight: Self.timelineFrameMaxHeight, quality: 0.85)
+      else { return nil }
+      return DayflowScreenshotPayload(
+        capturedAt: screenshot.capturedAt,
+        imageBase64: data.base64EncodedString()
+      )
+    }
+
+    guard !screenshotPayloads.isEmpty else {
+      throw NSError(
+        domain: "DayflowBackend",
+        code: -41,
+        userInfo: [
+          NSLocalizedDescriptionKey: "No screenshots could be loaded for timeline generation."
+        ]
+      )
+    }
+
+    let fullUserName = NSFullUserName().trimmingCharacters(in: .whitespacesAndNewlines)
+    let payload = DayflowGenerateTimelineRequest(
+      screenshots: screenshotPayloads,
+      existingCards: context.existingCards,
+      categories: context.categories.map(DayflowCategoryDescriptorPayload.init),
+      batchId: batchId,
+      preferredOutputLanguage: LLMOutputLanguagePreferences.normalizedOverride,
+      timezone: TimeZone.current.identifier,
+      userName: fullUserName.isEmpty ? nil : fullUserName
+    )
+
+    let endpointHost: String = {
+      guard let parsed = URL(string: normalizedEndpoint), let host = parsed.host, !host.isEmpty
+      else {
+        return "invalid_host"
+      }
+      return host
+    }()
+
+    let baseProps: [String: Any] = [
+      "timeline_request_id": requestId,
+      "endpoint_host": endpointHost,
+      "screenshots_count": screenshots.count,
+      "loaded_screenshots_count": screenshotPayloads.count,
+      "existing_cards_count": context.existingCards.count,
+      "categories_count": context.categories.count,
+      "batch_id": batchId as Any,
+    ]
+    AnalyticsService.shared.capture("backend_timeline_request_started", baseProps)
+    print(
+      "🌐 [DayflowBackendProvider] timeline start request_id=\(requestId) "
+        + "endpoint=\(url.absoluteString) screenshots=\(screenshots.count) "
+        + "loaded=\(screenshotPayloads.count) existing_cards=\(context.existingCards.count) "
+        + "batch_id=\(batchId.map(String.init) ?? "nil")"
+    )
+
+    var httpStatusCode: Int? = nil
+    var responseByteCount = 0
+
+    do {
+      var urlRequest = URLRequest(url: url)
+      urlRequest.httpMethod = "POST"
+      // The model thinks before it answers and nothing is streamed back meanwhile.
+      urlRequest.timeoutInterval = Self.timelineRequestTimeout
+      urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+      urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+      urlRequest.httpBody = try JSONEncoder().encode(payload)
+
+      let requestByteCount = urlRequest.httpBody?.count ?? 0
+      let (data, response) = try await URLSession.shared.data(for: urlRequest)
+      responseByteCount = data.count
+
+      guard let httpResponse = response as? HTTPURLResponse else {
+        throw NSError(
+          domain: "DayflowBackend",
+          code: -42,
+          userInfo: [
+            NSLocalizedDescriptionKey: "Timeline request returned a non-HTTP response."
+          ]
+        )
+      }
+
+      httpStatusCode = httpResponse.statusCode
+      guard (200...299).contains(httpResponse.statusCode) else {
+        let responseBody = String(data: data, encoding: .utf8) ?? ""
+        throw NSError(
+          domain: "DayflowBackend",
+          code: httpResponse.statusCode,
+          userInfo: [
+            NSLocalizedDescriptionKey:
+              "Timeline generation failed (\(httpResponse.statusCode)): \(responseBody)"
+          ]
+        )
+      }
+
+      let decoded: DayflowGenerateTimelineResponse
+      do {
+        decoded = try JSONDecoder().decode(DayflowGenerateTimelineResponse.self, from: data)
+      } catch {
+        let responseBody = String(data: data, encoding: .utf8) ?? ""
+        throw NSError(
+          domain: "DayflowBackend",
+          code: -43,
+          userInfo: [
+            NSLocalizedDescriptionKey:
+              "Failed to decode timeline response: \(String(responseBody.prefix(2000)))"
+          ]
+        )
+      }
+
+      guard !decoded.cards.isEmpty else {
+        throw NSError(
+          domain: "DayflowBackend",
+          code: -44,
+          userInfo: [NSLocalizedDescriptionKey: "Timeline response contained no cards."]
+        )
+      }
+
+      let observations = decoded.observations.map { payload in
+        Observation(
+          id: nil,
+          batchId: payload.batchId ?? batchId ?? 0,
+          startTs: payload.startTs,
+          endTs: payload.endTs,
+          observation: payload.observation,
+          metadata: payload.metadata,
+          llmModel: payload.llmModel ?? decoded.model,
+          createdAt: Date()
+        )
+      }
+
+      var successProps = baseProps
+      successProps["latency_ms"] = Int(Date().timeIntervalSince(startedAt) * 1000)
+      successProps["http_status"] = httpResponse.statusCode
+      successProps["request_bytes"] = requestByteCount
+      successProps["response_bytes"] = responseByteCount
+      successProps["cards_count"] = decoded.cards.count
+      successProps["observations_count"] = observations.count
+      successProps["provider"] = decoded.provider
+      successProps["model"] = decoded.model
+      AnalyticsService.shared.capture("backend_timeline_request_succeeded", successProps)
+      print(
+        "✅ [DayflowBackendProvider] timeline succeeded request_id=\(requestId) "
+          + "cards=\(decoded.cards.count) observations=\(observations.count) "
+          + "provider=\(decoded.provider) model=\(decoded.model)"
+      )
+
+      let log = LLMCall(
+        timestamp: Self.date(from: decoded.log.timestamp) ?? Date(),
+        latency: decoded.log.latencySeconds,
+        input: decoded.log.input,
+        output: decoded.log.output
+      )
+      return (decoded.cards, observations, log)
+    } catch {
+      let nsError = error as NSError
+      var failureProps = baseProps
+      failureProps["latency_ms"] = Int(Date().timeIntervalSince(startedAt) * 1000)
+      failureProps["response_bytes"] = responseByteCount
+      failureProps["error_domain"] = nsError.domain
+      failureProps["error_code"] = nsError.code
+      if let httpStatusCode {
+        failureProps["http_status"] = httpStatusCode
+      } else if nsError.code >= 100, nsError.code <= 599 {
+        failureProps["http_status"] = nsError.code
+      }
+      AnalyticsService.shared.capture("backend_timeline_request_failed", failureProps)
+      print(
+        "❌ [DayflowBackendProvider] timeline error request_id=\(requestId) "
           + "domain=\(nsError.domain) code=\(nsError.code) message=\(nsError.localizedDescription)"
       )
       throw error
