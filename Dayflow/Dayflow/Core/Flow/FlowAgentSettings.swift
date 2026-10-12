@@ -32,8 +32,6 @@ final class FlowAgentSettings: ObservableObject {
   @Published var jpegQuality: Double { didSet { set(jpegQuality, "flowAgentJpegQuality") } }
   /// Consecutive failed turns before the agent gives up for the session.
   @Published var maxFailures: Int { didSet { set(maxFailures, "flowAgentMaxFailures") } }
-  /// Send Apple OCR text of the screen instead of the image (for text-only models).
-  @Published var textOnly: Bool { didSet { set(textOnly, "flowAgentTextOnly") } }
   /// Per-tick timeout for the Codex process.
   @Published var tickTimeoutSeconds: Double {
     didSet { set(tickTimeoutSeconds, "flowAgentTickTimeout") }
@@ -84,7 +82,6 @@ final class FlowAgentSettings: ObservableObject {
     jpegQuality = quality > 0 ? quality : 0.6
     let failures = d.integer(forKey: "flowAgentMaxFailures")
     maxFailures = failures > 0 ? failures : 3
-    textOnly = d.bool(forKey: "flowAgentTextOnly")
     let timeout = d.double(forKey: "flowAgentTickTimeout")
     tickTimeoutSeconds = timeout >= 10 ? timeout : 60
     briefingTemplate = d.string(forKey: "flowAgentBriefing") ?? ""
@@ -139,7 +136,6 @@ final class FlowAgentSettings: ObservableObject {
     screenshotHeight = 1080
     jpegQuality = 0.6
     maxFailures = 3
-    textOnly = false
     tickTimeoutSeconds = 60
     briefingTemplate = ""
     extraInstructions = ""
