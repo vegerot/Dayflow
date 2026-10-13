@@ -277,6 +277,7 @@ struct OnboardingFlow: View {
       "current_llm_provider": providerID.analyticsName,
       "current_llm_provider_id": providerID.rawValue,
     ])
+    CLIVersionTelemetry.refresh()
   }
 
   private func restoreSavedStep() {
