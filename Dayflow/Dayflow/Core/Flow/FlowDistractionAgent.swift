@@ -725,9 +725,9 @@ final class FlowDistractionAgent: ObservableObject {
     return (try? decoder.decode(TimelineReply.self, from: data))?.timeline
   }
 
-  /// When the creature may speak. Friendly waits three minutes into a drift,
-  /// then backs off instead of nagging: each nudge that doesn't bring them
-  /// back doubles the wait (5, 10, then 20 minutes). Feisty starts after two
+  /// When the creature may speak. Friendly waits one minute into a drift,
+  /// then backs off instead of nagging: a nudge that doesn't bring them back
+  /// is followed 5 minutes later, then every 10 minutes. Feisty starts after two
   /// checks and repeats every two minutes.
   private func nudgeDue(at now: Date) -> Bool {
     guard let since = offTaskSince, backOnTaskSince == nil else { return false }
@@ -737,8 +737,8 @@ final class FlowDistractionAgent: ObservableObject {
     case .quiet:
       return false
     case .friendly:
-      let waits: [TimeInterval] = [240, 300, 600, 1200]
-      return drift >= 180 && sinceLast >= waits[min(unansweredNudges, waits.count - 1)]
+      let waits: [TimeInterval] = [240, 300, 600]
+      return drift >= 60 && sinceLast >= waits[min(unansweredNudges, waits.count - 1)]
     case .feisty:
       return drift >= Double(settings.tickSeconds) && sinceLast >= 120
     }
@@ -846,8 +846,8 @@ final class FlowDistractionAgent: ObservableObject {
         """
     case .friendly:
       styleBlock = """
-        Friendly. They get slack: a nudge only comes due after a few minutes of drift, \
-        with one follow-up later. Tone: warm and light, like a friend at the next desk. \
+        Friendly. They get slack: a nudge only comes due after about a minute of drift, \
+        with follow-ups spaced further apart. Tone: warm and light, like a friend at the next desk. \
         The follow-up can be a little more direct. Never guilt-trippy.
         """
     case .feisty:
