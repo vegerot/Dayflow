@@ -190,6 +190,16 @@ final class SupportChatSession {
   let websiteDataStore: WKWebsiteDataStore
   lazy var coordinator = SupportChatWebView.Coordinator(session: self, onEvent: { _ in })
   lazy var webView = SupportChatWebView.makeWebView(session: self)
+  /// Flow's support overlay and the waitlist screen share one conversation
+  /// and page, so each sets its own composer placeholder when it shows.
+  func setMessagePlaceholder(_ text: String) {
+    guard let data = try? JSONEncoder().encode(text),
+      let literal = String(data: data, encoding: .utf8)
+    else { return }
+    webView.evaluateJavaScript(
+      "var t = document.getElementById('text'); if (t) { t.placeholder = \(literal); }")
+  }
+
   private var timer: Timer?
   private var observers: [NSObjectProtocol] = []
   private var chatVisible = false
