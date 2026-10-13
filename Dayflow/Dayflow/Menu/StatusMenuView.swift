@@ -1,299 +1,55 @@
-import AppKit
 import SwiftUI
 
-@MainActor
-struct StatusMenuView: View {
-  let dismissMenu: () -> Void
-  @ObservedObject private var appState = AppState.shared
-  @ObservedObject private var pauseManager = PauseManager.shared
-  private let updaterManager = UpdaterManager.shared
+/// The row of pause lengths in the status menu. It's the one custom view in an
+/// otherwise standard menu, hosted by `StatusBarController`.
+struct StatusMenuPauseStrip: View {
+  static let height: CGFloat = 34
 
-  private var controlMode: RecordingControlMode {
-    RecordingControl.currentMode(appState: appState, pauseManager: pauseManager)
-  }
-
-  var body: some View {
-    VStack(spacing: 6) {
-      // Pause/Resume section
-      if controlMode == .active {
-        PauseSection(onPause: pauseRecording)
-      } else {
-        PausedSection(onResume: resumeRecording)
-      }
-
-      MenuDivider()
-
-      MenuRow(
-        title: String(localized: "Open Dayflow"), assetImage: "DayflowLogo", action: openDayflow)
-      MenuRow(title: String(localized: "Open Recordings"), action: openRecordingsFolder)
-      MenuRow(title: String(localized: "Check for Updates"), action: checkForUpdates)
-
-      MenuDivider()
-
-      MenuRow(
-        title: String(localized: "Quit Completely"), systemImage: "power", accent: .red,
-        action: quitDayflow)
-    }
-    .padding(.vertical, 9)
-    .padding(.horizontal, 9)
-    .frame(minWidth: 200, maxWidth: 210)
-    .background(.regularMaterial)
-    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-  }
-
-  private func pauseRecording(duration: PauseDuration) {
-    pauseManager.pause(for: duration, source: .menuBar)
-  }
-
-  private func resumeRecording() {
-    if pauseManager.isPaused {
-      pauseManager.resume(source: .userClickedMenuBar)
-    } else {
-      RecordingControl.start(reason: "user_menu_bar")
-    }
-  }
-
-  private func openDayflow() {
-    performAfterMenuDismiss {
-      let showDockIcon = UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true
-      if showDockIcon {
-        NSApp.setActivationPolicy(.regular)
-      }
-
-      NSApp.unhide(nil)
-      MainWindowController.shared.showMainWindow()
-      NSApp.activate(ignoringOtherApps: true)
-    }
-  }
-
-  private func openRecordingsFolder() {
-    performAfterMenuDismiss {
-      let directory = StorageManager.shared.recordingsRoot
-      NSWorkspace.shared.open(directory)
-    }
-  }
-
-  private func checkForUpdates() {
-    performAfterMenuDismiss {
-      updaterManager.checkForUpdates(showUI: true)
-      NSApp.activate(ignoringOtherApps: true)
-    }
-  }
-
-  private func quitDayflow() {
-    performAfterMenuDismiss {
-      AppDelegate.allowTermination = true
-      NSApp.terminate(nil)
-    }
-  }
-
-  private func performAfterMenuDismiss(_ action: @escaping () -> Void) {
-    dismissMenu()
-
-    DispatchQueue.main.async {
-      DispatchQueue.main.async {
-        action()
-      }
-    }
-  }
-}
-
-// MARK: - Pause Section (Not Paused State)
-
-private struct PauseSection: View {
-  let onPause: (PauseDuration) -> Void
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      // Header
-      Text("Pause Dayflow")
-        .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 5)
-
-      // Duration picker
-      DurationPicker(onSelect: onPause)
-    }
-  }
-}
-
-// MARK: - Duration Picker
-
-private struct DurationPicker: View {
+  let durations: [PauseDuration]
   let onSelect: (PauseDuration) -> Void
-
-  private let options: [(label: String, duration: PauseDuration)] = [
-    (String(localized: "15 Mins"), .minutes15),
-    (String(localized: "30 Mins"), .minutes30),
-    (String(localized: "1 Hour"), .hour1),
-    ("∞", .indefinite),
-  ]
 
   var body: some View {
     HStack(spacing: 0) {
-      ForEach(Array(options.enumerated()), id: \.offset) { index, option in
-        DurationOption(
-          label: option.label,
-          isFirst: index == 0,
-          isLast: index == options.count - 1,
-          onTap: { onSelect(option.duration) }
-        )
-
-        if index < options.count - 1 {
-          Divider()
-            .frame(height: 16)
-            .opacity(0.3)
+      ForEach(Array(durations.enumerated()), id: \.offset) { index, duration in
+        if index > 0 {
+          Divider().frame(height: 14)
         }
+        PauseStripSegment(duration: duration) { onSelect(duration) }
       }
     }
+    .padding(2)
     .background(Color.primary.opacity(0.06))
-    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 6, style: .continuous)
-        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
-    )
+    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+    // Lines the strip up with the text of the menu items around it.
+    .padding(.horizontal, 14)
+    .padding(.top, 2)
+    .padding(.bottom, 6)
   }
 }
 
-private struct DurationOption: View {
-  let label: String
-  let isFirst: Bool
-  let isLast: Bool
-  let onTap: () -> Void
-
-  @State private var isHovering = false
-
-  var body: some View {
-    Button(action: onTap) {
-      Text(label)
-        .font(.system(size: 11, weight: .medium))
-        .foregroundStyle(isHovering ? .white : .primary)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background(
-          Group {
-            if isHovering {
-              RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(Color.accentColor)
-            }
-          }
-        )
-    }
-    .buttonStyle(.plain)
-    .pointingHandCursor()
-    .onHover { hovering in
-      withAnimation(.easeInOut(duration: 0.15)) {
-        isHovering = hovering
-      }
-    }
-  }
-}
-
-// MARK: - Paused Section (Active Pause State)
-
-private struct PausedSection: View {
-  let onResume: () -> Void
-  @ObservedObject private var pauseManager = PauseManager.shared
-
-  var body: some View {
-    VStack(spacing: 6) {
-      // Countdown badge (only shown for timed pause)
-      if let timeString = pauseManager.remainingTimeFormatted {
-        CountdownBadge(remainingTime: timeString)
-      }
-
-      // Resume button
-      MenuRow(
-        title: String(localized: "Resume Dayflow"),
-        systemImage: "play.circle",
-        accent: .accentColor,
-        action: onResume
-      )
-    }
-  }
-}
-
-// MARK: - Countdown Badge
-
-private struct CountdownBadge: View {
-  let remainingTime: String
-
-  var body: some View {
-    Text("Dayflow paused for \(remainingTime)")
-      .font(.system(size: 11, weight: .medium).monospacedDigit())
-      .foregroundStyle(.white)
-      .padding(.horizontal, 12)
-      .padding(.vertical, 6)
-      .frame(maxWidth: .infinity)
-      .background(Color.accentColor)
-      .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-  }
-}
-
-// MARK: - Menu Row
-
-private struct MenuRow: View {
-  let title: String
-  var systemImage: String? = nil
-  var assetImage: String? = nil
-  var accent: Color = .primary
-  var keepsMenuOpen: Bool = false
-  var action: () -> Void
+private struct PauseStripSegment: View {
+  let duration: PauseDuration
+  let action: () -> Void
 
   @State private var hovering = false
 
   var body: some View {
-    Button(action: handleTap) {
-      HStack(spacing: 7) {
-        if let systemImage {
-          Image(systemName: systemImage)
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(accent)
-            .frame(width: 17)
-        } else if let assetImage {
-          Image(assetImage)
-            .resizable()
-            .scaledToFit()
-            .frame(width: 16, height: 16)
-            .frame(width: 17)
-        } else {
-          // Empty spacer to align text with rows that have icons
-          Color.clear.frame(width: 17)
-        }
-
-        Text(title)
-          .font(.system(size: 12, weight: .semibold))
-          .foregroundStyle(.primary)
-          .lineLimit(1)
-
-        Spacer(minLength: 0)
-      }
-      .padding(.vertical, 3.5)
-      .padding(.horizontal, 5)
-      .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-      .background(
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
-          .fill(hovering ? Color.primary.opacity(0.08) : Color.clear)
-      )
+    Button(action: action) {
+      Text(duration.shortLabel)
+        .font(.system(size: duration == .indefinite ? 14 : 12, weight: .medium))
+        .foregroundStyle(hovering ? .white : .primary)
+        .frame(maxWidth: .infinity)
+        .frame(height: 22)
+        .background(
+          // The same highlight color the system uses for a selected menu item.
+          RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .fill(hovering ? Color(nsColor: .selectedContentBackgroundColor) : .clear)
+        )
+        .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .pointingHandCursor()
     .onHover { hovering = $0 }
-  }
-
-  private func handleTap() {
-    action()
-  }
-}
-
-// MARK: - Menu Divider
-
-private struct MenuDivider: View {
-  var body: some View {
-    Rectangle()
-      .fill(Color.primary.opacity(0.07))
-      .frame(height: 0.75)
-      .padding(.horizontal, 4)
-      .padding(.vertical, 2)
+    .accessibilityLabel(
+      duration == .indefinite ? String(localized: "Until I Resume") : duration.shortLabel)
   }
 }
