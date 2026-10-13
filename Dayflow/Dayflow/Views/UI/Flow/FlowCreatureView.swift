@@ -88,6 +88,19 @@ enum FlowCreatureClip: String {
     }
   }
 
+  /// The part of the canvas the file holds. The newer fire clips are cropped
+  /// to their artwork (670×454 at (290, 0) of the 960×576 export) instead of
+  /// carrying the whole transparent canvas.
+  var canvasRect: CGRect {
+    switch self {
+    case .fireBegin, .fireLoop:
+      let s: CGFloat = 1280.0 / 960.0
+      return CGRect(x: 290 * s, y: 0, width: 670 * s, height: 454 * s)
+    default:
+      return CGRect(x: 0, y: 0, width: 1280, height: 768)
+    }
+  }
+
   /// How far to shift the rendered canvas (in canvas pixels) so this clip's
   /// anchor lands where the variant's base clip put the creature. The side
   /// and peek variants only chain clips from one family, so they never shift.
@@ -288,7 +301,11 @@ final class FlowCreatureLayerView: NSView {
     let offset = clip?.canvasOffset(in: variant) ?? .zero
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    playerLayer.frame = bounds.offsetBy(dx: offset.x * scale, dy: offset.y * scale)
+    let rect = clip?.canvasRect ?? CGRect(origin: .zero, size: Self.canvasSize)
+    playerLayer.frame = CGRect(
+      x: bounds.minX + (rect.minX + offset.x) * scale,
+      y: bounds.minY + (rect.minY + offset.y) * scale,
+      width: rect.width * scale, height: rect.height * scale)
     CATransaction.commit()
   }
 
