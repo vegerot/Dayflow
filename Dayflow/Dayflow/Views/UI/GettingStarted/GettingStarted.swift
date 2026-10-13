@@ -40,8 +40,22 @@ enum GettingStarted {
     defaults.object(forKey: Keys.startedAt) as? Date
   }
 
+  /// PostHog experiment with a `control` variant (no guide) and a `guide` variant.
+  static let experimentFlagKey = "getting-started-guide"
+
   /// Called from the onboarding completion button.
   static func begin() {
+    // Read once, here, so someone's group never changes after onboarding. People without a
+    // variant (analytics off, or flags not loaded yet) get the guide.
+    let variant = AnalyticsService.shared.featureFlagVariant(experimentFlagKey) ?? "none"
+    AnalyticsService.shared.setPersonProperties(["getting_started_variant": variant])
+
+    guard variant != "control" else {
+      defaults.set(false, forKey: Keys.isActive)
+      defaults.set(false, forKey: Keys.tourPending)
+      return
+    }
+
     defaults.set(true, forKey: Keys.isActive)
     defaults.set(Date(), forKey: Keys.startedAt)
     defaults.set(true, forKey: Keys.tourPending)
@@ -49,6 +63,22 @@ enum GettingStarted {
     defaults.set(false, forKey: Keys.firstCardsReady)
     defaults.set(false, forKey: Keys.checklistDismissed)
     defaults.set(false, forKey: Keys.checklistCollapsed)
+  }
+
+  /// Called from Settings. Shows the tour again and brings the checklist back with a fresh
+  /// week. Someone who already has analyzed batches is past the "first cards" moment, so
+  /// that notification isn't sent again.
+  static func replay() {
+    defaults.set(true, forKey: Keys.isActive)
+    defaults.set(Date(), forKey: Keys.startedAt)
+    defaults.set(false, forKey: Keys.checklistDismissed)
+    defaults.set(false, forKey: Keys.checklistCollapsed)
+    if FeatureAccessRequirements.completedBatchCount() > 0 {
+      defaults.set(true, forKey: Keys.firstCardsReady)
+    }
+
+    AnalyticsService.shared.capture("getting_started_replayed")
+    NotificationCenter.default.post(name: .showGettingStartedTour, object: nil)
   }
 
   static var isChecklistExpired: Bool {
