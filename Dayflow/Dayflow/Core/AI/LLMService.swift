@@ -295,7 +295,8 @@ final class LLMService: LLMServicing {
       return (
         actions: BatchProviderActions(
           transcribeScreenshots: provider.transcribeScreenshots,
-          generateActivityCards: provider.generateActivityCards
+          generateActivityCards: provider.generateActivityCards,
+          generateTimeline: provider.generateTimeline
         ), fallbackState: nil
       )
     }
