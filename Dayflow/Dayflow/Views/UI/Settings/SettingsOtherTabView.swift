@@ -75,6 +75,24 @@ struct SettingsOtherTabView: View {
           )
         }
 
+        SettingsRow(
+          label: String(localized: "Pause lengths"),
+          subtitle: String(localized: "The three timed options shown when you pause Dayflow.")
+        ) {
+          HStack(spacing: 6) {
+            ForEach(viewModel.pausePresetMinutes.indices, id: \.self) { index in
+              Picker("Pause length", selection: $viewModel.pausePresetMinutes[index]) {
+                ForEach(PausePresets.minuteOptions, id: \.self) { minutes in
+                  Text(verbatim: PauseDuration.timed(minutes: minutes).shortLabel).tag(minutes)
+                }
+              }
+              .pickerStyle(.menu)
+              .labelsHidden()
+              .frame(width: 78)
+            }
+          }
+        }
+
         SettingsRow(label: String(localized: "Share crash reports and anonymous usage data")) {
           SettingsToggle(isOn: $viewModel.analyticsEnabled)
         }
