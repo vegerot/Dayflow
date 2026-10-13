@@ -128,10 +128,22 @@ struct SettingsOtherTabView: View {
             String(
               localized:
                 "New and reprocessed timeline cards will pre-generate timelapse videos and store them on disk instead of building them on demand. Uses more storage and background processing."
-            ),
-          showsDivider: false
+            )
         ) {
           SettingsToggle(isOn: $viewModel.saveAllTimelapsesToDisk)
+        }
+
+        SettingsRow(
+          label: String(localized: "Getting started guide"),
+          subtitle: String(
+            localized:
+              "Replay the welcome tour and bring back the first-day checklist on your timeline."),
+          showsDivider: false
+        ) {
+          SettingsSecondaryButton(
+            title: String(localized: "Show again"),
+            action: { GettingStarted.replay() }
+          )
         }
       }
     }
