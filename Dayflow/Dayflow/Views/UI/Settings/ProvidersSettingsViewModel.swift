@@ -471,6 +471,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
       "current_llm_provider": providerId.analyticsName,
       "current_llm_provider_id": providerId.rawValue,
     ])
+    CLIVersionTelemetry.refresh()
     if shouldSwapWithSecondary {
       AnalyticsService.shared.capture(
         "provider_backup_updated",
@@ -521,6 +522,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
         "current_llm_provider": existingSecondary.analyticsName,
         "current_llm_provider_id": existingSecondary.rawValue,
       ])
+      CLIVersionTelemetry.refresh()
       AnalyticsService.shared.capture(
         "provider_backup_updated",
         [
