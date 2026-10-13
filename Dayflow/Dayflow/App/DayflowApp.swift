@@ -17,6 +17,7 @@ struct AppRootView: View {
   @State private var shouldMarkWhatsNewSeen = false
   @State private var goalFlowPresentation: DayGoalFlowPresentation? = nil
   @State private var isShowingGettingStartedTour = false
+  @State private var isGettingStartedTourReplay = false
 
   var body: some View {
     ZStack {
@@ -58,6 +59,12 @@ struct AppRootView: View {
         [
           "version": release.version
         ])
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .showGettingStartedTour)) { _ in
+      isGettingStartedTourReplay = true
+      withAnimation(.easeOut(duration: 0.25)) {
+        isShowingGettingStartedTour = true
+      }
     }
     .onReceive(NotificationCenter.default.publisher(for: .timelineDataUpdated)) { _ in
       showGitHubStarPromptIfEligible(source: "first_card")
@@ -109,9 +116,11 @@ struct AppRootView: View {
   @ViewBuilder
   private var gettingStartedTourOverlay: some View {
     if isShowingGettingStartedTour {
-      GettingStartedTourOverlay(onFinish: finishGettingStartedTour)
-        .transition(.opacity)
-        .zIndex(4)
+      GettingStartedTourOverlay(
+        isReplay: isGettingStartedTourReplay, onFinish: finishGettingStartedTour
+      )
+      .transition(.opacity)
+      .zIndex(4)
     }
   }
 
@@ -130,6 +139,7 @@ struct AppRootView: View {
     withAnimation(.easeOut(duration: 0.2)) {
       isShowingGettingStartedTour = false
     }
+    isGettingStartedTourReplay = false
   }
 
   private var canShowGitHubStarPrompt: Bool {
@@ -538,6 +548,7 @@ struct DayflowApp: App {
 extension Notification.Name {
   static let analyticsPreferenceChanged = Notification.Name("analyticsPreferenceChanged")
   static let showWhatsNew = Notification.Name("showWhatsNew")
+  static let showGettingStartedTour = Notification.Name("showGettingStartedTour")
   static let navigateToDaily = Notification.Name("navigateToDaily")
   static let navigateToSupport = Notification.Name("navigateToSupport")
   static let navigateToWeekly = Notification.Name("navigateToWeekly")
