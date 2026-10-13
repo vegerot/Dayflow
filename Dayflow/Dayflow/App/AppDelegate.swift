@@ -87,6 +87,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
       AnalyticsService.shared.capture(
         "app_updated", ["from_version": last, "to_version": "\(version) (\(build))"])
+      CLIAutoUpdater.updateProviderCLIs()
     }
     UserDefaults.standard.set(build, forKey: "lastRunBuild")
     statusBar = StatusBarController()
@@ -349,6 +350,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
   private func sendHeartbeat() {
     if analyticsConfigured {
       AgentUsageTelemetryQueue.drain()
+      CLIVersionTelemetry.refreshIfStale()
     }
     var props: [String: Any] = [:]
     let appearance =
