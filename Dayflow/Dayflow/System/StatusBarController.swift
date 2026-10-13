@@ -151,10 +151,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     switch RecordingControl.currentMode() {
     case .active:
       menu.addItem(.sectionHeader(title: String(localized: "Pause Dayflow")))
-      menu.addItem(pauseItem(String(localized: "15 Mins"), duration: .minutes15))
-      menu.addItem(pauseItem(String(localized: "30 Mins"), duration: .minutes30))
-      menu.addItem(pauseItem(String(localized: "1 Hour"), duration: .hour1))
-      menu.addItem(pauseItem(String(localized: "Until I Resume"), duration: .indefinite))
+      menu.addItem(pauseStripItem())
     case .pausedTimed(let endTime):
       let time = endTime.formatted(date: .omitted, time: .shortened)
       menu.addItem(infoItem(String(localized: "Paused until \(time)")))
@@ -180,9 +177,19 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     return item
   }
 
-  private func pauseItem(_ title: String, duration: PauseDuration) -> NSMenuItem {
-    let item = actionItem(title, #selector(pauseRecording(_:)))
-    item.representedObject = duration
+  /// The horizontal row of pause lengths. Custom views don't close the menu on
+  /// click the way normal items do, so the handler closes it first.
+  private func pauseStripItem() -> NSMenuItem {
+    let strip = StatusMenuPauseStrip(durations: PausePresets.durations) { [weak self] duration in
+      self?.menu.cancelTracking()
+      PauseManager.shared.pause(for: duration, source: .menuBar)
+    }
+    let host = NSHostingView(rootView: strip)
+    host.frame = NSRect(x: 0, y: 0, width: 220, height: StatusMenuPauseStrip.height)
+    host.autoresizingMask = [.width]
+
+    let item = NSMenuItem()
+    item.view = host
     return item
   }
 
@@ -192,11 +199,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
   }
 
   // MARK: - Actions
-
-  @objc private func pauseRecording(_ sender: NSMenuItem) {
-    guard let duration = sender.representedObject as? PauseDuration else { return }
-    PauseManager.shared.pause(for: duration, source: .menuBar)
-  }
 
   @objc private func resumeRecording() {
     if PauseManager.shared.isPaused {
