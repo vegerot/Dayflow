@@ -292,6 +292,21 @@ final class FlowSessionMirror: ObservableObject {
 
   // MARK: - Menu bar controls
 
+  /// Set when a session start was asked for before the Flow page existed;
+  /// the page picks it up as soon as its bridge attaches.
+  var pendingStartSession = false
+
+  /// Opens the Flow tab on the session setup screen (the early-bird card's
+  /// "Start session").
+  func requestStartSession() {
+    openFlowTab()
+    if let webBridge {
+      webBridge.sendEvent("sessionControl", payload: ["action": "start"])
+    } else {
+      pendingStartSession = true
+    }
+  }
+
   /// A session is running or on a break: the menu bar shows its Flow pill
   /// and session card only while this holds.
   var isSessionOn: Bool { snapshot.phase == .active || snapshot.phase == .onBreak }
