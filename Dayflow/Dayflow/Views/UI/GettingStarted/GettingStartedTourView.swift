@@ -13,6 +13,8 @@ import UserNotifications
 
 struct GettingStartedTourOverlay: View {
   @Environment(\.dayflowTheme) private var theme
+  /// True when reopened from Settings rather than shown after onboarding.
+  var isReplay = false
   let onFinish: () -> Void
 
   var body: some View {
@@ -23,7 +25,7 @@ struct GettingStartedTourOverlay: View {
       theme.sheetOverlay
         .ignoresSafeArea()
 
-      GettingStartedTourView(onFinish: onFinish)
+      GettingStartedTourView(isReplay: isReplay, onFinish: onFinish)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .contentShape(Rectangle())
@@ -94,6 +96,7 @@ private enum TourNotificationState {
 struct GettingStartedTourView: View {
   @Environment(\.dayflowTheme) private var theme
 
+  var isReplay = false
   let onFinish: () -> Void
 
   @State private var page: TourPage = .recording
@@ -138,7 +141,7 @@ struct GettingStartedTourView: View {
     )
     .shadow(color: Color.black.opacity(0.18), radius: 30, x: 0, y: 14)
     .onAppear {
-      AnalyticsService.shared.capture("getting_started_tour_shown")
+      AnalyticsService.shared.capture("getting_started_tour_shown", ["replay": isReplay])
       trackPageViewed(page)
       loadNotificationState()
     }
@@ -304,7 +307,7 @@ struct GettingStartedTourView: View {
     guard !didFinish else { return }
     didFinish = true
     AnalyticsService.shared.capture(
-      "getting_started_tour_skipped", ["page": page.analyticsName])
+      "getting_started_tour_skipped", ["page": page.analyticsName, "replay": isReplay])
     onFinish()
   }
 
@@ -312,7 +315,8 @@ struct GettingStartedTourView: View {
     guard !didFinish else { return }
     didFinish = true
     AnalyticsService.shared.capture(
-      "getting_started_tour_completed", ["notification_choice": notificationChoice])
+      "getting_started_tour_completed",
+      ["notification_choice": notificationChoice, "replay": isReplay])
     onFinish()
   }
 
@@ -342,7 +346,9 @@ struct GettingStartedTourView: View {
   private func trackPageViewed(_ viewedPage: TourPage) {
     AnalyticsService.shared.capture(
       "getting_started_tour_step_viewed",
-      ["page": viewedPage.analyticsName, "page_index": viewedPage.rawValue])
+      [
+        "page": viewedPage.analyticsName, "page_index": viewedPage.rawValue, "replay": isReplay,
+      ])
   }
 }
 
