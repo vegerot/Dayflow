@@ -89,6 +89,10 @@ struct FlowWebView: NSViewRepresentable {
 
     context.coordinator.webView = webView
     FlowSessionMirror.shared.webBridge = context.coordinator
+    if FlowSessionMirror.shared.pendingStartSession {
+      FlowSessionMirror.shared.pendingStartSession = false
+      context.coordinator.sendEvent("sessionControl", payload: ["action": "start"])
+    }
     webView.load(URLRequest(url: url))
     return webView
   }
