@@ -13,27 +13,55 @@ import Foundation
 // MARK: - Pause Types
 
 enum PauseDuration: Equatable {
-  case minutes15
-  case minutes30
-  case hour1
+  case timed(minutes: Int)
   case indefinite
 
   var timeInterval: TimeInterval? {
     switch self {
-    case .minutes15: return 15 * 60
-    case .minutes30: return 30 * 60
-    case .hour1: return 60 * 60
+    case .timed(let minutes): return TimeInterval(minutes * 60)
     case .indefinite: return nil
     }
   }
 
   var analyticsValue: String {
     switch self {
-    case .minutes15: return "15_mins"
-    case .minutes30: return "30_mins"
-    case .hour1: return "1_hour"
+    // Same value an hour sent before pause lengths became customizable.
+    case .timed(minutes: 60): return "1_hour"
+    case .timed(let minutes): return "\(minutes)_mins"
     case .indefinite: return "indefinite"
     }
+  }
+
+  /// Short label for chips and menu segments, e.g. "15m", "1h", "1h 30m".
+  var shortLabel: String {
+    switch self {
+    case .timed(let minutes):
+      return Duration.seconds(minutes * 60)
+        .formatted(.units(allowed: [.hours, .minutes], width: .narrow))
+    case .indefinite:
+      return "∞"
+    }
+  }
+}
+
+/// The three timed pause lengths offered in the menu bar and the main window.
+/// Editable in Settings.
+enum PausePresets {
+  static let defaultMinutes = [15, 30, 60]
+  static let minuteOptions = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 480]
+  private static let storageKey = "pausePresetMinutes"
+
+  static var minutes: [Int] {
+    get {
+      let stored = UserDefaults.standard.array(forKey: storageKey) as? [Int] ?? []
+      return stored.count == defaultMinutes.count ? stored : defaultMinutes
+    }
+    set { UserDefaults.standard.set(newValue, forKey: storageKey) }
+  }
+
+  /// The timed presets followed by the indefinite pause.
+  static var durations: [PauseDuration] {
+    minutes.map { .timed(minutes: $0) } + [.indefinite]
   }
 }
 
