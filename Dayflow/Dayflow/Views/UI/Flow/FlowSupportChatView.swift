@@ -17,6 +17,13 @@ struct FlowSupportChatView: View {
 
   private var session: SupportChatSession { .session(for: context) }
 
+  private static var placeholder: String {
+    String(
+      localized:
+        "Report a bug, an issue or a feature request. You can drag and drop screenshots here too."
+    )
+  }
+
   var body: some View {
     ZStack {
       Color.black.opacity(0.35)
@@ -49,11 +56,13 @@ struct FlowSupportChatView: View {
             switch event {
             case .ready:
               chatUnavailable = false
+              session.setMessagePlaceholder(Self.placeholder)
             case .unavailable:
               chatUnavailable = true
             }
           }
           .opacity(chatUnavailable ? 0 : 1)
+          .onAppear { session.setMessagePlaceholder(Self.placeholder) }
 
           if chatUnavailable {
             VStack(spacing: 12) {
