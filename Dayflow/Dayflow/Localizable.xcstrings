@@ -4610,6 +4610,7 @@
       }
     },
     "1 Hour" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -6457,6 +6458,7 @@
       }
     },
     "15 Mins" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -6595,6 +6597,7 @@
       }
     },
     "30 Mins" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -32181,6 +32184,9 @@
         }
       }
     },
+    "Getting started guide" : {
+
+    },
     "Gifted" : {
       "localizations" : {
         "de" : {
@@ -45474,6 +45480,12 @@
         }
       }
     },
+    "Pause length" : {
+
+    },
+    "Pause lengths" : {
+
+    },
     "paused" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -50077,6 +50089,9 @@
         }
       }
     },
+    "Replay the welcome tour and bring back the first-day checklist on your timeline." : {
+
+    },
     "Replay video" : {
       "localizations" : {
         "de" : {
@@ -54066,6 +54081,9 @@
         }
       }
     },
+    "Show again" : {
+
+    },
     "Show app/website icons in timeline" : {
       "localizations" : {
         "de" : {
@@ -56337,6 +56355,9 @@
         }
       }
     },
+    "Start a session within the hour you opened Dayflow to earn 2X the points." : {
+
+    },
     "Start date must be on or before end date." : {
       "localizations" : {
         "de" : {
@@ -56566,6 +56587,9 @@
           }
         }
       }
+    },
+    "Start session" : {
+
     },
     "Start with today" : {
       "localizations" : {
@@ -60121,6 +60145,9 @@
           }
         }
       }
+    },
+    "The three timed options shown when you pause Dayflow." : {
+
     },
     "They sign up and get a " : {
       "extractionState" : "stale",
