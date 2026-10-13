@@ -213,7 +213,7 @@ private final class FlowOverlayPanel: NSPanel {
 }
 
 /// While onboarding shows off the pop-in, everything on the desktop except
-/// the app's own window and the creature is frosted over and dimmed, so the
+/// the app's own window and the creature is dimmed (50% black), so the
 /// eye goes to the corner the creature leans in from.
 @MainActor
 private final class FlowDemoBackdrop {
@@ -240,9 +240,11 @@ private final class FlowDemoBackdrop {
       NSApp.mainWindow
       ?? NSApp.windows.first { $0.isVisible && $0.canBecomeMain && !($0 is NSPanel) }
     for screen in NSScreen.screens {
-      // The visible frame leaves the menu bar and the Dock sharp.
+      // Everything under the menu bar, the way the design dims the desktop.
+      var frame = screen.frame
+      frame.size.height = screen.visibleFrame.maxY - frame.minY
       let panel = FlowOverlayPanel(
-        contentRect: screen.visibleFrame,
+        contentRect: frame,
         styleMask: [.borderless, .nonactivatingPanel],
         backing: .buffered,
         defer: false
@@ -255,19 +257,11 @@ private final class FlowDemoBackdrop {
       panel.isReleasedWhenClosed = false
       panel.collectionBehavior = [.fullScreenAuxiliary, .transient, .ignoresCycle]
 
-      let blur = NSVisualEffectView(frame: NSRect(origin: .zero, size: screen.visibleFrame.size))
-      // Always the light material: in Dark Mode the same material is a flat grey.
-      blur.appearance = NSAppearance(named: .aqua)
-      blur.material = .popover
-      blur.blendingMode = .behindWindow
-      blur.state = .active
-      blur.autoresizingMask = [.width, .height]
-      let tint = NSView(frame: blur.bounds)
-      tint.wantsLayer = true
-      tint.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.18).cgColor
-      tint.autoresizingMask = [.width, .height]
-      blur.addSubview(tint)
-      panel.contentView = blur
+      let dim = NSView(frame: NSRect(origin: .zero, size: frame.size))
+      dim.wantsLayer = true
+      dim.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.5).cgColor
+      dim.autoresizingMask = [.width, .height]
+      panel.contentView = dim
 
       panel.alphaValue = 0
       if let appWindow {
