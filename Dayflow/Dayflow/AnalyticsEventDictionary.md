@@ -6,7 +6,7 @@ This document lists manual events, properties, and code locations. All events re
 - Event names: snake_case
 - Screens: `screen_viewed` with `screen`
 - Common super properties (registered on boot): `app_version`, `build_number`, `os_version`, `device_model`, `locale`, `time_zone`
-- Person properties (identify): `analytics_opt_in`, `onboarding_status`, `current_llm_provider` (provider family), `current_llm_provider_id` (`dayflow|gemini|chatgpt|claude|openai_compatible|local`), `recording_enabled`, `install_ts` (set once)
+- Person properties (identify): `analytics_opt_in`, `onboarding_status`, `current_llm_provider` (provider family), `current_llm_provider_id` (`dayflow|gemini|chatgpt|claude|openai_compatible|local`), `recording_enabled`, `install_ts` (set once), `getting_started_variant` (`control|guide|none`, set when onboarding finishes from the `getting-started-guide` feature flag; `none` means no variant was available and the guide was shown)
 
 ## Lifecycle
 - app_opened
@@ -114,6 +114,7 @@ This document lists manual events, properties, and code locations. All events re
 
 ## Settings & Privacy
 - settings_opened
+- getting_started_replayed (Settings > Other > "Show again"; the tour events that follow carry `replay: true`)
   - file: Views/UI/SettingsView.swift
 - analytics_opt_in_changed
   - props: `enabled: bool`
@@ -202,10 +203,10 @@ This document lists manual events, properties, and code locations. All events re
   - props: `enabled: bool`, `reason: auto|unknown|onboarding|deeplink|menu_bar|main_app|user_menu_bar|user_main_app|timer_expired|wake_from_sleep`
   - file: App/AppDelegate.swift (observation) and AppDelegate auto-start
 - recording_paused
-  - props: `source: menu_bar|main_app|deeplink`, `pause_type: 15_mins|30_mins|1_hour|indefinite`
+  - props: `source: menu_bar|main_app|deeplink`, `pause_type: <n>_mins|1_hour|indefinite` (60 minutes is still sent as `1_hour`)
   - file: App/PauseManager.swift
 - recording_resumed
-  - props: `source: user_menu_bar|user_main_app|timer_expired|wake_from_sleep`, `was_timed: bool`, `original_pause_type: 15_mins|30_mins|1_hour|indefinite|unknown`
+  - props: `source: user_menu_bar|user_main_app|timer_expired|wake_from_sleep`, `was_timed: bool`, `original_pause_type: <n>_mins|1_hour|indefinite|unknown`
   - file: App/PauseManager.swift
 - timeline_paused_card_clicked
   - props: `action: resume_recording`
