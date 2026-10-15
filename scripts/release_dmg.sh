@@ -233,6 +233,15 @@ if command -v rg >/dev/null 2>&1; then
   fi
 fi
 
+# Without audio-input the hardened runtime denies the microphone silently and
+# Flow's voice planning fails for every user, so refuse to ship that.
+SIGNED_ENTS="${SANITIZED_DIR}/signed.entitlements"
+codesign -d --entitlements "${SIGNED_ENTS}" --xml "${SANITIZED_APP}" 2>/dev/null || true
+if [[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' "${SIGNED_ENTS}" 2>/dev/null)" != "true" ]]; then
+  echo "ERROR: com.apple.security.device.audio-input entitlement missing on app; Flow voice planning would fail." >&2
+  exit 1
+fi
+
 echo "[6/8] Verifying signature…"
 codesign --verify --deep --strict --verbose=2 "${SANITIZED_APP}"
 spctl -a -vvv --type execute "${SANITIZED_APP}" || true
