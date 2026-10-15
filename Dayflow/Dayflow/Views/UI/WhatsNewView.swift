@@ -97,21 +97,21 @@ enum WhatsNewConfiguration {
   private static let seenKey = "lastSeenWhatsNewVersion"
 
   /// Override with the specific release number you want to show.
-  private static let versionOverride: String? = "2.6.0"
+  private static let versionOverride: String? = "2.7.0"
 
   /// Update this content before shipping each release. Return nil to disable the modal entirely.
   static var configuredRelease: ReleaseNote? {
     ReleaseNote(
       version: targetVersion,
-      title: String(localized: "Flow is in beta!"),
+      title: String(localized: "Claude users now run on Haiku 5.5"),
       highlights: [
         String(
           localized:
-            "Meet Flow, our new tool to help you plan your day and stay focused. Interested in trying it? Open Flow in the sidebar and join the waitlist for early access."
+            "Anthropic released Claude Haiku 5.5 last week, and Claude users now run on it. Expect increased quality and a 90% reduction in cost. Dayflow now only consumes roughly a dollar a week of your usage limits (under 1% of the usage limits on the $20 plan)."
         ),
         String(
           localized:
-            "Bring your preferred categories into focus. Click the categories above your timeline to dim the ones you don't need, in both Day and Week views."
+            "We're ramping up letting people off the Flow waitlist. If you've joined, look forward to hearing from us soon!"
         ),
       ],
       socialPreview: nil,
