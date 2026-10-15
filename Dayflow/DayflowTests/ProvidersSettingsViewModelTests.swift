@@ -17,6 +17,7 @@ final class ProvidersSettingsViewModelTests: XCTestCase {
     "claudeSetupComplete",
     "geminiSelectedModel_v3",
     "geminiSelectedModel_v4",
+    "geminiSelectedModel_v5",
     LLMProviderRoutingStore.storageKey,
   ]
 

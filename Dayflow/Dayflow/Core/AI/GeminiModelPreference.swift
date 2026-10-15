@@ -34,8 +34,10 @@ enum GeminiModel: String, Codable, CaseIterable {
 }
 
 struct GeminiModelPreference: Codable {
-  // Keep the storage key stable to preserve existing users' selected models.
-  private static let storageKey = "geminiSelectedModel_v4"
+  // v5 resets everyone onto the 3.8 Flash cascade. Earlier keys kept users
+  // pinned on 3.6 Flash, which is now quota-starved on the free tier.
+  private static let storageKey = "geminiSelectedModel_v5"
+  private static let legacyStorageKey = "geminiSelectedModel_v4"
 
   let primary: GeminiModel
 
@@ -76,6 +78,7 @@ struct GeminiModelPreference: Codable {
 
     let preference = GeminiModelPreference.default
     preference.save(to: defaults)
+    defaults.removeObject(forKey: legacyStorageKey)
     return preference
   }
 
