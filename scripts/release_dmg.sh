@@ -225,10 +225,10 @@ if command -v rg >/dev/null 2>&1; then
   if ! printf "%s" "$ENT_DUMP" | rg -q "com.apple.security.temporary-exception.mach-lookup.global-name"; then
     echo "WARNING: mach-lookup entitlement missing on app. Check entitlements substitution." >&2
   fi
-  if ! printf "%s" "$ENT_DUMP" | rg -q "-spks|teleportlabs.com.Dayflow-spks"; then
+  if ! printf "%s" "$ENT_DUMP" | rg -q -e "-spks|teleportlabs.com.Dayflow-spks"; then
     echo "WARNING: Sparkle status mach service (-spks) not present in entitlements." >&2
   fi
-  if ! printf "%s" "$ENT_DUMP" | rg -q "-spki|teleportlabs.com.Dayflow-spki"; then
+  if ! printf "%s" "$ENT_DUMP" | rg -q -e "-spki|teleportlabs.com.Dayflow-spki"; then
     echo "WARNING: Sparkle installer mach service (-spki) not present in entitlements." >&2
   fi
 fi
