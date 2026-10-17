@@ -12,6 +12,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
   /// What the Flow pill last drew, so the once-a-second tick only re-renders
   /// when the label actually changes.
   private var flowPillLabel: String??
+  /// The same countdown, for the hero at the top of the open menu.
+  private let flowClock = FlowMenuClock()
 
   override init() {
     super.init()
@@ -78,6 +80,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     guard let image = renderer.nsImage else { return }
     flowPillLabel = .some(label)
     statusItem.button?.image = image
+    flowClock.label = label
   }
 
   /// Time left in the session or the break; an always-on session counts up.
@@ -101,9 +104,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     return String(format: "%d:%02d", clamped / 60, clamped % 60)
   }
 
-  private func flowSessionCardItem() -> NSMenuItem {
+  private func flowSessionHeroItem() -> NSMenuItem {
     let mirror = FlowSessionMirror.shared
-    let mode: FlowMenuSessionCard.Mode
+    let mode: FlowMenuSessionHero.Mode
     if RecordingControl.currentMode() != .active {
       mode = .dayflowPaused
     } else if mirror.snapshot.phase == .onBreak {
@@ -112,19 +115,17 @@ final class StatusBarController: NSObject, NSMenuDelegate {
       mode = .inProgress
     }
 
-    let card = FlowMenuSessionCard(mode: mode) { [weak self] control in
+    flowClock.label = flowTimeLabel()
+    let hero = FlowMenuSessionHero(mode: mode, clock: flowClock) { [weak self] control in
       self?.menu.cancelTracking()
       switch control {
-      case .pause: mirror.menuBarControl("break")
+      case .startBreak(let minutes): mirror.menuBarControl("break", minutes: minutes)
       case .resume: mirror.menuBarControl("resume")
-      case .stop: mirror.menuBarControl("end")
-      case .snooze: mirror.menuBarSnooze(minutes: 5)
+      case .end: mirror.menuBarControl("end")
       }
     }
-    let size = FlowMenuSessionCard.size
-    let host = NSHostingView(
-      rootView: card.padding(.horizontal, 6).padding(.top, 2).padding(.bottom, 6))
-    host.frame = NSRect(x: 0, y: 0, width: size.width + 12, height: size.height + 8)
+    let host = NSHostingView(rootView: hero)
+    host.frame = NSRect(origin: .zero, size: FlowMenuSessionHero.size(for: mode))
 
     let item = NSMenuItem()
     item.view = host
@@ -145,7 +146,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     menu.removeAllItems()
 
     if FlowSessionMirror.shared.isSessionOn {
-      menu.addItem(flowSessionCardItem())
+      menu.addItem(flowSessionHeroItem())
     }
 
     switch RecordingControl.currentMode() {
@@ -155,25 +156,48 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     case .pausedTimed(let endTime):
       let time = endTime.formatted(date: .omitted, time: .shortened)
       menu.addItem(infoItem(String(localized: "Paused until \(time)")))
-      menu.addItem(actionItem(String(localized: "Resume Dayflow"), #selector(resumeRecording)))
+      menu.addItem(resumeItem())
     case .pausedIndefinite, .stopped:
-      menu.addItem(actionItem(String(localized: "Resume Dayflow"), #selector(resumeRecording)))
+      menu.addItem(resumeItem())
     }
 
     menu.addItem(.separator())
-    menu.addItem(actionItem(String(localized: "Open Dayflow"), #selector(openDayflow)))
+    menu.addItem(
+      actionItem(String(localized: "Open Dayflow"), #selector(openDayflow), symbol: "macwindow"))
     menu.addItem(actionItem(String(localized: "Open Recordings"), #selector(openRecordingsFolder)))
     menu.addItem(actionItem(String(localized: "Check for Updates"), #selector(checkForUpdates)))
     menu.addItem(.separator())
     menu.addItem(
-      actionItem(String(localized: "Quit Completely"), #selector(quitDayflow), keyEquivalent: "q"))
+      actionItem(
+        String(localized: "Quit Completely"), #selector(quitDayflow), keyEquivalent: "q",
+        symbol: "power", tint: .systemRed))
   }
 
-  private func actionItem(_ title: String, _ action: Selector, keyEquivalent: String = "")
-    -> NSMenuItem
-  {
+  private func resumeItem() -> NSMenuItem {
+    actionItem(
+      String(localized: "Resume Dayflow"), #selector(resumeRecording), symbol: "play.circle",
+      tint: .systemBlue)
+  }
+
+  /// A plain menu item. Items without a symbol get a blank one, so every title
+  /// lines up after the icon column the way the design lays them out.
+  private func actionItem(
+    _ title: String, _ action: Selector, keyEquivalent: String = "", symbol: String? = nil,
+    tint: NSColor? = nil
+  ) -> NSMenuItem {
     let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
     item.target = self
+    if let symbol {
+      let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+      item.image =
+        tint.flatMap { image?.withSymbolConfiguration(.init(paletteColors: [$0])) } ?? image
+    } else {
+      item.image = NSImage(size: NSSize(width: 15, height: 13))
+    }
+    // macOS 27 hides menu item images unless an item asks for them.
+    #if compiler(>=6.4)
+      if #available(macOS 27.0, *) { item.preferredImageVisibility = .visible }
+    #endif
     return item
   }
 
@@ -229,7 +253,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
   }
 
   @objc private func quitDayflow() {
-    AppDelegate.allowTermination = true
+    AppDelegate.permitTermination(reason: "menu_bar_quit")
     NSApp.terminate(nil)
   }
 }
