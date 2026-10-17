@@ -451,6 +451,15 @@ struct FlowWebView: NSViewRepresentable {
       decisionHandler(allowed ? .grant : .deny)
     }
 
+    // macOS kills a web content process that grows too large; without this the
+    // Flow tab would stay blank until it was switched away from and back.
+    nonisolated func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+      Task { @MainActor in
+        self.pageIsReady = false
+        webView.reload()
+      }
+    }
+
     nonisolated func webView(
       _ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
       withError error: Error
