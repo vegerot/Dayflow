@@ -436,7 +436,7 @@ struct DayflowApp: App {
           UserDefaults.standard.removeObject(forKey: "onboardingSelectedProviderID")
           // Force quit and restart the app to show onboarding
           Task { @MainActor in
-            AppDelegate.allowTermination = true
+            AppDelegate.permitTermination(reason: "reset_onboarding")
             NSApp.terminate(nil)
           }
         }
