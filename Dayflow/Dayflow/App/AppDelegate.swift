@@ -23,6 +23,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
   // and the app will continue running in the background.
   static var allowTermination: Bool = false
 
+  /// Why the app is about to quit, sent with `app_terminated`.
+  /// Set together with `allowTermination` through `permitTermination(reason:)`.
+  static var terminationReason: String = "unknown"
+
+  static func permitTermination(reason: String) {
+    allowTermination = true
+    terminationReason = reason
+  }
+
+  // Remember how the previous run ended, so the next launch can tell a clean quit
+  // from a crash, force quit, or power loss, and how long the app was gone.
+  private static let lastRunCleanExitKey = "lastRunCleanExit"
+  private static let lastRunExitReasonKey = "lastRunExitReason"
+  private static let lastRunSeenAtKey = "lastRunSeenAt"
+
   // Flag set when app is opened via notification tap - skips video intro
   static var pendingNotificationNavigationDestination: PendingNotificationNavigationDestination? =
     nil
@@ -67,7 +82,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // App opened (cold start)
-    AnalyticsService.shared.capture("app_opened", ["cold_start": true])
+    var openedProps: [String: Any] = ["cold_start": true]
+    openedProps.merge(previousRunProperties()) { _, new in new }
+    AnalyticsService.shared.capture("app_opened", openedProps)
+    markRunStarted()
 
     // Agent access: accept CLI/MCP writes if the user enabled edits, and fix
     // any MCP client config whose recorded path went stale (app was moved).
@@ -97,6 +115,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Check if we've passed the screen recording permission step
     let onboardingStep = OnboardingStepMigration.migrateIfNeeded()
     let didOnboard = UserDefaults.standard.bool(forKey: "didOnboard")
+
+    // People who onboarded before launch at login became the default get it turned on once.
+    // New users get it when they finish onboarding instead.
+    if didOnboard {
+      LaunchAtLoginManager.shared.enableByDefaultIfNeeded(source: "existing_user")
+    }
 
     // Seed recording flag low, then create recorder so the first
     // transition to true will reliably start capture.
@@ -186,7 +210,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       queue: .main
     ) { _ in
       MainActor.assumeIsolated {
-        AppDelegate.allowTermination = true
+        AppDelegate.permitTermination(reason: "power_off_or_logout")
       }
     }
 
@@ -320,8 +344,58 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       let stepName = OnboardingStep(rawValue: stepIdx)?.analyticsName ?? "unknown"
       AnalyticsService.shared.capture("onboarding_abandoned", ["last_step": stepName])
     }
-    AnalyticsService.shared.capture("app_terminated")
+    var terminatedProps: [String: Any] = ["reason": Self.terminationReason]
+    if let launch = appLaunchDate {
+      terminatedProps["session_hours"] = round(Date().timeIntervalSince(launch) / 360) / 10
+    }
+    AnalyticsService.shared.capture("app_terminated", terminatedProps)
     AnalyticsService.shared.flush()
+
+    let defaults = UserDefaults.standard
+    defaults.set(true, forKey: Self.lastRunCleanExitKey)
+    defaults.set(Self.terminationReason, forKey: Self.lastRunExitReasonKey)
+    defaults.set(Date(), forKey: Self.lastRunSeenAtKey)
+  }
+
+  // MARK: - Previous run
+
+  /// Describes how the last run ended, for `app_opened`:
+  /// - previous_exit: "clean" (went through normal quit), "unclean" (crash, force quit,
+  ///   power loss), or "first_run"
+  /// - previous_exit_reason: the quit reason when the exit was clean
+  /// - hours_since_previous_run: time since the last run was last seen alive
+  /// - system_uptime_minutes: a small number means the app opened right after the Mac
+  ///   started, which is how a launch-at-login start looks
+  private func previousRunProperties() -> [String: Any] {
+    let defaults = UserDefaults.standard
+    var props: [String: Any] = [
+      "system_uptime_minutes": Int(ProcessInfo.processInfo.systemUptime / 60)
+    ]
+
+    guard defaults.object(forKey: Self.lastRunCleanExitKey) != nil else {
+      props["previous_exit"] = "first_run"
+      return props
+    }
+
+    let wasClean = defaults.bool(forKey: Self.lastRunCleanExitKey)
+    props["previous_exit"] = wasClean ? "clean" : "unclean"
+    if wasClean {
+      props["previous_exit_reason"] =
+        defaults.string(forKey: Self.lastRunExitReasonKey) ?? "unknown"
+    }
+    if let lastSeen = defaults.object(forKey: Self.lastRunSeenAtKey) as? Date {
+      props["hours_since_previous_run"] = round(Date().timeIntervalSince(lastSeen) / 360) / 10
+    }
+    return props
+  }
+
+  /// Marks this run as in progress. If it never reaches applicationWillTerminate,
+  /// the next launch reports it as unclean.
+  private func markRunStarted() {
+    let defaults = UserDefaults.standard
+    defaults.set(false, forKey: Self.lastRunCleanExitKey)
+    defaults.removeObject(forKey: Self.lastRunExitReasonKey)
+    defaults.set(Date(), forKey: Self.lastRunSeenAtKey)
   }
 
   private func flushPendingDeepLinks() {
@@ -385,8 +459,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       }
     }
     props.merge(ScreenCaptureMonitor.shared.heartbeatPropertiesAndReset()) { _, new in new }
+    props["launch_at_login"] = LaunchAtLoginManager.shared.statusName
     AnalyticsService.shared.capture("app_heartbeat", props)
     flushReferralUsage(reason: "heartbeat")
+    // Re-read so the next heartbeat reflects changes made in System Settings.
+    LaunchAtLoginManager.shared.refreshStatusInBackground()
+    UserDefaults.standard.set(Date(), forKey: Self.lastRunSeenAtKey)
   }
 
   private func trackReferralUsageRecordingChange(enabled: Bool) {
