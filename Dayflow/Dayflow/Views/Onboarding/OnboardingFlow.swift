@@ -198,6 +198,7 @@ struct OnboardingFlow: View {
             // Create sample card BEFORE switching views (sync write)
             StorageManager.shared.createOnboardingCard()
             GettingStarted.begin()
+            LaunchAtLoginManager.shared.enableByDefaultIfNeeded(source: "onboarding")
 
             markStepCompleted(.completion)
             didOnboard = true
