@@ -1801,6 +1801,9 @@
         }
       }
     },
+    "%@ until your break ends." : {
+
+    },
     "%@ waiting to process" : {
 
     },
@@ -2651,6 +2654,9 @@
           }
         }
       }
+    },
+    "%lld minute break" : {
+
     },
     "%lld minutes" : {
       "localizations" : {
@@ -27097,7 +27103,7 @@
         }
       }
     },
-    "End the session" : {
+    "Ending early?" : {
 
     },
     "Endpoint" : {
@@ -29692,9 +29698,6 @@
 
     },
     "Flow session in progress" : {
-
-    },
-    "Flow session paused." : {
 
     },
     "Flow sessions sync with your Dayflow account." : {
@@ -33904,6 +33907,9 @@
         }
       }
     },
+    "How long will your break be?" : {
+
+    },
     "How many agents do you launch per day?" : {
       "localizations" : {
         "de" : {
@@ -36350,6 +36356,9 @@
           }
         }
       }
+    },
+    "Keep going" : {
+
     },
     "Keep in review" : {
       "comment" : "Retain a timeline card in the review queue.",
@@ -39262,6 +39271,9 @@
         }
       }
     },
+    "min" : {
+
+    },
     "Mins" : {
       "localizations" : {
         "de" : {
@@ -41705,9 +41717,6 @@
           }
         }
       }
-    },
-    "No nudges for 5 minutes" : {
-
     },
     "No observations were recorded for %@." : {
       "localizations" : {
@@ -51030,9 +51039,6 @@
     "Resume Dayflow to continue with the current session." : {
 
     },
-    "Resume the session" : {
-
-    },
     "Retries on its own" : {
 
     },
@@ -58080,9 +58086,6 @@
         }
       }
     },
-    "Take a break" : {
-
-    },
     "Take a look at what Dayflow picked up from your last few minutes of work." : {
       "localizations" : {
         "de" : {
@@ -58128,6 +58131,9 @@
           }
         }
       }
+    },
+    "Taking a break" : {
+
     },
     "Tap to open it in Daily view." : {
       "localizations" : {
@@ -69088,6 +69094,9 @@
           }
         }
       }
+    },
+    "You’ll earn fewer steps if you end now." : {
+
     },
     "You're all set" : {
       "localizations" : {

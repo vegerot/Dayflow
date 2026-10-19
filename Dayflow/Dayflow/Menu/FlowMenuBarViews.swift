@@ -3,8 +3,8 @@
 //  Dayflow
 //
 //  What the menu bar shows while a Flow session is on: the countdown pill that
-//  stands in for the status icon, and the illustrated session card at the top
-//  of the menu. Neither appears outside a session.
+//  stands in for the status icon, and the illustrated hero at the top of the
+//  menu. Neither appears outside a session.
 //
 
 import SwiftUI
@@ -105,11 +105,20 @@ struct FlowMenuBarPill: View {
   }
 }
 
-// MARK: - Session card
+// MARK: - Session hero
 
-/// The card at the top of the status menu. The design is drawn at a 156pt
-/// wide popover; `scale` brings it up to the width of a real menu.
-struct FlowMenuSessionCard: View {
+/// The countdown on the hero. The status bar controller's once-a-second timer
+/// runs in the common run loop modes, so it keeps ticking while the menu is open.
+@MainActor
+final class FlowMenuClock: ObservableObject {
+  @Published var label: String?
+}
+
+/// The illustrated header at the top of the status menu. The design is drawn
+/// at a 160pt wide menu; `scale` brings it up to the width of a real one.
+/// Break and End open their prompts in place, so the menu stays open until
+/// the user picks a break length or confirms the end.
+struct FlowMenuSessionHero: View {
   enum Mode: Equatable {
     case inProgress
     case onBreak
@@ -117,199 +126,402 @@ struct FlowMenuSessionCard: View {
     case dayflowPaused
   }
 
-  enum Control {
-    case pause
+  enum Control: Equatable {
+    case startBreak(minutes: Int)
     case resume
-    case snooze
-    case stop
+    case end
+  }
+
+  /// The designed states: the three in-session ones swap in place.
+  private enum Scene {
+    case session
+    case breakLength
+    case confirmEnd
+    case onBreak
+    case dayflowPaused
   }
 
   static let scale: CGFloat = 1.45
-  static let size = CGSize(width: 152 * scale, height: 48 * scale)
+  static let breakLengths = [5, 10, 15]
+
+  /// The break heroes are drawn 5pt shorter than the in-session ones.
+  static func size(for mode: Mode) -> CGSize {
+    CGSize(width: 160 * scale, height: (mode == .inProgress ? 95 : 90) * scale)
+  }
 
   let mode: Mode
+  @ObservedObject var clock: FlowMenuClock
   let onControl: (Control) -> Void
+
+  @State private var prompt: Scene = .session
+  @Environment(\.colorScheme) private var colorScheme
 
   private var s: CGFloat { Self.scale }
 
-  var body: some View {
-    ZStack(alignment: .topLeading) {
-      Color(red: 1, green: 0.976, blue: 0.961)
+  private var scene: Scene {
+    switch mode {
+    case .inProgress: return prompt
+    case .onBreak: return .onBreak
+    case .dayflowPaused: return .dayflowPaused
+    }
+  }
 
+  var body: some View {
+    let size = Self.size(for: mode)
+    ZStack(alignment: .topLeading) {
+      backdrop(size: size)
+      creature
+      content
+    }
+    .frame(width: size.width, height: size.height, alignment: .topLeading)
+    .clipped()
+  }
+
+  // MARK: Backdrop
+
+  private func backdrop(size: CGSize) -> some View {
+    let tall = mode == .inProgress
+    return ZStack(alignment: .topLeading) {
       CroppedArt(
         name: "FlowMenuEnvironment",
-        box: Self.size,
-        imageSize: CGSize(width: 220.3 * s, height: 146.86 * s),
-        imageOffset: CGSize(width: -61.68 * s, height: -33.78 * s))
+        box: size,
+        imageSize: tall
+          ? CGSize(width: 436.24 * s, height: 290.7 * s)
+          : CGSize(width: 413.05 * s, height: 275.4 * s),
+        imageOffset: tall
+          ? CGSize(width: -192.15 * s, height: -66.86 * s)
+          : CGSize(width: -177.65 * s, height: -63.34 * s))
 
-      // 147.33deg in the design, expressed as the same line across the card.
-      LinearGradient(
-        stops: tint,
-        startPoint: UnitPoint(x: 0.2826, y: -0.574), endPoint: UnitPoint(x: 0.7174, y: 1.574))
+      LinearGradient(stops: fade, startPoint: .top, endPoint: .bottom)
 
-      creature
+      streak(streakColors.0, width: 140, degrees: 8, center: CGPoint(x: 57.79, y: 36.64))
+      streak(streakColors.1, width: 120, degrees: -6, center: CGPoint(x: 120.82, y: 34.67))
 
-      Group {
-        if mode == .dayflowPaused {
-          pausedCopy
-        } else {
-          sessionControls
-        }
+      if scene == .onBreak || scene == .dayflowPaused {
+        stars
       }
-      .offset(x: 8.99 * s, y: (mode == .dayflowPaused ? 7 : 8) * s)
     }
-    .frame(width: Self.size.width, height: Self.size.height, alignment: .topLeading)
-    .clipShape(RoundedRectangle(cornerRadius: 13 * s, style: .continuous))
-    .shadow(color: .black.opacity(0.12), radius: 2.5, x: 0, y: 2)
+    .frame(width: size.width, height: size.height, alignment: .topLeading)
+    // The design fades to the white of its menu; the real menu is a material
+    // that can be dark, so the art fades out into it instead.
+    .mask(
+      LinearGradient(
+        stops: [.init(color: .black, location: 0.84), .init(color: .clear, location: 1)],
+        startPoint: .top, endPoint: .bottom))
   }
 
-  private var tint: [Gradient.Stop] {
+  private var fade: [Gradient.Stop] {
+    let end = colorScheme == .dark ? Color.clear : .white
     func stops(
-      _ a: (Double, Double, Double), _ b: (Double, Double, Double), _ c: (Double, Double, Double)
-    )
-      -> [Gradient.Stop]
-    {
+      _ a: (Double, Double, Double), _ b: (Double, Double, Double), at middle: Double,
+      _ c: (Double, Double, Double)
+    ) -> [Gradient.Stop] {
       [
-        .init(
-          color: Color(red: a.0 / 255, green: a.1 / 255, blue: a.2 / 255).opacity(0.96), location: 0
-        ),
-        .init(
-          color: Color(red: b.0 / 255, green: b.1 / 255, blue: b.2 / 255).opacity(0.82),
-          location: 0.46),
-        .init(
-          color: Color(red: c.0 / 255, green: c.1 / 255, blue: c.2 / 255).opacity(0.64), location: 1
-        ),
+        .init(color: rgb(a).opacity(0.94), location: 0),
+        .init(color: rgb(b).opacity(0.84), location: middle),
+        .init(color: rgb(c).opacity(0.62), location: 0.78),
+        .init(color: end, location: 1),
       ]
     }
-    switch mode {
-    case .inProgress: return stops((246, 155, 125), (195, 151, 162), (171, 218, 255))
-    case .onBreak: return stops((182, 165, 159), (196, 164, 171), (255, 255, 255))
-    case .dayflowPaused: return stops((164, 161, 160), (162, 157, 157), (255, 255, 255))
+    switch scene {
+    case .session:
+      return stops((255, 142, 114), (164, 184, 240), at: 0.35137, (210, 241, 252))
+    case .confirmEnd:
+      return stops((225, 82, 53), (249, 150, 96), at: 0.42, (251, 192, 154))
+    case .breakLength:
+      return stops((139, 157, 224), (147, 203, 238), at: 0.42, (216, 255, 244))
+    case .onBreak, .dayflowPaused:
+      return stops((142, 137, 166), (179, 173, 200), at: 0.42, (236, 232, 243))
     }
   }
+
+  private var streakColors: (Color, Color) {
+    switch scene {
+    case .session: return (rgb((255, 211, 194)).opacity(0.45), rgb((255, 179, 200)).opacity(0.4))
+    case .confirmEnd: return (rgb((255, 154, 90)).opacity(0.45), rgb((255, 107, 74)).opacity(0.4))
+    case .breakLength:
+      return (rgb((207, 227, 255)).opacity(0.45), rgb((226, 211, 255)).opacity(0.4))
+    case .onBreak, .dayflowPaused:
+      return (rgb((214, 208, 234)).opacity(0.45), rgb((194, 204, 230)).opacity(0.4))
+    }
+  }
+
+  /// A soft blurred ellipse of light across the sky.
+  private func streak(_ color: Color, width: CGFloat, degrees: Double, center: CGPoint)
+    -> some View
+  {
+    Ellipse()
+      .fill(color)
+      .frame(width: width * s, height: 22 * s)
+      .blur(radius: 7 * s)
+      .rotationEffect(.degrees(degrees))
+      .position(x: center.x * s, y: center.y * s)
+  }
+
+  private var stars: some View {
+    let stars: [(x: CGFloat, y: CGFloat, size: CGFloat, opacity: Double)] = [
+      (20, 8, 1, 0.8), (46, 22, 0.8, 0.6), (70, 6, 1.2, 0.9),
+      (96, 14, 0.8, 0.6), (122, 8, 1, 0.8), (146, 20, 0.8, 0.5),
+    ]
+    return ForEach(stars.indices, id: \.self) { index in
+      let star = stars[index]
+      Circle()
+        .fill(.white.opacity(star.opacity))
+        .frame(width: star.size * s, height: star.size * s)
+        .offset(x: star.x * s, y: star.y * s)
+    }
+  }
+
+  // MARK: Creature
 
   @ViewBuilder
   private var creature: some View {
-    switch mode {
-    case .inProgress:
-      MapPatch(
-        points: [
-          CGPoint(x: 17.985, y: 0.482), CGPoint(x: 4.272, y: 0), CGPoint(x: 1.515, y: 2.274),
-          CGPoint(x: 0, y: 9.509), CGPoint(x: 7.235, y: 12.059), CGPoint(x: 18.95, y: 10.405),
-        ],
-        size: CGSize(width: 18.95, height: 12.059)
+    switch scene {
+    case .session:
+      art(
+        "FlowMenuCreature", at: CGPoint(x: 111.98, y: 52.25),
+        box: CGSize(width: 52.618, height: 39.34),
+        image: CGSize(width: 89.319, height: 50.473), offset: CGSize(width: -14.433, height: -8.246)
       )
-      .fill(.white)
-      .frame(width: 18.95 * s, height: 12.059 * s)
-      .offset(x: 107.97 * s, y: 20.54 * s)
-
-      CroppedArt(
-        name: "FlowMenuCreature",
-        box: CGSize(width: 58.139 * s, height: 43.468 * s),
-        imageSize: CGSize(width: 98.69 * s, height: 55.77 * s),
-        imageOffset: CGSize(width: -15.95 * s, height: -9.11 * s)
+    case .confirmEnd:
+      art(
+        "FlowMenuCreatureMeh", at: CGPoint(x: 115.2, y: 52.81),
+        box: CGSize(width: 51.441, height: 40.124),
+        image: CGSize(width: 66.472, height: 50.307), offset: CGSize(width: -6.672, height: -4.791))
+    case .breakLength:
+      art(
+        "FlowMenuCreatureTea", at: CGPoint(x: 114, y: 52.72), box: CGSize(width: 52, height: 40),
+        image: CGSize(width: 92.102, height: 51.872), offset: CGSize(width: -17.046, height: -9.736)
       )
-      .offset(x: 98.43 * s, y: 8 * s)
-    case .onBreak:
-      CroppedArt(
-        name: "FlowMenuCreaturePaused",
-        box: CGSize(width: 61.193 * s, height: 47.193 * s),
-        imageSize: CGSize(width: 108.37 * s, height: 61.2 * s),
-        imageOffset: CGSize(width: -20.07 * s, height: -11.49 * s)
-      )
-      .offset(x: 100.82 * s, y: 7.18 * s)
-    case .dayflowPaused:
-      CroppedArt(
-        name: "FlowMenuCreatureAsleep",
-        box: CGSize(width: 63.793 * s, height: 38.323 * s),
-        imageSize: CGSize(width: 79.54 * s, height: 59.98 * s),
-        imageOffset: CGSize(width: -8.11 * s, height: -9.52 * s)
-      )
-      .offset(x: 97.1 * s, y: 9.68 * s)
+    case .onBreak, .dayflowPaused:
+      art(
+        "FlowMenuCreatureSleep", at: CGPoint(x: 101.4, y: 55.4),
+        box: CGSize(width: 53.474, height: 32.409),
+        image: CGSize(width: 66.677, height: 50.727), offset: CGSize(width: -6.802, height: -8.05))
     }
   }
 
-  private var sessionControls: some View {
-    VStack(alignment: .leading, spacing: 6 * s) {
-      Text(
-        mode == .onBreak
-          ? String(localized: "Flow session paused.")
-          : String(localized: "Flow session in progress")
-      )
-      .font(.system(size: 7 * s, weight: .semibold))
-      .foregroundStyle(.white)
-      .fixedSize()
+  private func art(
+    _ name: String, at origin: CGPoint, box: CGSize, image: CGSize, offset: CGSize
+  ) -> some View {
+    CroppedArt(
+      name: name,
+      box: CGSize(width: box.width * s, height: box.height * s),
+      imageSize: CGSize(width: image.width * s, height: image.height * s),
+      imageOffset: CGSize(width: offset.width * s, height: offset.height * s)
+    )
+    .offset(x: origin.x * s, y: origin.y * s)
+  }
 
-      HStack(spacing: 3 * s) {
-        if mode == .onBreak {
-          FrostButton(
-            icon: "FlowMenuPlay", help: String(localized: "Resume the session"), scale: s
-          ) { onControl(.resume) }
-        } else {
-          FrostButton(
-            icon: "FlowMenuPause", help: String(localized: "Take a break"), scale: s
-          ) { onControl(.pause) }
-        }
-        FrostButton(
-          icon: "FlowMenuSnooze", help: String(localized: "No nudges for 5 minutes"), scale: s
-        ) { onControl(.snooze) }
-        FrostButton(
-          icon: "FlowMenuStop", help: String(localized: "End the session"), scale: s
-        ) { onControl(.stop) }
+  // MARK: Copy and controls
+
+  @ViewBuilder
+  private var content: some View {
+    switch scene {
+    case .session:
+      VStack(alignment: .leading, spacing: 0) {
+        Text("Flow session in progress")
+          .font(.system(size: 7 * s, weight: .medium))
+          .tracking(0.56 * s)
+          .foregroundStyle(.white.opacity(0.72))
+        Text(verbatim: clock.label ?? "")
+          .font(.system(size: 22 * s, weight: .bold))
+          .tracking(-0.22 * s)
+          .foregroundStyle(.white)
+          .frame(height: 26 * s)
       }
+      .fixedSize()
+      .offset(x: 11 * s, y: 10 * s)
+
+      actions {
+        GlassPill(icon: "FlowMenuCoffee", title: String(localized: "Break"), scale: s) {
+          prompt = .breakLength
+        }
+        GlassPill(icon: "FlowMenuStop", title: String(localized: "End"), scale: s) {
+          prompt = .confirmEnd
+        }
+      }
+
+    case .confirmEnd:
+      VStack(alignment: .leading, spacing: 3 * s) {
+        title(String(localized: "Ending early?"))
+        Text("You’ll earn fewer steps if you end now.")
+          .font(.system(size: 7 * s, weight: .medium))
+          .lineSpacing(0.65 * s)
+          .foregroundStyle(.white.opacity(0.88))
+          // 84pt in the design; native text sets a touch wider, so this keeps
+          // the design's line break after "if".
+          .frame(width: 86 * s, alignment: .leading)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+      .offset(x: 11 * s, y: 10 * s)
+
+      actions {
+        GlassPill(
+          icon: "FlowMenuKeepGoing", iconSize: 9, title: String(localized: "Keep going"), scale: s
+        ) { prompt = .session }
+        GlassPill(icon: "FlowMenuStop", title: String(localized: "End"), scale: s) {
+          onControl(.end)
+        }
+      }
+
+    case .breakLength:
+      Text("How long will your break be?")
+        .font(.system(size: 9 * s, weight: .semibold))
+        .foregroundStyle(.white)
+        .fixedSize()
+        .offset(x: 10 * s, y: 10 * s)
+
+      HStack(spacing: 4 * s) {
+        ForEach(Self.breakLengths, id: \.self) { minutes in
+          BreakLengthChip(minutes: minutes, scale: s) { onControl(.startBreak(minutes: minutes)) }
+        }
+      }
+      .offset(x: 10 * s, y: 27.27 * s)
+
+      actions {
+        GlassPill(
+          icon: "FlowMenuKeepGoing", iconSize: 9, title: String(localized: "Keep going"), scale: s
+        ) { prompt = .session }
+      }
+
+    case .onBreak:
+      VStack(alignment: .leading, spacing: 1 * s) {
+        title(String(localized: "Taking a break"))
+        if let time = clock.label {
+          subtitle(String(localized: "\(time) until your break ends."))
+        }
+      }
+      .offset(x: 11 * s, y: 10 * s)
+
+      actions {
+        GlassPill(icon: "FlowMenuPlay", title: String(localized: "Resume"), scale: s) {
+          onControl(.resume)
+        }
+      }
+
+    case .dayflowPaused:
+      VStack(alignment: .leading, spacing: 1 * s) {
+        title(String(localized: "Dayflow is paused."))
+        subtitle(String(localized: "Resume Dayflow to continue with the current session."))
+          .frame(width: 96 * s, alignment: .leading)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+      .offset(x: 11 * s, y: 10 * s)
     }
   }
 
-  private var pausedCopy: some View {
-    VStack(alignment: .leading, spacing: 4 * s) {
-      Text("Dayflow is paused.")
-        .font(.system(size: 7 * s, weight: .semibold))
-      Text("Resume Dayflow to continue with the current session.")
-        .font(.system(size: 7 * s))
-        .fixedSize(horizontal: false, vertical: true)
-    }
-    .foregroundStyle(.white)
-    .frame(width: 88.1 * s, alignment: .leading)
+  private func title(_ text: String) -> some View {
+    Text(text)
+      .font(.system(size: 15 * s, weight: .bold))
+      .foregroundStyle(.white)
+      .frame(height: 18 * s)
+      .fixedSize()
+  }
+
+  private func subtitle(_ text: String) -> some View {
+    Text(text)
+      .font(.system(size: 7 * s, weight: .medium))
+      .foregroundStyle(.white.opacity(0.75))
+  }
+
+  private func actions<Buttons: View>(@ViewBuilder _ buttons: () -> Buttons) -> some View {
+    HStack(spacing: 4 * s) { buttons() }
+      .offset(x: 10 * s, y: 61.87 * s)
+  }
+
+  private func rgb(_ value: (Double, Double, Double)) -> Color {
+    Color(red: value.0 / 255, green: value.1 / 255, blue: value.2 / 255)
   }
 }
 
-/// The frosted glass buttons on the session card.
-private struct FrostButton: View {
+/// The frosted glass behind the hero's buttons.
+private struct FrostedGlass<GlassShape: InsettableShape>: View {
+  let shape: GlassShape
+  let hovering: Bool
+  let scale: CGFloat
+
+  var body: some View {
+    shape
+      .fill(Color(red: 43 / 255, green: 44 / 255, blue: 52 / 255).opacity(0.3))
+      .overlay(
+        shape.fill(
+          LinearGradient(
+            stops: [
+              .init(color: .white.opacity(0.3), location: 0),
+              .init(color: .white.opacity(0.12), location: 0.5),
+              .init(
+                color: Color(red: 226 / 255, green: 242 / 255, blue: 252 / 255).opacity(0.3),
+                location: 1),
+            ],
+            startPoint: .top, endPoint: .bottom))
+      )
+      .overlay(shape.fill(.white.opacity(hovering ? 0.18 : 0)))
+      .overlay(shape.strokeBorder(.white.opacity(0.66), lineWidth: 0.55 * scale))
+      .shadow(
+        color: Color(red: 227 / 255, green: 244 / 255, blue: 1).opacity(0.3), radius: 1 * scale)
+  }
+}
+
+/// A pill-shaped glass button with an icon and a label.
+private struct GlassPill: View {
   let icon: String
-  let help: String
+  var iconSize: CGFloat = 8
+  let title: String
   let scale: CGFloat
   let action: () -> Void
 
   @State private var hovering = false
 
   var body: some View {
-    let shape = RoundedRectangle(cornerRadius: 6 * scale, style: .continuous)
     Button(action: action) {
-      Image(icon)
-        .resizable()
-        .frame(width: 12 * scale, height: 12 * scale)
-        .padding(.horizontal, 7 * scale)
-        .padding(.vertical, 3 * scale)
-        .background(
-          LinearGradient(
-            stops: [
-              .init(color: .white.opacity(0.23), location: 0),
-              .init(color: .white.opacity(0.12), location: 0.5),
-              .init(
-                color: Color(red: 0.886, green: 0.949, blue: 0.988).opacity(0.18), location: 1),
-            ],
-            startPoint: .top, endPoint: .bottom)
-        )
-        .background(.white.opacity(hovering ? 0.18 : 0))
-        .clipShape(shape)
-        .overlay(shape.strokeBorder(.white.opacity(0.6), lineWidth: 0.55 * scale))
-        .shadow(color: Color(red: 0.89, green: 0.957, blue: 1).opacity(0.3), radius: 1)
-        .contentShape(shape)
+      HStack(spacing: 3 * scale) {
+        Image(icon)
+          .resizable()
+          .frame(width: iconSize * scale, height: iconSize * scale)
+        Text(title)
+          .font(.system(size: 7.5 * scale, weight: .semibold))
+          .foregroundStyle(.white)
+          .fixedSize()
+      }
+      .padding(.leading, 5.55 * scale)
+      .padding(.trailing, 7.55 * scale)
+      .frame(height: 20.1 * scale)
+      .background(FrostedGlass(shape: Capsule(), hovering: hovering, scale: scale))
+      .contentShape(Capsule())
     }
     .buttonStyle(.plain)
     .pointingHandCursor()
     .onHover { hovering = $0 }
-    .help(help)
-    .accessibilityLabel(help)
+  }
+}
+
+/// One of the round break length buttons.
+private struct BreakLengthChip: View {
+  let minutes: Int
+  let scale: CGFloat
+  let action: () -> Void
+
+  @State private var hovering = false
+
+  var body: some View {
+    Button(action: action) {
+      VStack(spacing: -3 * scale) {
+        Text(verbatim: "\(minutes)")
+          .font(.system(size: 12 * scale, weight: .bold))
+          .frame(height: 14 * scale)
+        Text("min")
+          .font(.system(size: 5.5 * scale, weight: .semibold))
+          .foregroundStyle(.white.opacity(0.75))
+      }
+      .foregroundStyle(.white)
+      .frame(width: 30 * scale, height: 30 * scale)
+      .background(FrostedGlass(shape: Circle(), hovering: hovering, scale: scale))
+      .contentShape(Circle())
+    }
+    .buttonStyle(.plain)
+    .pointingHandCursor()
+    .onHover { hovering = $0 }
+    .accessibilityLabel(String(localized: "\(minutes) minute break"))
   }
 }
