@@ -308,32 +308,22 @@ final class FlowSessionMirror: ObservableObject {
   }
 
   /// A session is running or on a break: the menu bar shows its Flow pill
-  /// and session card only while this holds.
+  /// and session hero only while this holds.
   var isSessionOn: Bool { snapshot.phase == .active || snapshot.phase == .onBreak }
 
-  /// Pause ("break"), resume and stop ("end") from the menu bar card. The web
-  /// UI owns sessions, so the press is relayed there; if the Flow page isn't
-  /// loaded there is nobody to act on it, and opening Flow is the next best thing.
-  func menuBarControl(_ action: String) {
-    AnalyticsService.shared.capture("flow_menu_bar_control", ["action": action])
+  /// Break, resume and end from the menu bar hero. The web UI owns sessions,
+  /// so the press is relayed there with the break length picked; if the Flow
+  /// page isn't loaded there is nobody to act on it, and opening Flow is the
+  /// next best thing.
+  func menuBarControl(_ action: String, minutes: Int? = nil) {
+    var payload: [String: Any] = ["action": action]
+    if let minutes { payload["minutes"] = minutes }
+    AnalyticsService.shared.capture("flow_menu_bar_control", payload)
     guard let webBridge else {
       openFlowTab()
       return
     }
-    webBridge.sendEvent("sessionControl", payload: ["action": action])
-  }
-
-  /// The menu bar card's snooze: no nudges for a while, without there having
-  /// been a nudge to answer.
-  func menuBarSnooze(minutes: Int) {
-    guard snapshot.phase == .active else { return }
-    AnalyticsService.shared.capture("flow_menu_bar_control", ["action": "snooze"])
-    snoozeUntil = Date().addingTimeInterval(TimeInterval(minutes * 60))
-    FlowDistractionAgent.shared.noteUserEvent(
-      "The user asked from the menu bar not to be nudged for \(minutes) minutes. Do not nudge until then unless they switch to something new."
-    )
-    if case .nudge = overlay { overlay = .hidden }
-    armDeadlineTimer()
+    webBridge.sendEvent("sessionControl", payload: payload)
   }
 
   // MARK: - Deadlines
