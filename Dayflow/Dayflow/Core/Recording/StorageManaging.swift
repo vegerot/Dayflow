@@ -31,6 +31,9 @@ protocol StorageManaging: Sendable {
   func fetchTimelineCards(forBatch batchId: Int64) -> [TimelineCard]
   func fetchTimelineCard(byId id: Int64) -> TimelineCardWithTimestamps?
   func fetchLastTimelineCard(endingBefore: Date) -> TimelineCardWithTimestamps?
+  func saveIdleBatchCard(
+    _ card: TimelineCardShell, startTs: Int, endTs: Int, batchId: Int64, extendingCardId: Int64?
+  ) -> (cardId: Int64?, deletedVideoPaths: [String])
 
   // Timeline Queries
   func fetchTimelineCards(forDay day: String) -> [TimelineCard]

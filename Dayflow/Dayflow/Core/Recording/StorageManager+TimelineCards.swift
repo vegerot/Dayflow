@@ -899,6 +899,62 @@ extension StorageManager {
     }
   }
 
+  /// Writes an idle batch's card without touching other batches' cards. The only cards removed
+  /// are this batch's own earlier ones: an error card from a failed attempt, or output from an
+  /// earlier run. With `extendingCardId`, that previous idle card is stretched to `endTs`
+  /// instead of adding a new card.
+  func saveIdleBatchCard(
+    _ card: TimelineCardShell, startTs: Int, endTs: Int, batchId: Int64, extendingCardId: Int64?
+  ) -> (cardId: Int64?, deletedVideoPaths: [String]) {
+    let metadata = TimelineMetadata(
+      distractions: nil, appSites: nil, isBackupGenerated: nil, idle: card.idleMetadata)
+    let metadataString = (try? JSONEncoder().encode(metadata)).flatMap {
+      String(data: $0, encoding: .utf8)
+    }
+    let startDate = Date(timeIntervalSince1970: TimeInterval(startTs))
+    let (dayString, _, _) = startDate.getDayInfoFor4AMBoundary()
+
+    var cardId: Int64?
+    var videoPaths: [String] = []
+    try? timedWrite("saveIdleBatchCard") { db in
+      videoPaths = try String.fetchAll(
+        db,
+        sql: """
+              SELECT video_summary_url FROM timeline_cards
+              WHERE batch_id = ? AND is_deleted = 0 AND video_summary_url IS NOT NULL
+          """, arguments: [batchId])
+      try db.execute(
+        sql: "UPDATE timeline_cards SET is_deleted = 1 WHERE batch_id = ? AND is_deleted = 0",
+        arguments: [batchId])
+
+      if let extendingCardId {
+        try db.execute(
+          sql: """
+                UPDATE timeline_cards
+                SET end = ?, end_ts = ?, metadata = ?
+                WHERE id = ? AND is_deleted = 0
+            """,
+          arguments: [card.endTimestamp, endTs, metadataString, extendingCardId])
+        cardId = db.changesCount > 0 ? extendingCardId : nil
+      } else {
+        try db.execute(
+          sql: """
+                INSERT INTO timeline_cards(
+                    batch_id, start, end, start_ts, end_ts, day, title,
+                    summary, category, subcategory, detailed_summary, metadata
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+          arguments: [
+            batchId, card.startTimestamp, card.endTimestamp, startTs, endTs, dayString, card.title,
+            card.summary, card.category, card.subcategory, card.detailedSummary, metadataString,
+          ])
+        cardId = db.lastInsertedRowID
+      }
+    }
+    return (cardId, videoPaths)
+  }
+
   func replaceTimelineCardsInRange(
     from: Date, to: Date, with newCards: [TimelineCardShell], batchId: Int64
   ) -> (insertedIds: [Int64], deletedVideoPaths: [String]) {
