@@ -902,8 +902,25 @@ extension StorageManager {
   func replaceTimelineCardsInRange(
     from: Date, to: Date, with newCards: [TimelineCardShell], batchId: Int64
   ) -> (insertedIds: [Int64], deletedVideoPaths: [String]) {
+    replaceTimelineCardsInRange(
+      from: from, to: to, with: newCards, batchId: batchId,
+      keepingNewerBatchesCardsStartingAfter: nil)
+  }
+
+  /// Soft-deletes the cards in the range and inserts the new ones.
+  ///
+  /// Pass `keepingNewerBatchesCardsStartingAfter` (this batch's start) when the caller never
+  /// showed its model the cards of newer batches, which happens when this batch finishes after a
+  /// newer one, such as a retry. Cards from batches that started later and that begin after that
+  /// moment then stay, even where clock times rounded to the minute make them overlap the range.
+  func replaceTimelineCardsInRange(
+    from: Date, to: Date, with newCards: [TimelineCardShell], batchId: Int64,
+    keepingNewerBatchesCardsStartingAfter keepAfter: Date?
+  ) -> (insertedIds: [Int64], deletedVideoPaths: [String]) {
     let fromTs = Int(from.timeIntervalSince1970)
     let toTs = Int(to.timeIntervalSince1970)
+    // Without a cutoff, the far-future default keeps nothing back.
+    let keepAfterTs = keepAfter.map { Int($0.timeIntervalSince1970) } ?? Int.max
 
     let encoder = JSONEncoder()
     var insertedIds: [Int64] = []
@@ -926,7 +943,9 @@ extension StorageManager {
                  AND video_summary_url IS NOT NULL
                  AND is_deleted = 0
                  AND (category != 'System' OR batch_id = ?)
-          """, arguments: [toTs, fromTs, fromTs, toTs, batchId])
+                 AND NOT (start_ts > ? AND COALESCE(batch_id, -1) IN (
+                   SELECT id FROM analysis_batches WHERE batch_start_ts > ?))
+          """, arguments: [toTs, fromTs, fromTs, toTs, batchId, keepAfterTs, keepAfterTs])
 
       videoPaths = videoRows.compactMap { $0["video_summary_url"] as? String }
 
@@ -939,7 +958,9 @@ extension StorageManager {
                  OR (start_ts >= ? AND start_ts < ?))
                  AND is_deleted = 0
                  AND (category != 'System' OR batch_id = ?)
-          """, arguments: [toTs, fromTs, fromTs, toTs, batchId])
+                 AND NOT (start_ts > ? AND COALESCE(batch_id, -1) IN (
+                   SELECT id FROM analysis_batches WHERE batch_start_ts > ?))
+          """, arguments: [toTs, fromTs, fromTs, toTs, batchId, keepAfterTs, keepAfterTs])
 
       for _ in cardsToDelete {
         // Cards being deleted - no-op needed, just iterating to trigger side effects
@@ -955,7 +976,9 @@ extension StorageManager {
                  OR (start_ts >= ? AND start_ts < ?))
                  AND is_deleted = 0
                  AND (category != 'System' OR batch_id = ?)
-          """, arguments: [toTs, fromTs, fromTs, toTs, batchId])
+                 AND NOT (start_ts > ? AND COALESCE(batch_id, -1) IN (
+                   SELECT id FROM analysis_batches WHERE batch_start_ts > ?))
+          """, arguments: [toTs, fromTs, fromTs, toTs, batchId, keepAfterTs, keepAfterTs])
 
       // Verify soft deletion (count remaining active cards)
       let remainingCount =
