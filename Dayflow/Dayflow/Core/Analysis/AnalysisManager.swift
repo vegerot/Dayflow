@@ -831,14 +831,23 @@ final class AnalysisManager: AnalysisManaging {
     }
 
     let batchStart = first.capturedDate
-    let batchEnd = last.capturedDate
 
-    let mergeCandidate = mergeCandidateForIdleBatch(startingAt: batchStart)
+    // Card times are whole minutes, matching the "h:mm a" strings shown on the card.
+    let previousCard = store.fetchTimelineCardEndingLast(
+      startingBefore: batchStart, excludingBatchId: batchId)
+    let mergeCandidate = previousCard.flatMap { idleMergeCandidate($0, batchStart: batchStart) }
     let mergeGapSeconds = mergeCandidate.map { max(0, first.capturedAt - $0.endTs) }
-    let replacementStart =
-      mergeCandidate.map {
-        Date(timeIntervalSince1970: TimeInterval($0.startTs))
-      } ?? batchStart
+    let cardEndTs = flooredToMinute(last.capturedAt)
+    // A new idle card starts where the previous card ends, so a real activity card keeps
+    // the minute they would otherwise share.
+    let cardStartTs =
+      mergeCandidate?.startTs
+      ?? max(flooredToMinute(first.capturedAt), previousCard?.endTs ?? 0)
+    guard cardEndTs > cardStartTs else {
+      return false
+    }
+    let cardStart = Date(timeIntervalSince1970: TimeInterval(cardStartTs))
+
     let idleMetadata = IdleCardMetadata(
       classifierVersion: assessment.classifierVersion,
       inputCoverageRatio: assessment.coverageRatio,
@@ -855,18 +864,20 @@ final class AnalysisManager: AnalysisManaging {
     )
 
     let idleCard = IdleBatchClassifier.makeIdleCard(
-      from: replacementStart,
-      to: batchEnd,
+      from: cardStart,
+      to: Date(timeIntervalSince1970: TimeInterval(cardEndTs)),
       metadata: idleMetadata
     )
-    let (insertedCardIds, deletedVideoPaths) = store.replaceTimelineCardsInRange(
-      from: replacementStart,
-      to: batchEnd,
-      with: [idleCard],
-      batchId: batchId
+    // Only this batch's own earlier cards are removed; other batches' cards are never touched.
+    let (savedCardId, deletedVideoPaths) = store.saveIdleBatchCard(
+      idleCard,
+      startTs: cardStartTs,
+      endTs: cardEndTs,
+      batchId: batchId,
+      extendingCardId: mergeCandidate?.id
     )
 
-    guard insertedCardIds.isEmpty == false else {
+    guard let savedCardId else {
       AnalyticsService.shared.capture(
         "analysis_batch_idle_shortcut_persist_failed",
         [
@@ -887,18 +898,15 @@ final class AnalysisManager: AnalysisManaging {
     StorageManager.shared.updateBatch(batchId, status: "analyzed", reason: "idle_shortcut_applied")
     StorageManager.shared.checkpoint(mode: .passive)
 
-    let cardStartTs = Int(replacementStart.timeIntervalSince1970)
-    let cardEndTs = Int(batchEnd.timeIntervalSince1970)
-
     var analyticsProps: [String: Any] = [
       "batch_id": Int(truncatingIfNeeded: batchId),
-      "card_id": Int(truncatingIfNeeded: insertedCardIds[0]),
+      "card_id": Int(truncatingIfNeeded: savedCardId),
       "card_title": idleCard.title,
       "card_category": idleCard.category,
       "card_start_ts": cardStartTs,
       "card_end_ts": cardEndTs,
       "card_duration_seconds": max(0, cardEndTs - cardStartTs),
-      "card_day": replacementStart.getDayInfoFor4AMBoundary().dayString,
+      "card_day": cardStart.getDayInfoFor4AMBoundary().dayString,
       "batch_duration_seconds": assessment.batchDurationSeconds,
       "batch_start_ts": first.capturedAt,
       "batch_end_ts": last.capturedAt,
@@ -929,17 +937,14 @@ final class AnalysisManager: AnalysisManaging {
     return true
   }
 
-  private func mergeCandidateForIdleBatch(startingAt batchStart: Date)
+  /// The previous card, if it's an idle card this batch should extend instead of adding a new one.
+  /// The gap can be negative when the previous card's end was rounded up past the batch start.
+  private func idleMergeCandidate(_ previousCard: TimelineCardWithTimestamps, batchStart: Date)
     -> TimelineCardWithTimestamps?
   {
-    guard let previousCard = store.fetchLastTimelineCard(endingBefore: batchStart) else {
-      return nil
-    }
-
     let batchDay = batchStart.getDayInfoFor4AMBoundary().dayString
     let gapSeconds = Int(batchStart.timeIntervalSince1970) - previousCard.endTs
     guard
-      gapSeconds >= 0,
       gapSeconds < IdleBatchRules.mergeGapSeconds,
       previousCard.day == batchDay,
       normalizedIdleValue(previousCard.category) == "idle",
@@ -949,6 +954,10 @@ final class AnalysisManager: AnalysisManaging {
     }
 
     return previousCard
+  }
+
+  private func flooredToMinute(_ timestamp: Int) -> Int {
+    timestamp - timestamp % 60
   }
 
   private func normalizedIdleValue(_ value: String) -> String {

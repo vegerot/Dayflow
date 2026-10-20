@@ -846,23 +846,28 @@ extension StorageManager {
     }
   }
 
-  func fetchLastTimelineCard(endingBefore: Date) -> TimelineCardWithTimestamps? {
+  /// The card right before a batch: of the cards that start before it, the one ending last.
+  /// Its end can fall after the batch's start, because card times are rounded to the minute.
+  func fetchTimelineCardEndingLast(startingBefore: Date, excludingBatchId: Int64)
+    -> TimelineCardWithTimestamps?
+  {
     let decoder = JSONDecoder()
-    let beforeTs = Int(endingBefore.timeIntervalSince1970)
+    let beforeTs = Int(startingBefore.timeIntervalSince1970)
 
-    return try? timedRead("fetchLastTimelineCard(endingBefore:)") { db in
+    return try? timedRead("fetchTimelineCardEndingLast(startingBefore:)") { db in
       guard
         let row = try Row.fetchOne(
           db,
           sql: """
                 SELECT *
                 FROM timeline_cards
-                WHERE end_ts <= ?
+                WHERE start_ts < ?
+                  AND batch_id IS NOT ?
                   AND is_deleted = 0
                 ORDER BY end_ts DESC, id DESC
                 LIMIT 1
             """,
-          arguments: [beforeTs]
+          arguments: [beforeTs, excludingBatchId]
         )
       else {
         return nil
