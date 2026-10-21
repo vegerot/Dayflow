@@ -53,41 +53,167 @@ final class ClaudeActivityCardBoundaryTests: XCTestCase {
     XCTAssertFalse(prompt.contains("WHEN TO SPLIT (new card)"))
   }
 
-  func testFreshClaudeSegmentReplacesOnlyCurrentBatchRange() {
-    let batchStart = Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 9, minute: 15)))
-    let windowStart = batchStart.addingTimeInterval(-45 * 60)
+  func testFreshSegmentAfterGapRewritesOnlyCurrentBatch() {
+    // Issue #399: cards before a capture gap must survive the next batch's rewrite.
+    let currentObservation = observation(
+      batchId: 82,
+      start: localTimestamp(hour: 16, minute: 26) + 38,
+      end: localTimestamp(hour: 16, minute: 41) + 38,
+      text: "Current work"
+    )
+    let context = generationContext(
+      batchObservations: [currentObservation],
+      existingCards: [
+        card(start: "3:13 PM", end: "4:05 PM", title: "Before the gap"),
+        card(start: "4:05 PM", end: "4:19 PM", title: "Just before the gap"),
+      ],
+      hasPreviousCardWithinFiveMinutes: false
+    )
+
+    let plan = provider.makeClaudeCardGenerationPlan(
+      observations: [currentObservation],
+      context: context
+    )
+
+    XCTAssertEqual(plan.rewriteSpan, currentObservation.startTs..<currentObservation.endTs)
+    let windowStart = Date(timeIntervalSince1970: TimeInterval(currentObservation.endTs - 45 * 60))
+    let range = LLMService.cardReplacementRange(
+      rewriteSpan: plan.rewriteSpan,
+      windowStartTime: windowStart,
+      batchEndTime: Date(timeIntervalSince1970: TimeInterval(currentObservation.endTs))
+    )
+    // The card ending at 4:19 PM ends before the replaced range begins.
+    XCTAssertGreaterThan(
+      range.from,
+      Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 16, minute: 19)))
+    )
+  }
+
+  func testConnectedSegmentRewritesFromStartOfConnectedCards() {
+    let currentObservation = observation(
+      batchId: 2,
+      start: localTimestamp(hour: 9, minute: 15),
+      end: localTimestamp(hour: 9, minute: 30),
+      text: "Current work"
+    )
+    let context = generationContext(
+      batchObservations: [currentObservation],
+      existingCards: [
+        card(start: "8:00 AM", end: "8:20 AM", title: "Disconnected"),
+        card(start: "9:00 AM", end: "9:15 AM", title: "Connected"),
+      ],
+      hasPreviousCardWithinFiveMinutes: true
+    )
+
+    let plan = provider.makeClaudeCardGenerationPlan(
+      observations: [currentObservation],
+      context: context
+    )
 
     XCTAssertEqual(
-      LLMService.cardReplacementStartTime(
-        activeProviderID: .claude,
-        generatedCards: [
-          card(start: "9:15 AM", end: "9:30 AM", title: "Fresh card")
-        ],
-        batchStartTime: batchStart,
-        windowStartTime: windowStart
-      ),
-      batchStart
+      plan.rewriteSpan,
+      localTimestamp(hour: 9, minute: 0)..<localTimestamp(hour: 9, minute: 30)
     )
+  }
+
+  func testProvidersShownWholeWindowReplaceWholeWindow() {
+    let windowStart = Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 8, minute: 45)))
+    let batchEnd = Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 9, minute: 30)))
+
+    let range = LLMService.cardReplacementRange(
+      rewriteSpan: nil,
+      windowStartTime: windowStart,
+      batchEndTime: batchEnd
+    )
+
+    XCTAssertEqual(range.from, windowStart)
+    XCTAssertEqual(range.to, batchEnd)
+  }
+
+  func testReplacementRangeIsTheReportedRewriteSpan() {
+    let span = localTimestamp(hour: 9, minute: 0)..<localTimestamp(hour: 9, minute: 30)
+
+    let range = LLMService.cardReplacementRange(
+      rewriteSpan: span,
+      windowStartTime: Date(
+        timeIntervalSince1970: TimeInterval(localTimestamp(hour: 8, minute: 45))),
+      batchEndTime: Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 9, minute: 30)))
+    )
+
+    XCTAssertEqual(range.from, Date(timeIntervalSince1970: TimeInterval(span.lowerBound)))
+    XCTAssertEqual(range.to, Date(timeIntervalSince1970: TimeInterval(span.upperBound)))
+  }
+
+  func testOneStepWindowAfterGapIgnoresCardEndingBeforeTheGap() {
+    // One-step Codex and Claude plan with the frames' window: minute-floored start,
+    // end rounded up to the next minute.
+    let window = observation(
+      batchId: 82,
+      start: localTimestamp(hour: 16, minute: 26),
+      end: localTimestamp(hour: 16, minute: 42),
+      text: ""
+    )
+    let context = generationContext(
+      batchObservations: [window],
+      existingCards: [card(start: "4:05 PM", end: "4:19 PM", title: "Before the gap")],
+      hasPreviousCardWithinFiveMinutes: true
+    )
+
+    let plan = provider.makeClaudeCardGenerationPlan(observations: [window], context: context)
+
+    XCTAssertTrue(plan.context.existingCards.isEmpty)
+    XCTAssertEqual(plan.rewriteSpan, window.startTs..<window.endTs)
+  }
+
+  func testOneStepWindowConnectsCardEndingWithinOneMinute() {
+    let window = observation(
+      batchId: 82,
+      start: localTimestamp(hour: 16, minute: 26),
+      end: localTimestamp(hour: 16, minute: 42),
+      text: ""
+    )
+    let context = generationContext(
+      batchObservations: [window],
+      existingCards: [card(start: "4:05 PM", end: "4:25 PM", title: "Just before")],
+      hasPreviousCardWithinFiveMinutes: true
+    )
+
+    let plan = provider.makeClaudeCardGenerationPlan(observations: [window], context: context)
+
+    XCTAssertEqual(plan.context.existingCards.map(\.title), ["Just before"])
     XCTAssertEqual(
-      LLMService.cardReplacementStartTime(
-        activeProviderID: .claude,
-        generatedCards: [
-          card(start: "9:00 AM", end: "9:30 AM", title: "Connected rewrite")
-        ],
-        batchStartTime: batchStart,
-        windowStartTime: windowStart
-      ),
-      Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 9, minute: 0)))
+      plan.rewriteSpan,
+      localTimestamp(hour: 16, minute: 5)..<localTimestamp(hour: 16, minute: 42)
     )
-    XCTAssertEqual(
-      LLMService.cardReplacementStartTime(
-        activeProviderID: .chatGPT,
-        generatedCards: [],
-        batchStartTime: batchStart,
-        windowStartTime: windowStart
-      ),
-      windowStart
+  }
+
+  func testLateBatchIsNotShownNewerBatchCard() {
+    // Issue #366: an earlier batch finishes after the next batch already wrote its card. The
+    // newer card starts at a rounded-down minute inside this span, so storage keeps it by its
+    // batch, not by this span.
+    let currentObservation = observation(
+      batchId: 809,
+      start: localTimestamp(hour: 23, minute: 25) + 43,
+      end: localTimestamp(hour: 23, minute: 40) + 52,
+      text: "Late batch"
     )
+    let context = generationContext(
+      batchObservations: [currentObservation],
+      existingCards: [
+        card(start: "10:55 PM", end: "11:25 PM", title: "Connected"),
+        card(start: "11:40 PM", end: "11:55 PM", title: "Newer batch"),
+      ],
+      hasPreviousCardWithinFiveMinutes: true
+    )
+
+    let plan = provider.makeClaudeCardGenerationPlan(
+      observations: [currentObservation],
+      context: context
+    )
+
+    XCTAssertEqual(plan.context.existingCards.map(\.title), ["Connected"])
+    XCTAssertEqual(plan.rewriteSpan?.lowerBound, localTimestamp(hour: 22, minute: 55))
+    XCTAssertGreaterThan(plan.rewriteSpan?.upperBound ?? 0, localTimestamp(hour: 23, minute: 40))
   }
 
   func testOngoingSegmentUsesOnlyHistoryConnectedToCurrentBatch() {
@@ -187,14 +313,8 @@ final class ClaudeActivityCardBoundaryTests: XCTestCase {
       ).isValid
     )
     XCTAssertEqual(
-      LLMService.cardReplacementEndTime(
-        activeProviderID: .claude,
-        generatedCards: rewrittenCards,
-        batchEndTime: Date(
-          timeIntervalSince1970: TimeInterval(localTimestamp(hour: 9, minute: 30))
-        )
-      ),
-      Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 9, minute: 45)))
+      plan.rewriteSpan,
+      localTimestamp(hour: 9, minute: 0)..<localTimestamp(hour: 9, minute: 45)
     )
   }
 
