@@ -21,6 +21,10 @@ struct ClaudeCardGenerationPlan {
   let allowsSingleShortCard: Bool
   let expectedStartTime: String?
   let expectedEndTime: String?
+  /// The stretch of timeline, in Unix seconds, that the cards replace: the connected cards the
+  /// model was shown plus the new observations. Older, disconnected cards fall outside it.
+  /// nil only when there are no current observations, which replaces the whole window.
+  let rewriteSpan: Range<Int>?
 }
 
 extension ClaudeProvider {
@@ -34,7 +38,7 @@ extension ClaudeProvider {
 
   func generateActivityCards(
     observations: [Observation], context: ActivityGenerationContext, batchId: Int64?
-  ) async throws -> (cards: [ActivityCardData], log: LLMCall) {
+  ) async throws -> (cards: [ActivityCardData], rewriteSpan: Range<Int>?, log: LLMCall) {
     let callStart = Date()
     let generationPlan = makeClaudeCardGenerationPlan(
       observations: observations,
@@ -119,7 +123,7 @@ extension ClaudeProvider {
           input: currentPrompt,
           output: currentRun.stdout
         )
-        return (cards, llmCall)
+        return (cards, generationPlan.rewriteSpan, llmCall)
       }
 
       throw ClaudeCardGenerationError.empty
@@ -284,15 +288,19 @@ extension TimelineOutputSupporting {
         requiresSingleCard: false,
         allowsSingleShortCard: false,
         expectedStartTime: formatTimestampForPrompt(relevantStart),
-        expectedEndTime: formatTimestampForPrompt(relevantEnd)
+        expectedEndTime: formatTimestampForPrompt(relevantEnd),
+        rewriteSpan: relevantStart..<relevantEnd
       )
     }
 
     let allowsSingleShortCard: Bool
+    let freshSpan: Range<Int>?
     if let firstStart, let lastEnd {
       allowsSingleShortCard = lastEnd - firstStart < 10 * 60
+      freshSpan = firstStart..<max(firstStart, lastEnd)
     } else {
       allowsSingleShortCard = false
+      freshSpan = nil
     }
     let freshContext = ActivityGenerationContext(
       batchObservations: currentObservations,
@@ -308,7 +316,8 @@ extension TimelineOutputSupporting {
       requiresSingleCard: true,
       allowsSingleShortCard: allowsSingleShortCard,
       expectedStartTime: firstStart.map { formatTimestampForPrompt($0) },
-      expectedEndTime: lastEnd.map { formatTimestampForPrompt($0) }
+      expectedEndTime: lastEnd.map { formatTimestampForPrompt($0) },
+      rewriteSpan: freshSpan
     )
   }
 }

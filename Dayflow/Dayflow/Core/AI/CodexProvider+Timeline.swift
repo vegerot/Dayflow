@@ -16,7 +16,9 @@ extension CodexProvider {
   /// lines so recaps and chat keep their per-batch record.
   func generateTimeline(
     screenshots: [Screenshot], context: ActivityGenerationContext, batchId: Int64?
-  ) async throws -> (cards: [ActivityCardData], observations: [Observation], log: LLMCall) {
+  ) async throws -> (
+    cards: [ActivityCardData], observations: [Observation], rewriteSpan: Range<Int>?, log: LLMCall
+  ) {
     guard !screenshots.isEmpty else {
       throw NSError(
         domain: "ChatCLI", code: -96,
@@ -127,7 +129,7 @@ extension CodexProvider {
             responseHeaders: tokenHeaders(from: run.usage))
           let llmCall = makeLLMCall(
             start: callStart, end: run.finishedAt, input: currentPrompt, output: run.stdout)
-          return (cards, observations, llmCall)
+          return (cards, observations, plan.rewriteSpan, llmCall)
         } catch {
           if error is CancellationError { throw error }
           if currentAttempt < Self.timelineMaxAttempts,

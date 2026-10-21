@@ -103,20 +103,39 @@ final class LLMService: LLMServicing {
     label: "com.dayflow.timelineFailureToastThrottle"
   )
 
+  /// Card generators report `rewriteSpan`, the stretch of timeline (Unix seconds) their cards
+  /// replace. nil means the whole lookback window is replaced, as for providers that are shown
+  /// every card in it.
+  private typealias ActivityCardsGenerator =
+    ([Observation], ActivityGenerationContext, Int64?) async throws -> (
+      cards: [ActivityCardData], rewriteSpan: Range<Int>?, log: LLMCall
+    )
+
   private struct BatchProviderActions {
     let transcribeScreenshots:
       ([Screenshot], Date, Int64?) async throws -> (observations: [Observation], log: LLMCall)
-    let generateActivityCards:
-      ([Observation], ActivityGenerationContext, Int64?) async throws -> (
-        cards: [ActivityCardData], log: LLMCall
-      )
+    let generateActivityCards: ActivityCardsGenerator
     /// Screenshots straight to cards in one call. Only providers that support it set this.
     var generateTimeline:
       (
         ([Screenshot], ActivityGenerationContext, Int64?) async throws -> (
-          cards: [ActivityCardData], observations: [Observation], log: LLMCall
+          cards: [ActivityCardData], observations: [Observation], rewriteSpan: Range<Int>?,
+          log: LLMCall
         )
       )? = nil
+  }
+
+  /// Adapts a provider whose cards rewrite the whole lookback window.
+  private static func rewritingWholeWindow(
+    _ generate:
+      @escaping ([Observation], ActivityGenerationContext, Int64?) async throws -> (
+        cards: [ActivityCardData], log: LLMCall
+      )
+  ) -> ActivityCardsGenerator {
+    { observations, context, batchId in
+      let result = try await generate(observations, context, batchId)
+      return (result.cards, nil, result.log)
+    }
   }
 
   private struct TextProviderActions {
@@ -232,7 +251,8 @@ final class LLMService: LLMServicing {
                 screenshots, batchStartTime: batchStartTime, batchId: batchId)
             }
           },
-          generateActivityCards: { [weak self] observations, context, batchId in
+          generateActivityCards: Self.rewritingWholeWindow {
+            [weak self] observations, context, batchId in
             if fallbackState.preferGemma, let gemmaProvider {
               fallbackState.usedGemmaForCardGeneration = true
               return try await gemmaProvider.generateActivityCards(
@@ -262,8 +282,13 @@ final class LLMService: LLMServicing {
       return (
         actions: BatchProviderActions(
           transcribeScreenshots: provider.transcribeScreenshots,
-          generateActivityCards: provider.generateActivityCards,
-          generateTimeline: provider.generateTimeline
+          generateActivityCards: Self.rewritingWholeWindow(provider.generateActivityCards),
+          // The backend is shown every card in the window, like rewritingWholeWindow providers.
+          generateTimeline: { screenshots, context, batchId in
+            let result = try await provider.generateTimeline(
+              screenshots: screenshots, context: context, batchId: batchId)
+            return (result.cards, result.observations, nil, result.log)
+          }
         ), fallbackState: nil
       )
     case .local:
@@ -271,7 +296,7 @@ final class LLMService: LLMServicing {
       return (
         actions: BatchProviderActions(
           transcribeScreenshots: provider.transcribeScreenshots,
-          generateActivityCards: provider.generateActivityCards
+          generateActivityCards: Self.rewritingWholeWindow(provider.generateActivityCards)
         ), fallbackState: nil
       )
     case .openAICompatible:
@@ -279,7 +304,7 @@ final class LLMService: LLMServicing {
       return (
         actions: BatchProviderActions(
           transcribeScreenshots: provider.transcribeScreenshots,
-          generateActivityCards: provider.generateActivityCards
+          generateActivityCards: Self.rewritingWholeWindow(provider.generateActivityCards)
         ), fallbackState: nil
       )
     case .chatGPT:
@@ -287,7 +312,7 @@ final class LLMService: LLMServicing {
       return (
         actions: BatchProviderActions(
           transcribeScreenshots: provider.transcribeScreenshots,
-          generateActivityCards: provider.generateActivityCards,
+          generateActivityCards: Self.rewritingWholeWindow(provider.generateActivityCards),
           generateTimeline: provider.generateTimeline
         ), fallbackState: nil
       )
@@ -606,41 +631,18 @@ final class LLMService: LLMServicing {
     .standard
   }
 
-  static func cardReplacementStartTime(
-    activeProviderID: LLMProviderID,
-    generatedCards: [ActivityCardData],
-    batchStartTime: Date,
-    windowStartTime: Date
-  ) -> Date {
-    guard activeProviderID == .claude else { return windowStartTime }
-    guard let firstCard = generatedCards.first,
-      let interval = try? ClaudeOutputValidator.resolveActivityCardInterval(
-        firstCard,
-        nearest: Int(batchStartTime.timeIntervalSince1970)
-      )
-    else {
-      return batchStartTime
-    }
-    return Date(timeIntervalSince1970: TimeInterval(interval.lowerBound))
-  }
-
-  static func cardReplacementEndTime(
-    activeProviderID: LLMProviderID,
-    generatedCards: [ActivityCardData],
+  /// The stretch of timeline a batch's new cards replace. Providers that were shown only the
+  /// cards connected to this batch report the span they rewrote; the rest rewrote the whole
+  /// lookback window, so every card in it is replaced.
+  static func cardReplacementRange(
+    rewriteSpan: Range<Int>?,
+    windowStartTime: Date,
     batchEndTime: Date
-  ) -> Date {
-    guard activeProviderID == .claude else { return batchEndTime }
-    guard let lastCard = generatedCards.last,
-      let interval = try? ClaudeOutputValidator.resolveActivityCardInterval(
-        lastCard,
-        nearest: Int(batchEndTime.timeIntervalSince1970)
-      )
-    else {
-      return batchEndTime
-    }
-    return max(
-      batchEndTime,
-      Date(timeIntervalSince1970: TimeInterval(interval.upperBound))
+  ) -> (from: Date, to: Date) {
+    guard let rewriteSpan else { return (windowStartTime, batchEndTime) }
+    return (
+      Date(timeIntervalSince1970: TimeInterval(rewriteSpan.lowerBound)),
+      Date(timeIntervalSince1970: TimeInterval(rewriteSpan.upperBound))
     )
   }
 
@@ -821,6 +823,7 @@ final class LLMService: LLMServicing {
         // in a single call. If it fails, the batch falls through to transcribe-then-generate
         // below, which keeps its own backup-provider handling.
         var oneStepCards: [ActivityCardData]?
+        var rewriteSpan: Range<Int>?
         if !usedProviderBackup, let generateTimeline = activeContext.actions.generateTimeline {
           lastProcessingStep = .generatingCards
           await MainActor.run {
@@ -839,6 +842,7 @@ final class LLMService: LLMServicing {
             observations = result.observations
             StorageManager.shared.saveObservations(batchId: batchId, observations: observations)
             oneStepCards = result.cards
+            rewriteSpan = result.rewriteSpan
             print(
               "🧩 [LLMService] One-step timeline → \(result.cards.count) cards, "
                 + "\(observations.count) observations")
@@ -953,6 +957,7 @@ final class LLMService: LLMServicing {
               recentObservations, context, batchId)
           }
           cards = cardsResult.value.cards
+          rewriteSpan = cardsResult.value.rewriteSpan
           activeContext = cardsResult.activeContext
           usedProviderBackup = usedProviderBackup || cardsResult.usedProviderBackup
         }
@@ -962,21 +967,19 @@ final class LLMService: LLMServicing {
         // Note: card generation log is not persisted per-batch yet
 
         // Replace old cards with new ones in the time range
-        let replacementStartTime = Self.cardReplacementStartTime(
-          activeProviderID: activeContext.id,
-          generatedCards: cards,
-          batchStartTime: batchStartTime,
-          windowStartTime: windowStartTime
-        )
-        let replacementEndTime = Self.cardReplacementEndTime(
-          activeProviderID: activeContext.id,
-          generatedCards: cards,
+        let replacementRange = Self.cardReplacementRange(
+          rewriteSpan: rewriteSpan,
+          windowStartTime: windowStartTime,
           batchEndTime: currentTime
         )
+        // A model shown only connected cards never saw cards that newer batches started after
+        // this one began, so a retry finishing late must not delete them. Providers shown the
+        // whole window saw those cards and rewrote them, so theirs are replaced as before.
+        let keepNewerCardsAfter = rewriteSpan == nil ? nil : batchStartTime
         let (insertedCardIds, deletedVideoPaths) = StorageManager.shared
           .replaceTimelineCardsInRange(
-            from: replacementStartTime,
-            to: replacementEndTime,
+            from: replacementRange.from,
+            to: replacementRange.to,
             with: cards.map { card in
               TimelineCardShell(
                 startTimestamp: card.startTime,
@@ -991,7 +994,8 @@ final class LLMService: LLMServicing {
                 isBackupGenerated: isBackupGenerated ? true : nil
               )
             },
-            batchId: batchId
+            batchId: batchId,
+            keepingNewerBatchesCardsStartingAfter: keepNewerCardsAfter
           )
 
         // Clean up deleted video files
@@ -1094,13 +1098,15 @@ final class LLMService: LLMServicing {
         )
 
         // Replace any existing cards in this time range with the error card
-        // This matches the happy path behavior and prevents duplicates
+        // This matches the happy path behavior and prevents duplicates. A retry can fail after
+        // newer batches succeeded, so their cards stay.
         let (insertedCardIds, deletedVideoPaths) = StorageManager.shared
           .replaceTimelineCardsInRange(
             from: batchStartDate,
             to: batchEndDate,
             with: [errorCard],
-            batchId: batchId
+            batchId: batchId,
+            keepingNewerBatchesCardsStartingAfter: batchStartDate
           )
 
         // Clean up any deleted video files (if there were existing cards)

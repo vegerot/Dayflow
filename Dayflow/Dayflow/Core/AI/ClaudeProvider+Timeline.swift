@@ -16,7 +16,9 @@ extension ClaudeProvider {
   /// lines so recaps and chat keep their per-batch record.
   func generateTimeline(
     screenshots: [Screenshot], context: ActivityGenerationContext, batchId: Int64?
-  ) async throws -> (cards: [ActivityCardData], observations: [Observation], log: LLMCall) {
+  ) async throws -> (
+    cards: [ActivityCardData], observations: [Observation], rewriteSpan: Range<Int>?, log: LLMCall
+  ) {
     guard !screenshots.isEmpty else {
       throw NSError(
         domain: "ClaudeProvider", code: -96,
@@ -136,7 +138,7 @@ extension ClaudeProvider {
           input: currentPrompt,
           output: currentRun.stdout
         )
-        return (cards, observations, llmCall)
+        return (cards, observations, plan.rewriteSpan, llmCall)
       }
 
       throw NSError(
